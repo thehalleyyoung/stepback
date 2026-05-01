@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stepback"
+version = "0.1.0"
+description = "Time-travel debugger for AI agents — record, branch, substitute, replay."
+requires-python = ">=3.10"
+dependencies = ["cryptography>=42"]
+
+[project.scripts]
+stepback = "stepback.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["stepback*"]
+exclude = ["tests*"]

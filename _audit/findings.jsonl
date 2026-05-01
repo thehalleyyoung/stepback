@@ -1,0 +1,27 @@
+{"claim_text": "The test suite is green (52 tests pass).", "file": "GROUNDING.md row 1", "evidence_status": "grounded"}
+{"claim_text": "Fixture agent records 12 steps alternating llm_call/tool_call; replay-from-cache 0 LLM calls; substitution dirty-set 5 LLM re-execs; bisect 4 probes 0 LLM calls.", "file": "GROUNDING.md rows 2-5 / scripts/bench_replay_caching.py", "evidence_status": "grounded"}
+{"claim_text": "Record overhead per LLM call < 5 ms p99 (README §Performance targets).", "file": "README.md L365 / GROUNDING.md row 6", "evidence_status": "grounded"}
+{"claim_text": "The .sb HMAC chain detects tampering and Ed25519 verifier accepts untouched files (README §trace file format).", "file": "README.md L96-100 / GROUNDING.md rows 7-8", "evidence_status": "grounded"}
+{"claim_text": "Trace size on disk < 30% of raw LLM payload bytes (CBOR + gzip + per-message dedup against header dictionary).", "file": "README.md L366", "evidence_status": "ungrounded"}
+{"claim_text": "Repository layout matches README §Repository layout (planned): stepback/{recorder,replay,substitutions,trace,cli,tui}/ as packages, plus ts/, server/, examples/, docs/.", "file": "README.md L325-357", "evidence_status": "ungrounded"}
+{"claim_text": "Each frame is a length-prefixed CBOR object (README §trace file format).", "file": "README.md L96-97", "evidence_status": "ungrounded"}
+{"claim_text": "Replay of an unchanged 200-step trace from cache < 2 s end-to-end on a laptop, zero LLM calls.", "file": "README.md L367", "evidence_status": "partial"}
+{"claim_text": "Bisect of a 200-step trace ≤ 10 probes, ≤ 5 s wall, zero LLM calls.", "file": "README.md L368", "evidence_status": "partial"}
+{"claim_text": "Substitution of one step in a 200-step trace typically ≤ 10 real LLM re-executions (dirty-set size).", "file": "README.md L369", "evidence_status": "partial"}
+{"claim_text": "v0.1 target: Python SDK covering OpenAI + Anthropic clients and the LangChain tool registry.", "file": "README.md L31-35", "evidence_status": "ungrounded"}
+{"claim_text": "Recorder shims for Anthropic / Bedrock / vLLM LLM clients.", "file": "README.md L331", "evidence_status": "ungrounded"}
+{"claim_text": "Tool-registry shims for LangChain / CrewAI / AutoGen / MCP.", "file": "README.md L332", "evidence_status": "ungrounded"}
+{"claim_text": "TypeScript SDK exists (ts/ directory).", "file": "README.md L347", "evidence_status": "ungrounded"}
+{"claim_text": "Optional team-tier hosted replay engine (server/).", "file": "README.md L348", "evidence_status": "ungrounded"}
+{"claim_text": "Five worked use-case examples in examples/ (01-bisect-bad-payment.md … 05-regulator-replay-under-new-policy.md).", "file": "README.md L349-354", "evidence_status": "ungrounded"}
+{"claim_text": "Textual-based interactive TUI (`stepback inspect` interactive timeline + step viewer).", "file": "README.md L264, L313, L346", "evidence_status": "ungrounded"}
+{"claim_text": "Web UI for the team tier.", "file": "README.md L314", "evidence_status": "ungrounded"}
+{"claim_text": "`stepback verify --policy-changed-since` re-executes a trace under a newer toolwarden policy version and emits a structured report.", "file": "README.md L269, L272-274", "evidence_status": "ungrounded"}
+{"claim_text": "stepback depends on the same auditable-controller-core package toolwarden uses (shared verified append-only-log implementation).", "file": "README.md L393-396", "evidence_status": "ungrounded"}
+{"claim_text": "stepback verify produces a signed Ed25519 attestation pack (regulator-replay tier, m8).", "file": "README.md L385, L487-495", "evidence_status": "ungrounded"}
+{"claim_text": "step_kind enumerates llm_call | tool_call | router | parallel_branch_open | parallel_branch_join | exception (parallel-branch + router step kinds).", "file": "README.md L107", "evidence_status": "ungrounded"}
+{"claim_text": "nondeterminism_hash captures system clock reads, RNG draws, env vars, network responses as a divergence detector.", "file": "README.md L111", "evidence_status": "partial"}
+{"claim_text": "cost_usd is computed from usage × price-list version pinned in the trace header.", "file": "README.md L115", "evidence_status": "partial"}
+{"claim_text": "compare_branches produces a step-by-step diff: output diffs, decision changes, cost deltas, and which steps diverged from cache.", "file": "README.md L255-258", "evidence_status": "partial"}
+{"claim_text": "Cache hit rate for counterfactual policy audits is typically > 99%.", "file": "README.md L446-448", "evidence_status": "ungrounded"}
+{"claim_text": "Pre-existing tools (LangSmith, LangFuse, Phoenix, Helicone, PromptLayer, TruLens, pytest-vcr, MS Agent Governance Toolkit, rr, Pernosco, airportyh/time-traveling-debugger, Sentry/Datadog APM) all fail the 'record + branch + substitute + cached partial replay' test (README §Why nothing else fills this gap).", "file": "README.md L39-65", "evidence_status": "ungrounded"}

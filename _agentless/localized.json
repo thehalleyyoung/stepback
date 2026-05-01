@@ -1,0 +1,4 @@
+{
+  "candidate_files": ["stepback/canonical.py"],
+  "reasoning": "Localization heuristic: stepback/canonical.py is the determinism keystone (canonical_json + hash_obj feed every recorder/replay/branch_io/report path). The most recently introduced behaviour exercised by tests/test_e2e_replay.py and tests/test_branch_io_and_cli.py routes through canonical.py via _default(), which currently handles only tuple and bytes/bytearray and raises TypeError for any other container (e.g. set/frozenset). That is the most plausible latent regression surface: the test suite started covering canonicalisation of richer message payloads, and any callsite that hands in a set will TypeError. Other files (replay.py, recorder.py) consume canonical_json's output but do not own canonicalisation correctness; fixing them would not address the root cause. Therefore Stage 2 patches are restricted to stepback/canonical.py."
+}

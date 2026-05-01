@@ -1,0 +1,5 @@
+{
+  "patch_index": 1,
+  "score": 44,
+  "reason": "All three candidates produced 44/44 passing tests, so the tie-breaker is robustness of the canonicalisation extension. patch_1 generalises set/frozenset handling like patch_0 but additionally falls back to sorted(o, key=repr) when the set contains heterogeneous, non-orderable elements (e.g. mixed str+int, or dicts) — the case where a naive sorted(o) would itself raise TypeError and re-introduce the very regression we are localising. patch_0 fixes the common case but leaves a sharp edge; patch_2 documents the limitation but does not fix it. patch_1 strictly dominates."
+}

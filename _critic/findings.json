@@ -1,0 +1,9 @@
+[
+  {
+    "rule_number": 0,
+    "rule_title": "Preconditions",
+    "severity": "advisory",
+    "message": "CONSTITUTION.md does not exist in the repository root, and the repository contains only a single initial commit (no HEAD~1 to diff against). Critique cannot be performed against constitutional rules; no findings issued.",
+    "evidence": ["ls CONSTITUTION.md => No such file or directory", "git log --oneline => 7b422b0 Initial README: stepback specification"]
+  }
+]

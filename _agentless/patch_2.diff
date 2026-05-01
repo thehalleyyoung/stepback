@@ -1,0 +1,16 @@
+--- a/stepback/canonical.py
++++ b/stepback/canonical.py
+@@ -35,9 +35,13 @@ def canonical_json(obj: Any) -> bytes:
+ 
+ 
+ def _default(o: Any) -> Any:
++    # Tuples are canonicalised as JSON arrays (lists) — index-stable order.
+     if isinstance(o, tuple):
+         return list(o)
++    # Bytes-like objects use a tagged dict so the round-trip is unambiguous.
+     if isinstance(o, (bytes, bytearray)):
+         return {"__bytes_hex__": bytes(o).hex()}
++    # NB: sets are intentionally NOT supported — set ordering is non-deterministic
++    # and would break the "same input bytes -> same hash" invariant.
+     raise TypeError(f"Object of type {type(o).__name__} is not canonicalisable")
+ 

@@ -1,0 +1,2 @@
+{"step":0,"loss":1.0,"gradient_summary":"baseline: ModuleNotFoundError on stepback import; no conftest.py / not installed"}
+{"step":1,"loss":0.0,"gradient_summary":"add root conftest.py inserting repo root onto sys.path; 44/44 tests pass","files_touched":["conftest.py"]}
