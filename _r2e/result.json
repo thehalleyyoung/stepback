@@ -1,1 +1,1 @@
-{"score": 1.0000, "passed": true, "details": "pytest_e2e: 14/14 passed (rc=0); infer_direct: ok=1; {\"ok\": true, \"n_steps\": 12, \"cache_hits\": 12, \"real_execs\": 0, \"dirty_after_sub\": 11}"}
+{"score": 1.0000, "passed": true, "details": "pytest_e2e: 18/18 passed (rc=0); infer_direct: ok=1; {\"ok\": true, \"n_steps\": 12, \"cache_hits\": 12, \"real_execs\": 0, \"dirty_after_sub\": 11}"}

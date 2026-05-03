@@ -1,154 +1,92 @@
-# Proposer 2 — structured `CostBreakdown` with multi-tier token pricing
+# Proposer 2 — Severity scoring + SARIF export
 
 ## Framing
 
-The single biggest factual error in the current `pricing.py` is its
-two-bucket model: `(in_per_1k, out_per_1k)` × `(prompt_tokens,
-completion_tokens)`. Every major provider in 2026 charges along
-**at least four** axes:
-
-* **Cached input tokens** — OpenAI prompt caching, Anthropic prompt
-  caching, Gemini context caching. Cached input is typically priced
-  at 10–25% of the full input rate.
-* **Reasoning tokens** — `o1`, `o3-mini`, Claude extended-thinking
-  charge for hidden reasoning at the *output* rate, but they appear
-  in `usage` as `reasoning_tokens` and are NOT in `completion_tokens`
-  on every provider's return shape.
-* **Image / audio input tokens** — gpt-4o vision, Claude vision,
-  Gemini multimodal report image and audio token counts separately.
-* **Cache-write tokens** (Anthropic only) — written tokens cost
-  ~25% MORE than normal input the first time and become cheap on
-  subsequent reads.
-
-A cost number that flattens all of those into `pt * in_p + ct * out_p`
-under-reports a vision-heavy or reasoning-heavy step by 5–50×. For
-an agent debugger whose marketing pitch is "cost deltas across
-branches are meaningful", that's the central correctness bug.
-
-## Architecture
-
-Replace the float return with a `CostBreakdown` dataclass; keep the
-`compute_cost(model, usage) -> float` signature for backward compat
-by returning `breakdown.total_usd`.
-
-```python
-@dataclass(frozen=True)
-class TokenRates:
-    input_per_1k:        float
-    cached_input_per_1k: float | None  # None => fall back to input
-    output_per_1k:       float
-    reasoning_per_1k:    float | None  # None => fall back to output
-    image_input_per_1k:  float | None
-    audio_input_per_1k:  float | None
-    cache_write_per_1k:  float | None  # Anthropic
-    snapshot_date:       str
-
-@dataclass(frozen=True)
-class CostBreakdown:
-    model:               str
-    input_usd:           float
-    cached_input_usd:    float
-    output_usd:          float
-    reasoning_usd:       float
-    image_input_usd:     float
-    audio_input_usd:     float
-    cache_write_usd:     float
-    total_usd:           float
-
-    def to_dict(self) -> dict[str, float]: ...
-```
+The Markdown report tells a human "here's what happened". For
+incident triage, CI gating, and bisect heuristics we want a single
+scalar **severity score** (0..100) plus a structured **SARIF v2.1.0**
+artifact so existing security/code-review tooling (GitHub code
+scanning, SonarQube, custom dashboards) can ingest stepback
+counterfactuals as findings.
 
 ## Public surface
 
 ```python
-PRICE_LIST: dict[str, tuple[float, float]]   # backward compat:
-                                              # only (in, out) shown
-RATE_TABLE: dict[str, TokenRates]            # full tiers
+@dataclass
+class SeverityScore:
+    score: int                # 0..100, higher = worse
+    level: str                # "info" | "low" | "medium" | "high" | "critical"
+    components: dict[str, float]  # per-axis breakdown
+    reasons: list[str]        # human strings: "cost +$1.23"
 
-def compute_cost(model: str, usage: dict) -> float:
-    return compute_cost_breakdown(model, usage).total_usd
+def severity_score(
+    baseline: ReplayResult,
+    counterfactual: ReplayResult,
+    subs: SubstitutionSet,
+) -> SeverityScore: ...
 
-def compute_cost_breakdown(model: str, usage: dict) -> CostBreakdown:
-    ...
+def render_sarif(
+    trace: Trace,
+    baseline: ReplayResult,
+    counterfactual: ReplayResult,
+    subs: SubstitutionSet,
+    *,
+    options: Optional[ReportOptions] = None,
+) -> dict: ...
+
+def dump_sarif(...) -> str: ...
 ```
 
-`compute_cost_breakdown` reads optional usage keys:
-`prompt_tokens`, `completion_tokens`, `cached_tokens`,
-`prompt_tokens_details.cached_tokens` (OpenAI),
-`completion_tokens_details.reasoning_tokens` (OpenAI),
-`cache_creation_input_tokens` (Anthropic),
-`cache_read_input_tokens` (Anthropic), `image_tokens`,
-`audio_tokens`. Tokens that are accounted for under a sub-bucket
-are subtracted from the parent bucket so we never double-charge.
+## Scoring rubric (deterministic, no LLM)
 
-Algorithm pseudocode for OpenAI shape:
+Components, each clamped 0..1, then weighted sum × 100:
 
-```
-prompt_total   = usage["prompt_tokens"]
-cached         = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
-non_cached     = prompt_total - cached
-completion     = usage["completion_tokens"]
-reasoning      = usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
-visible_out    = completion - reasoning
-input_usd      = non_cached * rates.input_per_1k / 1000
-cached_usd     = cached     * (rates.cached_input_per_1k or rates.input_per_1k) / 1000
-output_usd     = visible_out * rates.output_per_1k / 1000
-reasoning_usd  = reasoning  * (rates.reasoning_per_1k or rates.output_per_1k) / 1000
-total_usd      = sum of the above
-```
+| Axis | Signal | Weight |
+| --- | --- | --- |
+| `cost_delta` | `min(1.0, abs(b.total - a.total) / max(a.total, 0.01))` | 0.25 |
+| `dirty_fraction` | `b.dirty_count / len(b.steps)` | 0.25 |
+| `decision_flips` | count of llm_call steps where finish_reason or first tool_call.name differs / len | 0.30 |
+| `subtree_depth` | depth of dirty subtree / total step depth | 0.10 |
+| `nondeterminism` | fraction of dirty steps whose nondeterminism_hash changed | 0.10 |
 
-Anthropic's usage shape is normalised in the same function:
-`cache_creation_input_tokens` -> `cache_write_usd`,
-`cache_read_input_tokens` -> `cached_input_usd`.
+Level bands: `<10 info`, `<25 low`, `<50 medium`, `<75 high`, `>=75
+critical`. Stable + reproducible → CI-gateable.
 
-## Catalog scope
+## SARIF mapping
 
-`RATE_TABLE` carries TokenRates for at least:
+* `runs[0].tool.driver.name = "stepback"`,
+  `version = stepback.__version__`.
+* Each substitution → one `result` with `ruleId =
+  "stepback/" + sub.kind`.
+* `result.level` from severity bands; `result.message.text` is the
+  headline string.
+* `result.properties` carries `cost_delta_usd`, `dirty_count`,
+  `step_id_first_divergence`, `severity_score`.
+* `runs[0].artifacts[0]` references the trace path.
+* SARIF schema 2.1.0 URL pinned. Output validated against the
+  published JSON Schema in tests (skip if `jsonschema` not
+  installed).
 
-* `gpt-4o-2024-11-20`           (cached at 50%, no reasoning)
-* `gpt-4o-mini-2024-07-18`
-* `gpt-4.1-2025-04-14`           (cached at 25%)
-* `o1-2024-12-17`                (reasoning_per_1k = output_per_1k)
-* `o3-mini-2025-01-31`
-* `claude-3-5-sonnet-20241022`   (cache_write at +25%, cache_read at 10%)
-* `claude-3-5-haiku-20241022`
-* `claude-sonnet-4-20250514`
-* `gemini-2.5-pro-2025-03-25`
-* `fake-llm`                     (kept for tests)
+## CLI
 
-`PRICE_LIST` is derived: `{m: (r.input_per_1k, r.output_per_1k) for
-m, r in RATE_TABLE.items()}`. So existing `PRICE_LIST` consumers
-(`tests/test_shims.py:169`) keep working with no edit.
+`stepback report ... --format sarif` and
+`stepback severity TRACE --branch B.json` printing JSON.
 
-## Tests (`tests/test_pricing.py`)
+## Tests
 
-1. `test_compute_cost_signature_unchanged` — round-trips a basic
-   usage dict to a positive float; result equals the legacy
-   formula `pt*in + ct*out` when no cache/reasoning fields.
-2. `test_breakdown_attributes_total` — sum of sub-tier USD numbers
-   equals `total_usd` to 1e-9.
-3. `test_cached_tokens_priced_at_cached_rate` — a usage with
-   80% cached input on `gpt-4.1-2025-04-14` is ~3-4× cheaper than
-   the same prompt with no cache.
-4. `test_reasoning_tokens_charged_at_output_rate` — `o1` step
-   with `completion_tokens=100` and
-   `completion_tokens_details.reasoning_tokens=80` charges
-   reasoning at the output rate.
-5. `test_anthropic_cache_creation_charged_more` — a Claude usage
-   with `cache_creation_input_tokens` is more expensive than the
-   same step with `cache_read_input_tokens`.
-6. `test_unknown_model_zero_breakdown` — every field is 0.0.
-7. `test_compute_cost_recorder_replay_path` — sanity check the
-   `recorder.compute_cost(model, usage)` call site stays a float.
+* `test_severity_score_zero_when_replays_identical`
+* `test_severity_score_increases_with_cost_delta`
+* `test_severity_components_sum_to_score`
+* `test_sarif_has_required_fields`
+* `test_sarif_round_trip_through_json_dumps_loads`
+* `test_severity_is_deterministic`
 
-## Why structured beats float
+## Why this framing
 
-Inside `report.py`, branch-cost diffing today shows "branch B
-costs $0.018 more". With a breakdown it can show "branch B costs
-$0.018 more, of which $0.014 is reasoning tokens" — that is the
-debugging insight `report.py` exists to surface.
-
-## Out of scope
-
-Catalog file format / aliasing (handled differently — see Proposer 1).
-Aggregation utilities across many steps (Proposer 3).
+Pushes stepback into the CI lane. A regression test in CI can fail
+if `severity_score(...).level >= "high"` after a prompt edit. SARIF
+unlocks zero-effort dashboards. The scoring is GOFAI on purpose —
+deterministic, byte-identical for the same trace; no LLM cost on
+the hot path. (The runbook's GOFAI guidance still applies for
+*open-ended judgment* — we deliberately stay rule-based for
+reproducibility of the score in regulator replay.)

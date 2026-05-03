@@ -261,7 +261,8 @@ def test_compression_meaningfully_shrinks_chat_history(tmp_path):
 
 def test_compressed_trace_tamper_detected(tmp_path):
     p, key, _ = _record_chat_history(tmp_path, n_steps=10, compression=True)
-    raw = open(p, "rb").read()
+    with open(p, "rb") as _f:
+        raw = _f.read()
     # Find an HMAC-hex byte to flip — guaranteed to be inside an
     # otherwise valid frame so verify_trace (rather than the JSON
     # parser) is what rejects the file. The "hmac" hex string is
@@ -274,7 +275,8 @@ def test_compressed_trace_tamper_detected(tmp_path):
     ch = raw[target : target + 1]
     new_ch = b"b" if ch != b"b" else b"a"
     flipped = raw[:target] + new_ch + raw[target + 1 :]
-    open(p, "wb").write(flipped)
+    with open(p, "wb") as _f:
+        _f.write(flipped)
 
     with pytest.raises(TraceVerificationError):
         verify_trace(p, key.hmac_key)

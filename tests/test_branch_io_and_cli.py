@@ -120,7 +120,8 @@ def test_save_and_load_branch_roundtrip(tmp_path):
         substitutions=[sub],
     )
 
-    body = json.loads(open(out).read())
+    with open(out) as _f:
+        body = json.loads(_f.read())
     assert body["magic"] == "stepback/.sbb"
     assert body["format_version"] == 1
     assert body["name"] == "fixed-lookup"
@@ -331,7 +332,8 @@ def test_cli_replay_writes_branch_file(tmp_path):
     )
     # We don't care if real-execution-required exits non-zero; what we
     # care about is the branch file was written.
-    assert json.loads(open(out).read())["name"] == "fixed"
+    with open(out) as _f:
+        assert json.loads(_f.read())["name"] == "fixed"
 
 
 def test_cli_diff_no_substitutions_is_zero_divergence(tmp_path):
@@ -386,9 +388,11 @@ def test_cli_diff_rejects_branch_for_different_trace(tmp_path):
     )
     # Same recorder code → same chain → would NOT mismatch. So mutate
     # the saved chain on disk to simulate a tampered/stale branch:
-    body = json.loads(open(branch_path).read())
+    with open(branch_path) as _f:
+        body = json.loads(_f.read())
     body["trace_inputs_hash_chain"] = "sha256:tampered"
-    open(branch_path, "w").write(json.dumps(body))
+    with open(branch_path, "w") as _f:
+        _f.write(json.dumps(body))
 
     rc = _cli(["diff", path_b, "--b-branch", branch_path], check=False)
     assert rc.returncode == 4

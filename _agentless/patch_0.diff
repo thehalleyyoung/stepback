@@ -1,12 +1,86 @@
---- a/stepback/trace_reader.py
-+++ b/stepback/trace_reader.py
-@@ -131,8 +131,7 @@ def verify_trace(path: str, hmac_key: bytes) -> Trace_:
-         prev = h
-         if body.get("type") == "step":
-             step = _decode_gz_step(body)
--            if blobs:
--                step = _materialise(step, blobs)
-+            step = _materialise(step, blobs)
-             steps.append(step)
-         elif body.get("type") == "tail":
-             tail = body
+diff --git a/tests/test_branch_io_and_cli.py b/tests/test_branch_io_and_cli.py
+index 04df4c3..6b7be12 100644
+--- a/tests/test_branch_io_and_cli.py
++++ b/tests/test_branch_io_and_cli.py
+@@ -120,7 +120,8 @@ def test_save_and_load_branch_roundtrip(tmp_path):
+         substitutions=[sub],
+     )
+ 
+-    body = json.loads(open(out).read())
++    with open(out) as _f:
++        body = json.loads(_f.read())
+     assert body["magic"] == "stepback/.sbb"
+     assert body["format_version"] == 1
+     assert body["name"] == "fixed-lookup"
+@@ -331,7 +332,8 @@ def test_cli_replay_writes_branch_file(tmp_path):
+     )
+     # We don't care if real-execution-required exits non-zero; what we
+     # care about is the branch file was written.
+-    assert json.loads(open(out).read())["name"] == "fixed"
++    with open(out) as _f:
++        assert json.loads(_f.read())["name"] == "fixed"
+ 
+ 
+ def test_cli_diff_no_substitutions_is_zero_divergence(tmp_path):
+@@ -386,9 +388,11 @@ def test_cli_diff_rejects_branch_for_different_trace(tmp_path):
+     )
+     # Same recorder code → same chain → would NOT mismatch. So mutate
+     # the saved chain on disk to simulate a tampered/stale branch:
+-    body = json.loads(open(branch_path).read())
++    with open(branch_path) as _f:
++        body = json.loads(_f.read())
+     body["trace_inputs_hash_chain"] = "sha256:tampered"
+-    open(branch_path, "w").write(json.dumps(body))
++    with open(branch_path, "w") as _f:
++        _f.write(json.dumps(body))
+ 
+     rc = _cli(["diff", path_b, "--b-branch", branch_path], check=False)
+     assert rc.returncode == 4
+diff --git a/tests/test_compression.py b/tests/test_compression.py
+index e0c7c5e..9b282f3 100644
+--- a/tests/test_compression.py
++++ b/tests/test_compression.py
+@@ -261,7 +261,8 @@ def test_compression_meaningfully_shrinks_chat_history(tmp_path):
+ 
+ def test_compressed_trace_tamper_detected(tmp_path):
+     p, key, _ = _record_chat_history(tmp_path, n_steps=10, compression=True)
+-    raw = open(p, "rb").read()
++    with open(p, "rb") as _f:
++        raw = _f.read()
+     # Find an HMAC-hex byte to flip — guaranteed to be inside an
+     # otherwise valid frame so verify_trace (rather than the JSON
+     # parser) is what rejects the file. The "hmac" hex string is
+@@ -274,7 +275,8 @@ def test_compressed_trace_tamper_detected(tmp_path):
+     ch = raw[target : target + 1]
+     new_ch = b"b" if ch != b"b" else b"a"
+     flipped = raw[:target] + new_ch + raw[target + 1 :]
+-    open(p, "wb").write(flipped)
++    with open(p, "wb") as _f:
++        _f.write(flipped)
+ 
+     with pytest.raises(TraceVerificationError):
+         verify_trace(p, key.hmac_key)
+diff --git a/tests/test_e2e_replay.py b/tests/test_e2e_replay.py
+index e5983c5..935b398 100644
+--- a/tests/test_e2e_replay.py
++++ b/tests/test_e2e_replay.py
+@@ -88,7 +88,8 @@ def test_verify_trace_succeeds_on_untouched_file(tmp_path):
+ def test_verify_trace_detects_tampering(tmp_path):
+     path, key = _record_fixture(tmp_path)
+     # Flip a byte deep inside one of the step frames.
+-    raw = open(path, "rb").read()
++    with open(path, "rb") as _f:
++        raw = _f.read()
+     # Find the first occurrence of "Acme Bolts" inside the on-disk
+     # bytes and flip a character so the canonical-JSON of one frame
+     # no longer matches its HMAC.
+@@ -96,7 +97,8 @@ def test_verify_trace_detects_tampering(tmp_path):
+     i = raw.find(needle)
+     assert i > 0
+     tampered = raw[:i] + b"Acme Boltz" + raw[i + len(needle) :]
+-    open(path, "wb").write(tampered)
++    with open(path, "wb") as _f:
++        _f.write(tampered)
+     with pytest.raises(TraceVerificationError):
+         verify_trace(path, key.hmac_key)
+ 

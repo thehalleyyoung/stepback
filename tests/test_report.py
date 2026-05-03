@@ -341,3 +341,219 @@ def test_single_replay_json_has_no_counterfactual(tmp_path):
     assert model["first_divergence_step_id"] is None
     assert "counterfactual" not in model["cost_summary"]
     assert model["decision_diffs"] == []
+
+
+# --------------------------------------------------- severity scoring
+
+
+from stepback.report import (
+    SeverityScore,
+    available_formats,
+    render_html_report,
+    render_report,
+    severity_score,
+)
+
+
+def test_severity_score_zero_when_replays_identical(tmp_path):
+    path, _ = _record_fixture(tmp_path)
+    t = replay(path)
+    executor = Executor(fallback_recorded=True)
+    a = t.run_replay(SubstitutionSet(), executor)
+    b = t.run_replay(SubstitutionSet(), executor)
+    sev = severity_score(a, b, SubstitutionSet())
+    assert sev.score == 0
+    assert sev.level == "info"
+    assert sev.reasons == []
+
+
+def test_severity_score_increases_with_cost_delta(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    sev = severity_score(baseline, counterfactual, fix)
+    assert sev.score > 0
+    assert sev.level in {"low", "medium", "high", "critical"}
+    # All components in [0, 1]
+    for v in sev.components.values():
+        assert 0.0 <= v <= 1.0
+    # Score consistent with weighted sum (allow rounding)
+    weights = {"cost_delta": 0.30, "dirty_fraction": 0.30,
+               "decision_flips": 0.30, "subtree_depth": 0.10}
+    expect = round(sum(sev.components[k] * w for k, w in weights.items()) * 100)
+    assert sev.score == expect
+
+
+def test_severity_single_replay_returns_zero():
+    sev = severity_score(
+        type("R", (), {"steps": [], "total_cost_usd": 0.0,
+                       "dirty_count": 0, "cache_hit_count": 0,
+                       "real_executions": 0})(),
+        None,
+        SubstitutionSet(),
+    )
+    assert sev.score == 0 and sev.level == "info"
+    assert sev.to_dict() == {"score": 0, "level": "info",
+                             "components": {}, "reasons": []}
+
+
+def test_severity_score_to_dict_keys():
+    """Schema of SeverityScore.to_dict — used by JSON model consumers."""
+    sev = SeverityScore(score=42, level="medium",
+                        components={"cost_delta": 0.5}, reasons=["x"])
+    d = sev.to_dict()
+    assert d == {"score": 42, "level": "medium",
+                 "components": {"cost_delta": 0.5}, "reasons": ["x"]}
+
+
+# --------------------------------------------------- HTML renderer
+
+
+def test_html_renders_for_counterfactual(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    html = render_html_report(t, baseline, counterfactual, fix)
+    assert html.startswith("<!doctype html>")
+    assert "<table" in html
+    # Severity section present
+    assert 'id="severity"' in html
+    assert "data-level=" in html
+    # Dirty rows have class
+    assert 'class="dirty"' in html
+    # Closes properly
+    assert html.rstrip().endswith("</html>")
+
+
+def test_html_renders_for_replay_only(tmp_path):
+    path, _ = _record_fixture(tmp_path)
+    t = replay(path)
+    result = t.run_replay(SubstitutionSet(), Executor(fallback_recorded=True))
+    html = render_html_report(t, result, None, SubstitutionSet())
+    assert html.startswith("<!doctype html>")
+    assert "<table" in html
+    # Severity section omitted when no counterfactual
+    assert 'id="severity"' not in html
+    # Decision-diffs section omitted too
+    assert 'id="decision-diffs"' not in html
+
+
+def test_html_is_byte_deterministic(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    h1 = render_html_report(t, baseline, counterfactual, fix)
+    h2 = render_html_report(t, baseline, counterfactual, fix)
+    assert h1 == h2
+
+
+def test_html_escapes_xss_in_substitution_payload(tmp_path):
+    path, _ = _record_fixture(tmp_path)
+    t = replay(path)
+    executor = Executor(fallback_recorded=True)
+    baseline = t.run_replay(SubstitutionSet(), executor)
+    payload = "<script>alert(1)</script>"
+    fix = SubstitutionSet().add(
+        ToolOutputSubstitution(at_step="step:2",
+                               fake_response={"xss": payload, **LOOKUP_FIXED_ROW})
+    )
+    counterfactual = t.run_replay(fix, executor)
+    html = render_html_report(t, baseline, counterfactual, fix)
+    # Literal <script> must NOT appear
+    assert "<script>alert(1)</script>" not in html
+    # Escaped form must appear
+    assert "&lt;script&gt;" in html
+
+
+# --------------------------------------------------- format dispatcher
+
+
+def test_available_formats_lists_three():
+    assert available_formats() == ["markdown", "json", "html"]
+
+
+def test_render_report_dispatch_json_matches_dump_report_json(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    via_dispatch = render_report(t, baseline, counterfactual, fix, format="json")
+    via_direct = dump_report_json(t, baseline, counterfactual, fix)
+    assert via_dispatch == via_direct
+
+
+def test_render_report_dispatch_markdown_matches_direct(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    via_dispatch = render_report(t, baseline, counterfactual, fix, format="markdown")
+    via_direct = render_counterfactual_report(t, baseline, counterfactual, fix)
+    assert via_dispatch == via_direct
+
+
+def test_render_report_dispatch_html_matches_direct(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    via_dispatch = render_report(t, baseline, counterfactual, fix, format="html")
+    via_direct = render_html_report(t, baseline, counterfactual, fix)
+    assert via_dispatch == via_direct
+
+
+def test_render_report_unknown_format_raises():
+    with pytest.raises(ValueError, match="unknown format"):
+        render_report(None, None, None, SubstitutionSet(), format="pdf")
+
+
+# --------------------------------------------------- JSON model severity key
+
+
+def test_json_model_includes_severity_when_counterfactual(tmp_path):
+    from stepback import render_report_json
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    model = render_report_json(t, baseline, counterfactual, fix)
+    assert "severity" in model
+    sev = model["severity"]
+    assert set(sev.keys()) == {"score", "level", "components", "reasons"}
+    assert isinstance(sev["score"], int)
+    assert sev["level"] in {"info", "low", "medium", "high", "critical"}
+
+
+def test_json_model_omits_severity_when_single_replay(tmp_path):
+    from stepback import render_report_json
+    path, _ = _record_fixture(tmp_path)
+    t = replay(path)
+    result = t.run_replay(SubstitutionSet(), Executor(fallback_recorded=True))
+    model = render_report_json(t, result, None, SubstitutionSet())
+    assert "severity" not in model
+
+
+# --------------------------------------------------- Markdown severity section
+
+
+def test_markdown_counterfactual_includes_severity_section(tmp_path):
+    t, baseline, counterfactual, fix = _baseline_and_counterfactual(tmp_path)
+    md = render_counterfactual_report(t, baseline, counterfactual, fix)
+    assert "## Severity" in md
+    assert "score:" in md
+
+
+# --------------------------------------------------- CLI HTML format
+
+
+def test_cli_report_html_format_to_file(tmp_path):
+    path, _ = _record_fixture(tmp_path)
+    out = tmp_path / "rep.html"
+    fake = json.dumps(LOOKUP_FIXED_ROW)
+    proc = subprocess.run(
+        [sys.executable, "-m", "stepback.cli", "report", path,
+         "-s", f"tool_output@step:2=:inline:{fake}",
+         "-o", str(out), "--format", "html"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    text = out.read_text()
+    assert text.startswith("<!doctype html>")
+    assert "<table" in text
+
+
+def test_cli_report_format_inferred_from_html_extension(tmp_path):
+    path, _ = _record_fixture(tmp_path)
+    out = tmp_path / "auto.html"
+    fake = json.dumps(LOOKUP_FIXED_ROW)
+    proc = subprocess.run(
+        [sys.executable, "-m", "stepback.cli", "report", path,
+         "-s", f"tool_output@step:2=:inline:{fake}",
+         "-o", str(out)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    text = out.read_text()
+    assert text.startswith("<!doctype html>")

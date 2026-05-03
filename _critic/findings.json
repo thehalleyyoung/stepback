@@ -1,60 +1,72 @@
 [
   {
-    "rule_number": 2,
-    "rule_title": "One coherent thematic improvement per round",
-    "severity": "warning",
-    "message": "The single commit 9ca82ff bundles at least four distinct themes — pricing/cost accounting (stepback/pricing.py +562), shim instrumentation (stepback/shims.py +654 new), parallel branch fan-out/join (tests/fixtures/parallel_agent.py + tests/test_parallel_branches.py), and trace compression (tests/test_compression.py). Each ships its own test file, indicating these are independent features rather than one coherent expansion. Rule 2 forbids bundling unrelated improvements even though each individually may be virtuous.",
+    "rule_number": 0,
+    "rule_title": "Required artifact missing — CONSTITUTION.md",
+    "severity": "advisory",
+    "message": "The brief instructs the critic to read CONSTITUTION.md (must exist), but no CONSTITUTION.md is present at the repo root, in meta/, or in .kitchensink/. Critique was therefore performed against the rule excerpts embedded in the brief itself (Kitchensink Principle rules 1, 2, 3, 3a, 3b, 5, 6) plus the runbook fragments. A repo-local copy or symlink should be added so future critic runs have a stable artifact to cite verbatim.",
     "evidence": [
-      "git diff HEAD~1 HEAD --stat shows: stepback/pricing.py +562, stepback/shims.py +654 (new), tests/test_pricing.py +325, tests/test_shims.py +507, tests/test_parallel_branches.py +206, tests/test_compression.py +315",
-      "Four new top-level test files (test_pricing, test_shims, test_parallel_branches, test_compression) each cover an independent subsystem"
+      "ls CONSTITUTION.md -> No such file or directory",
+      ".kitchensink/ contains only dossier.md",
+      "meta/ contains only run_obligations.md"
     ]
   },
   {
     "rule_number": 3,
-    "rule_title": "Tests come with features (and Rule 3a: end-to-end fixture testing)",
-    "severity": "advisory",
-    "message": "Tests were added with the features (good), but tests/fixtures/ contains only synthetic Python-authored agents (parallel_agent.py, agent.py) — no real recorded trace fixture from an actual LLM/tool session is committed. Rule 3a calls for at least one e2e test using a REAL fixture per round; for a record/replay library this would be a recorded trace JSON from an actual agent run. Synthetic fake_llm fixtures don't exercise the real end-goal pipeline.",
+    "rule_title": "Tests come with features — Rule 3a end-to-end fixture testing",
+    "severity": "warning",
+    "message": "Commit 23d548d (kitchensink r0023 test_forge) is a test-forge round and adds many strict numeric-threshold assertions, but every new e2e test still drives the pipeline through the in-process `_record_fixture(tmp_path)` helper which calls `fake_llm` / `fake_tool` synthetic stubs. There is no committed, real recorded-trace JSON fixture under tests/fixtures/ for this record/replay library — the canonical end-goal artifact for stepback. Rule 3a calls for at least one e2e test using a REAL fixture per round; for stepback that is a captured trace JSONL from an actual LLM/tool session (or at minimum a checked-in golden trace produced once and replayed). The new test_e2e_replay tests still synthesize the trace at test-time from fake_llm rather than loading a recorded artifact.",
     "evidence": [
-      "tests/fixtures/parallel_agent.py defines a `fake_llm` helper rather than loading a recorded trace",
-      "ls tests/fixtures/ → __init__.py, agent.py, parallel_agent.py (no .json/.jsonl trace fixtures)"
+      "ls tests/fixtures/ → __init__.py, agent.py, parallel_agent.py (no .jsonl/.json/.sbb golden traces)",
+      "tests/test_e2e_replay.py new tests all start with `path, key = _record_fixture(tmp_path)` (synthesized in-test, not a committed fixture)",
+      "tests/fixtures/agent.py defines fake_llm/fake_tool stubs rather than a recorded session"
+    ]
+  },
+  {
+    "rule_number": 3,
+    "rule_title": "Rule 3b — TEST-FORGE round must catch real defects, not introduce flake",
+    "severity": "warning",
+    "message": "test_e2e_replay.py::test_replay_speedup_vs_record_is_measurable asserts `replay_time < record_time * 2.0 + 0.05`. Wall-clock comparisons on tiny in-process traces are notoriously flaky on shared CI runners — record_time and replay_time can both be sub-millisecond, and a 50ms slack is small relative to GC/scheduler jitter. Per Rule 3b, mutation-killing strictness is the goal, but a flaky timing assertion is an anti-test in disguise: it will eventually fail unrelated to any real regression and erode trust. Prefer asserting `result.real_executions == 0` (already present and sufficient) and drop the wall-clock inequality, OR widen the tolerance and mark the test with a stable repeat budget.",
+    "evidence": [
+      "tests/test_e2e_replay.py: 'assert replay_time < record_time * 2.0 + 0.05'",
+      "Same test already asserts result.real_executions == 0 and result.cache_hit_count == 12 — those are the deterministic invariants that prove the cache-hit path; the timing assertion adds flake without adding mutation-kill power."
+    ]
+  },
+  {
+    "rule_number": 3,
+    "rule_title": "Rule 3 — vacuous-style assertions slipped into new strict tests",
+    "severity": "advisory",
+    "message": "Two of the new strict-threshold tests still contain `assert found is not None` (test_e2e_replay.py:210, 357) immediately followed by stronger structural assertions. Per Rule 3b's anti-test guidance ('vacuous `assert x is not None` is an anti-test'), the not-None line is redundant — the subsequent `.step_id == \"step:12\"` access would itself raise on None. Removing or replacing with a typed assertion would reduce noise. Severity: advisory because the surrounding assertions are strong; the not-None lines are merely dead-weight, not actively wrong.",
+    "evidence": [
+      "tests/test_e2e_replay.py:210 'assert found is not None'",
+      "tests/test_e2e_replay.py:357 'assert found is not None'"
+    ]
+  },
+  {
+    "rule_number": 0,
+    "rule_title": "Repo hygiene — committed __pycache__ churn (carry-over, not introduced this round)",
+    "severity": "warning",
+    "message": "The commit's name-status shows ~14 .pyc files under stepback/__pycache__/ and tests/__pycache__/ being modified (Bin churn for both cpython-311 and cpython-314 variants). The current commit did not ADD them — they were checked in by an earlier round (544be11) — but every round now produces meaningless byte-identical-or-near-identical Bin diffs that bloat reviewability. There is still no .gitignore. Recommend a one-line follow-up commit to `git rm -r --cached **/__pycache__ .DS_Store` plus add a standard Python .gitignore. Not fatal because no constitution rule is broken by this commit alone, but it actively undermines the auditability the constitutional/critic round depends on.",
+    "evidence": [
+      "git diff HEAD~1 HEAD --stat lists 'stepback/__pycache__/recorder.cpython-311.pyc | Bin 13929 -> 13929 bytes' (identical bytes!) and 7 similar entries",
+      "no .gitignore at repo root"
     ]
   },
   {
     "rule_number": 5,
     "rule_title": "kitchensink/dsl.py, runner.py, state.py are sacred",
     "severity": "advisory",
-    "message": "No violation observed — the diff touches only stepback/* and tests/*; kitchensink/ is not modified. Noted for completeness.",
-    "evidence": ["git diff HEAD~1 HEAD --stat shows no kitchensink/ paths"]
-  },
-  {
-    "rule_number": 0,
-    "rule_title": "Repository hygiene / artifact discipline",
-    "severity": "warning",
-    "message": "The commit checks in binary build artifacts that should never be tracked: .DS_Store (modified, +2KB) and 18 __pycache__/*.pyc files (both cpython-311 and cpython-314 variants for every module and test). There is no .gitignore in the repo. This bloats diffs, creates merge churn between developer machines, and violates standard Python project hygiene. While not an explicit numbered constitution rule, it undermines the auditability the constitutional/critic round depends on (real source diff signal vs. byte-level pyc churn).",
+    "message": "No violation observed — the diff touches only tests/* and meta/dossier/audit/critic markdown+json artifacts; kitchensink/ is not modified. Recorded for completeness.",
     "evidence": [
-      "git diff HEAD~1 HEAD --stat: '.DS_Store | Bin 8196 -> 10244 bytes'",
-      "git diff HEAD~1 HEAD --stat lists 14 stepback/__pycache__/*.pyc + 8 tests/__pycache__/*.pyc + 2 tests/fixtures/__pycache__/*.pyc entries",
-      "`cat .gitignore` returns no output (file absent)"
+      "git diff HEAD~1 HEAD --name-only shows no kitchensink/ paths"
     ]
   },
   {
     "rule_number": 6,
-    "rule_title": "OPENAI_API_KEY boundary / agent CLI for reasoning (runbook fc7a0f)",
+    "rule_title": "OPENAI_API_KEY boundary / agent CLI for reasoning",
     "severity": "advisory",
-    "message": "Could not verify either way from the diff alone, but the new pricing.py (+562 LOC) and shims.py (+654 LOC) appear to implement provider-side cost/token logic. If they include any direct OpenAI SDK reasoning calls (chat.completions, etc.) that should route through the agent CLI per CONSTITUTION rule 6, that would be a violation. Reviewer should grep the new modules for `openai.` / `chat.completions` / `anthropic.` to confirm they only intercept calls rather than originate reasoning.",
+    "message": "Not applicable to this diff — only tests and meta files changed; no new reasoning calls were added in this round. Noted so future rounds adding cost-accounting tests don't accidentally short-circuit through a direct OpenAI SDK call instead of the agent CLI.",
     "evidence": [
-      "stepback/pricing.py grew from ~30 LOC to 562 LOC in a single commit",
-      "stepback/shims.py is brand-new at 654 LOC"
-    ]
-  },
-  {
-    "rule_number": -1,
-    "rule_title": "Meta: CONSTITUTION.md absent from repo",
-    "severity": "warning",
-    "message": "The brief instructs the critic to 'Read CONSTITUTION.md (must exist)', but no CONSTITUTION.md exists at the repo root or any subdirectory accessible from the working tree. Findings above are graded against the kitchensink principle text embedded in the brief plus retrieved runbooks (9a193f, fc7a0f). A canonical CONSTITUTION.md should be committed so future critic rounds have a stable reference.",
-    "evidence": [
-      "`ls CONSTITUTION.md` → No such file or directory",
-      "`find . -maxdepth 3 -iname CONSTITUTION*` returns nothing"
+      "grep -n 'openai\\|chat.completions\\|anthropic' on the new test files returns nothing reasoning-related"
     ]
   }
 ]

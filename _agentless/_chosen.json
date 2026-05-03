@@ -1,5 +1,5 @@
 {
-  "patch_index": 1,
-  "score": 82,
-  "reason": "All three candidates pass 82/82 tests. Tie-breaker: patch_2 is a no-op — `blobs` is initialised to {} in verify_trace and is never None, so `if blobs is not None` always evaluates True and the silent-corruption bug remains. patch_0 fixes the bug by always materialising, surfacing unknown-digest references via TraceVerificationError inside _materialise; correct but the failure message is generic. patch_1 strictly dominates: it adds a typed pre-check (`_has_blob_ref`) that raises a precise TraceVerificationError ('step frame references a blob but no blob frames seen yet') when a step references blobs but none were emitted, AND falls through to _materialise (which itself raises on unknown digests) for the unknown-digest case. patch_1 also avoids unnecessary dict allocations on the common no-blob path. Picking patch_1."
+  "patch_index": 0,
+  "score": 1.0,
+  "reason": "Stage 3 ran the harness against each candidate. patch_0 (with-statement wrappers) and patch_1 (pathlib.Path API) both pass the full 132/132 default suite AND the strict 132/132 `pytest -W error` suite, fully eliminating the 5 ResourceWarning regressions introduced in commit 23d548d. patch_2 only repaired tests/test_e2e_replay.py and still leaks 4 file handles under -W error. Tie-break between patch_0 and patch_1 went to patch_0 because it is more surgical: 86 diff lines vs 102, and it requires no new `from pathlib import Path` imports, so the per-file change footprint stays inside the leaking call sites only."
 }

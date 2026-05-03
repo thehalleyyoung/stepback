@@ -88,7 +88,8 @@ def test_verify_trace_succeeds_on_untouched_file(tmp_path):
 def test_verify_trace_detects_tampering(tmp_path):
     path, key = _record_fixture(tmp_path)
     # Flip a byte deep inside one of the step frames.
-    raw = open(path, "rb").read()
+    with open(path, "rb") as _f:
+        raw = _f.read()
     # Find the first occurrence of "Acme Bolts" inside the on-disk
     # bytes and flip a character so the canonical-JSON of one frame
     # no longer matches its HMAC.
@@ -96,7 +97,8 @@ def test_verify_trace_detects_tampering(tmp_path):
     i = raw.find(needle)
     assert i > 0
     tampered = raw[:i] + b"Acme Boltz" + raw[i + len(needle) :]
-    open(path, "wb").write(tampered)
+    with open(path, "wb") as _f:
+        _f.write(tampered)
     with pytest.raises(TraceVerificationError):
         verify_trace(path, key.hmac_key)
 

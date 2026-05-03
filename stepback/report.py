@@ -26,10 +26,11 @@ The CLI subcommand ``stepback report TRACE [--substitute SPEC ...] \
 """
 from __future__ import annotations
 
+import html as _html
 import io
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .canonical import hash_obj
 from .replay import ReplayResult, StepView, Trace
@@ -66,6 +67,9 @@ class ReportOptions:
     truncate_text: int = 120
     include_step_inputs: bool = False  # opt-in: can be PII-sensitive
     extra_metadata: dict = field(default_factory=dict)
+    show_severity: bool = True
+    html_inline_css: bool = True
+    html_collapsed_step_table: bool = True
 
 
 # --------------------------------------------------- substitution rendering
@@ -534,6 +538,8 @@ def _build_report_model(
         "causal_attribution": attribution,
         "verdict": verdict,
     }
+    if counterfactual is not None:
+        model["severity"] = severity_score(baseline, counterfactual, subs).to_dict()
     return model
 
 
@@ -669,6 +675,18 @@ def render_counterfactual_report(
         )
         out.write("\n")
 
+    if getattr(options, "show_severity", True):
+        sev = severity_score(baseline, counterfactual, subs)
+        out.write("## Severity\n\n")
+        out.write(f"- score: **{sev.score}/100** ({sev.level})\n")
+        for k, _w in _SEVERITY_WEIGHTS:
+            out.write(f"- {k}: {sev.components.get(k, 0.0):.3f}\n")
+        if sev.reasons:
+            out.write(f"\nReasons: {', '.join(sev.reasons)}\n")
+        else:
+            out.write("\nReasons: _(none)_\n")
+        out.write("\n")
+
     if options.show_substitution_section:
         out.write("## Substitutions applied to branch B\n\n")
         out.write(_render_substitutions(subs))
@@ -710,11 +728,504 @@ def render_counterfactual_report(
     return out.getvalue()
 
 
+# ------------------------------------------------ severity scoring
+
+
+@dataclass(frozen=True)
+class SeverityScore:
+    """Deterministic severity rubric for a counterfactual replay.
+
+    Components are each in [0, 1]; the score is
+    ``round(sum(component * weight) * 100)``. Weights:
+
+    * cost_delta      — 0.30
+    * dirty_fraction  — 0.30
+    * decision_flips  — 0.30
+    * subtree_depth   — 0.10
+
+    Bands: <10 info, <25 low, <50 medium, <75 high, >=75 critical.
+    """
+
+    score: int
+    level: str
+    components: Dict[str, float]
+    reasons: List[str]
+
+    def to_dict(self) -> dict:
+        return {
+            "score": int(self.score),
+            "level": self.level,
+            "components": {k: round(float(v), 6) for k, v in self.components.items()},
+            "reasons": list(self.reasons),
+        }
+
+
+_SEVERITY_WEIGHTS: Tuple[Tuple[str, float], ...] = (
+    ("cost_delta", 0.30),
+    ("dirty_fraction", 0.30),
+    ("decision_flips", 0.30),
+    ("subtree_depth", 0.10),
+)
+
+
+def _llm_decision_signature(s: StepView) -> Tuple[Optional[str], Optional[str]]:
+    """Return (finish_reason, first_tool_call_name) or (None, None).
+
+    Same OpenAI-shape access path used by ``_short_output``; swallows
+    KeyError/IndexError/TypeError on non-conforming outputs.
+    """
+    o = s.outputs
+    if not isinstance(o, dict):
+        return (None, None)
+    finish: Optional[str] = None
+    tool_name: Optional[str] = None
+    try:
+        finish = o["choices"][0].get("finish_reason")
+    except (KeyError, IndexError, TypeError):
+        finish = None
+    try:
+        msg = o["choices"][0]["message"]
+        tcs = msg.get("tool_calls") or []
+        if tcs:
+            tc0 = tcs[0]
+            if isinstance(tc0, dict):
+                if "function" in tc0 and isinstance(tc0["function"], dict):
+                    tool_name = tc0["function"].get("name")
+                else:
+                    tool_name = tc0.get("name")
+    except (KeyError, IndexError, TypeError):
+        tool_name = None
+    return (finish, tool_name)
+
+
+def _depth_of(step_id: str, parent_by: Dict[str, Optional[str]]) -> int:
+    d = 0
+    cur: Optional[str] = step_id
+    seen = set()
+    while cur is not None and cur in parent_by and cur not in seen:
+        seen.add(cur)
+        cur = parent_by.get(cur)
+        if cur is None:
+            break
+        d += 1
+        if d > 10_000:  # cycle / pathological guard
+            break
+    return d
+
+
+def severity_score(
+    baseline: ReplayResult,
+    counterfactual: Optional[ReplayResult],
+    subs: SubstitutionSet,
+) -> SeverityScore:
+    """Compute the deterministic severity of a counterfactual replay.
+
+    For ``counterfactual is None`` returns a degenerate score (0, info)
+    so callers don't need to branch.
+    """
+    if counterfactual is None:
+        return SeverityScore(score=0, level="info", components={}, reasons=[])
+
+    a_total = float(baseline.total_cost_usd)
+    b_total = float(counterfactual.total_cost_usd)
+    cost_delta_abs = abs(b_total - a_total)
+    if cost_delta_abs == 0.0:
+        cost_delta = 0.0
+    else:
+        cost_delta = min(1.0, cost_delta_abs / max(a_total, 0.01))
+
+    n_b = len(counterfactual.steps)
+    dirty_fraction = (counterfactual.dirty_count / n_b) if n_b > 0 else 0.0
+    dirty_fraction = max(0.0, min(1.0, dirty_fraction))
+
+    a_by = {s.step_id: s for s in baseline.steps}
+    b_by = {s.step_id: s for s in counterfactual.steps}
+    llm_total = 0
+    flips = 0
+    for sid, sb in b_by.items():
+        if sb.kind != "llm_call":
+            continue
+        llm_total += 1
+        sa = a_by.get(sid)
+        if sa is None:
+            flips += 1
+            continue
+        if _llm_decision_signature(sa) != _llm_decision_signature(sb):
+            flips += 1
+    decision_flips = (flips / llm_total) if llm_total > 0 else 0.0
+    decision_flips = max(0.0, min(1.0, decision_flips))
+
+    parent_by = {s.step_id: s.parent_step_id for s in counterfactual.steps}
+    total_depth = max((_depth_of(sid, parent_by) for sid in parent_by), default=0)
+    dirty_steps = [s for s in counterfactual.steps if s.dirty]
+    if dirty_steps and total_depth > 0:
+        dd = max(_depth_of(s.step_id, parent_by) for s in dirty_steps)
+        subtree_depth = max(0.0, min(1.0, dd / total_depth))
+    else:
+        subtree_depth = 0.0
+
+    components = {
+        "cost_delta": cost_delta,
+        "dirty_fraction": dirty_fraction,
+        "decision_flips": decision_flips,
+        "subtree_depth": subtree_depth,
+    }
+    weighted = sum(components[k] * w for k, w in _SEVERITY_WEIGHTS)
+    score = int(round(weighted * 100))
+    score = max(0, min(100, score))
+
+    if score < 10:
+        level = "info"
+    elif score < 25:
+        level = "low"
+    elif score < 50:
+        level = "medium"
+    elif score < 75:
+        level = "high"
+    else:
+        level = "critical"
+
+    reasons: List[str] = []
+    if cost_delta > 0:
+        reasons.append(f"cost {b_total - a_total:+.6f}")
+    if dirty_fraction > 0:
+        reasons.append(f"dirty {counterfactual.dirty_count}/{n_b} steps")
+    if decision_flips > 0:
+        reasons.append(f"{flips} decision flip(s) of {llm_total} llm step(s)")
+    if subtree_depth > 0:
+        reasons.append(
+            f"dirty subtree depth {int(round(subtree_depth * total_depth))}/{total_depth}"
+        )
+
+    return SeverityScore(
+        score=score, level=level, components=components, reasons=reasons
+    )
+
+
+# --------------------------------------------------- HTML renderer
+
+
+_INLINE_CSS = (
+    "body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+    "margin:2rem;max-width:64rem;color:#222}"
+    "h1{font-size:1.6rem}h2{font-size:1.15rem;border-bottom:1px solid #ddd;"
+    "padding-bottom:.2rem;margin-top:1.5rem}"
+    "table{border-collapse:collapse;width:100%;font-size:.9rem}"
+    "th,td{padding:.25rem .5rem;border-bottom:1px solid #eee;text-align:left;"
+    "vertical-align:top}"
+    "th{background:#f4f4f4;font-weight:600}"
+    "tr.dirty td{background:#ffe9e9}tr.cached td{background:#e9f7e9}"
+    "pre{background:#f6f6f6;padding:.5rem;overflow-x:auto;font-size:.85rem}"
+    "code{background:#f6f6f6;padding:0 .25rem;border-radius:3px}"
+    "dl{display:grid;grid-template-columns:max-content auto;gap:.1rem .75rem}"
+    "dt{font-weight:600;color:#555}"
+    ".badge{display:inline-block;padding:.2rem .55rem;border-radius:.4rem;"
+    "font-weight:600;color:#fff}"
+    ".badge-info{background:#888}.badge-low{background:#3a7}"
+    ".badge-medium{background:#d80}.badge-high{background:#c33}"
+    ".badge-critical{background:#600}"
+    ".delta-pos{color:#a30;font-weight:600}.delta-neg{color:#063;font-weight:600}"
+)
+
+
+def _h(s: Any) -> str:
+    """Escape arbitrary value for HTML body / attribute use."""
+    return _html.escape("" if s is None else str(s), quote=True)
+
+
+def _html_substitutions(model: dict) -> str:
+    out = io.StringIO()
+    subs = model.get("substitutions") or []
+    if not subs:
+        out.write("<p><em>(no substitutions)</em></p>")
+        return out.getvalue()
+    out.write("<ol>")
+    for s in subs:
+        out.write(
+            f"<li><code>{_h(s.get('kind'))}</code> at "
+            f"<code>{_h(s.get('at_step'))}</code> — {_h(s.get('summary'))}</li>"
+        )
+    out.write("</ol>")
+    return out.getvalue()
+
+
+def _html_cost(model: dict) -> str:
+    cost = model.get("cost_summary") or {}
+    a = cost.get("baseline") or {}
+    b = cost.get("counterfactual")
+    a_total = float(a.get("total_cost_usd", 0.0))
+    out = io.StringIO()
+    out.write("<dl>")
+    out.write(
+        "<dt>baseline total_cost_usd</dt><dd>$"
+        + _h(format(a_total, ".5f"))
+        + "</dd>"
+    )
+    out.write(f"<dt>baseline cache_hits</dt><dd>{_h(a.get('cache_hits'))}</dd>")
+    out.write(f"<dt>baseline dirty</dt><dd>{_h(a.get('dirty'))}</dd>")
+    out.write(f"<dt>baseline real_executions</dt><dd>{_h(a.get('real_executions'))}</dd>")
+    if b is not None:
+        b_total = float(b.get("total_cost_usd", 0.0))
+        out.write(
+            "<dt>counterfactual total_cost_usd</dt><dd>$"
+            + _h(format(b_total, ".5f"))
+            + "</dd>"
+        )
+        out.write(f"<dt>counterfactual cache_hits</dt><dd>{_h(b.get('cache_hits'))}</dd>")
+        out.write(f"<dt>counterfactual dirty</dt><dd>{_h(b.get('dirty'))}</dd>")
+        out.write(f"<dt>counterfactual real_executions</dt><dd>{_h(b.get('real_executions'))}</dd>")
+        delta = float(cost.get("delta_total_cost_usd", 0.0))
+        cls = "delta-pos" if delta > 0 else ("delta-neg" if delta < 0 else "")
+        out.write(
+            '<dt>Δ total_cost_usd</dt><dd class="'
+            + cls
+            + '">$'
+            + _h(format(delta, "+.5f"))
+            + "</dd>"
+        )
+    out.write("</dl>")
+    return out.getvalue()
+
+
+def _html_dirty(model: dict) -> str:
+    dirty = model.get("dirty_subtree") or []
+    if not dirty:
+        return "<p><em>(no dirty steps — trace fully cache-hit)</em></p>"
+    out = io.StringIO()
+    out.write("<ul>")
+    for d in dirty:
+        cost_str = format(float(d.get("cost_usd", 0.0)), ".5f")
+        out.write(
+            "<li><code>"
+            + _h(d.get("step_id"))
+            + "</code> "
+            + _h(d.get("kind"))
+            + " name="
+            + _h(d.get("name"))
+            + " cost=$"
+            + _h(cost_str)
+            + "</li>"
+        )
+    out.write("</ul>")
+    return out.getvalue()
+
+
+def _html_decision_diffs(model: dict) -> str:
+    diffs = model.get("decision_diffs") or []
+    if not diffs:
+        return "<p><em>(no diverging steps)</em></p>"
+    out = io.StringIO()
+    for r in diffs:
+        out.write(
+            "<h3><code>"
+            + _h(r.get("step_id"))
+            + "</code> ("
+            + _h(r.get("kind"))
+            + ")</h3>"
+        )
+        a_json = json.dumps(r.get("a"), sort_keys=True, default=str)
+        b_json = json.dumps(r.get("b"), sort_keys=True, default=str)
+        out.write(
+            "<pre><strong>A:</strong> "
+            + _h(a_json)
+            + "\n<strong>B:</strong> "
+            + _h(b_json)
+            + "</pre>"
+        )
+        delta_str = format(float(r.get("cost_delta_usd", 0.0)), "+.5f")
+        out.write("<p>Δ cost: $" + _h(delta_str) + "</p>")
+    return out.getvalue()
+
+
+def _html_step_table(model: dict, max_rows: int) -> str:
+    rows = model.get("step_table") or []
+    out = io.StringIO()
+    out.write(
+        "<table><thead><tr>"
+        "<th>step_id</th><th>kind</th><th>name</th>"
+        "<th>dirty</th><th>cache</th><th>cost_usd</th>"
+        "</tr></thead><tbody>"
+    )
+    for r in rows[:max_rows]:
+        if "a" in r and "b" in r:
+            view = r.get("b") or r.get("a") or {}
+        else:
+            view = r
+        dirty = bool(view.get("dirty"))
+        cache = bool(view.get("cache_hit"))
+        cls = "dirty" if dirty else ("cached" if cache else "")
+        sid = view.get("step_id") or r.get("step_id")
+        kind = view.get("kind") or r.get("kind")
+        cost_str = format(float(view.get("cost_usd", 0.0)), ".8f")
+        out.write(
+            '<tr class="' + cls + '" data-step-id="' + _h(sid) + '">'
+            + "<td><code>" + _h(sid) + "</code></td>"
+            + "<td>" + _h(kind) + "</td>"
+            + "<td>" + _h(view.get("name")) + "</td>"
+            + "<td>" + ("yes" if dirty else "no") + "</td>"
+            + "<td>" + ("yes" if cache else "no") + "</td>"
+            + "<td>$" + _h(cost_str) + "</td>"
+            + "</tr>"
+        )
+    if len(rows) > max_rows:
+        more = len(rows) - max_rows
+        out.write(
+            '<tr><td colspan="6"><em>… '
+            + str(more)
+            + " more rows truncated …</em></td></tr>"
+        )
+    out.write("</tbody></table>")
+    return out.getvalue()
+
+
+def render_html_report(
+    trace: Trace,
+    baseline: ReplayResult,
+    counterfactual: Optional[ReplayResult],
+    subs: SubstitutionSet,
+    *,
+    options: Optional[ReportOptions] = None,
+) -> str:
+    """Self-contained HTML report. Inline CSS, no JS, no remote assets.
+
+    Byte-deterministic for the same inputs. All user-controlled text
+    (substitution payloads, headline, metadata) passes through
+    ``html.escape(..., quote=True)``.
+    """
+    options = options or ReportOptions()
+    model = _build_report_model(trace, baseline, counterfactual, subs, options)
+
+    sev = severity_score(baseline, counterfactual, subs)
+
+    out = io.StringIO()
+    out.write("<!doctype html>\n")
+    out.write("<html lang=\"en\"><head>\n")
+    out.write("<meta charset=\"utf-8\">\n")
+    out.write(f"<title>{_h(options.title)}</title>\n")
+    if options.html_inline_css:
+        out.write(f"<style>{_INLINE_CSS}</style>\n")
+    out.write("</head><body>\n")
+    out.write(f"<h1>{_h(options.title)}</h1>\n")
+
+    out.write("<section id=\"meta\"><dl>")
+    out.write(f"<dt>trace</dt><dd><code>{_h(model.get('trace_path'))}</code></dd>")
+    out.write(
+        f"<dt>recorder_version</dt><dd><code>{_h(model.get('recorder_version'))}</code></dd>"
+    )
+    out.write(
+        f"<dt>canonicalisation_version</dt><dd><code>{_h(model.get('canonicalisation_version'))}</code></dd>"
+    )
+    out.write(f"<dt>step_count</dt><dd>{_h(model.get('step_count'))}</dd>")
+    for k, v in (model.get("extra_metadata") or {}).items():
+        out.write(f"<dt>{_h(k)}</dt><dd>{_h(v)}</dd>")
+    out.write("</dl></section>\n")
+
+    if options.show_severity and counterfactual is not None:
+        out.write(
+            f'<section id="severity" data-level="{_h(sev.level)}">'
+            f"<h2>Severity</h2>"
+            f'<p><span class="badge badge-{_h(sev.level)}">{sev.score}/100 — {_h(sev.level)}</span></p>'
+        )
+        if sev.reasons:
+            out.write("<ul>")
+            for r in sev.reasons:
+                out.write(f"<li>{_h(r)}</li>")
+            out.write("</ul>")
+        else:
+            out.write("<p><em>(no contributing axes)</em></p>")
+        out.write("</section>\n")
+
+    attribution = model.get("causal_attribution") or {}
+    headline = _render_headline(
+        baseline, counterfactual, model.get("first_divergence_step_id"), subs, attribution
+    )
+    out.write(f'<section id="headline"><h2>Headline</h2><pre>{_h(headline)}</pre></section>\n')
+
+    if options.show_substitution_section:
+        out.write('<section id="substitutions"><h2>Substitutions</h2>')
+        out.write(_html_substitutions(model))
+        out.write("</section>\n")
+
+    if options.show_cost_summary:
+        out.write('<section id="cost"><h2>Cost summary</h2>')
+        out.write(_html_cost(model))
+        out.write("</section>\n")
+
+    if options.show_dirty_subtree:
+        out.write('<section id="dirty"><h2>Dirty subtree</h2>')
+        out.write(_html_dirty(model))
+        out.write("</section>\n")
+
+    if options.show_decision_diffs and counterfactual is not None:
+        out.write('<section id="decision-diffs"><h2>Decision diffs</h2>')
+        out.write(_html_decision_diffs(model))
+        out.write("</section>\n")
+
+    if options.show_step_table:
+        out.write('<section id="step-table"><h2>Step timeline</h2>')
+        out.write(_html_step_table(model, options.max_step_rows))
+        out.write("</section>\n")
+
+    out.write("</body></html>\n")
+    return out.getvalue()
+
+
+# --------------------------------------------------- format dispatcher
+
+
+_FORMATS: Tuple[str, ...] = ("markdown", "json", "html")
+
+
+def available_formats() -> List[str]:
+    """Return the list of format ids accepted by :func:`render_report`."""
+    return list(_FORMATS)
+
+
+def render_report(
+    trace: Trace,
+    baseline: ReplayResult,
+    counterfactual: Optional[ReplayResult],
+    subs: SubstitutionSet,
+    *,
+    format: str = "markdown",
+    options: Optional[ReportOptions] = None,
+) -> str:
+    """Dispatch to the markdown / json / html renderer for ``format``.
+
+    See :func:`available_formats` for the supported ids. ``"md"`` is
+    accepted as an alias for ``"markdown"``.
+    """
+    options = options or ReportOptions()
+    fmt = format.lower()
+    if fmt in ("markdown", "md"):
+        if counterfactual is None:
+            return render_replay_report(trace, baseline, subs, options=options)
+        return render_counterfactual_report(
+            trace, baseline, counterfactual, subs, options=options
+        )
+    if fmt == "json":
+        return dump_report_json(
+            trace, baseline, counterfactual, subs, options=options
+        )
+    if fmt == "html":
+        return render_html_report(
+            trace, baseline, counterfactual, subs, options=options
+        )
+    raise ValueError(
+        f"unknown format: {format!r}; available: {available_formats()}"
+    )
+
+
 __all__ = [
     "ReportOptions",
-    "render_counterfactual_report",
-    "render_replay_report",
-    "render_report_json",
+    "SeverityScore",
+    "available_formats",
     "dump_report_json",
+    "render_counterfactual_report",
+    "render_html_report",
+    "render_replay_report",
+    "render_report",
+    "render_report_json",
+    "severity_score",
     "SCHEMA_VERSION",
 ]

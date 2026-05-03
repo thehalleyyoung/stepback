@@ -1,161 +1,112 @@
-# Layer 2 Refiner — pick Proposer 2's structure, integrate P1 + P3
+# Layer 2 Refiner — chosen backbone + integrated ideas
 
-## Choice
+## Decision
 
-Adopt **Proposer 2's `CostBreakdown` + `TokenRates`** as the
-backbone. Reasoning: the README's headline claim — "cost deltas
-across branches are meaningful" — is *false* under the current
-two-bucket pricing for any reasoning-heavy or vision-heavy step,
-and false numbers can't be fixed by better helpers (P3) or a
-bigger catalog (P1). Correct numerics first.
+Adopt **Proposer 1's HTML renderer** as the structural backbone of
+this round (smallest blast radius, immediately useful for the
+README-stated regulator-replay use-case). Layer in:
 
-Then layer in:
+* From **Proposer 2**: the deterministic `severity_score()` helper +
+  `SeverityScore` dataclass — but expose it as a *first-class symbol*
+  in `report.py` and surface its components as a new section in the
+  Markdown report ("Severity") and a coloured banner in the HTML
+  report. SARIF export is *deferred*: it's a 200+ LOC commitment
+  with a JSON-Schema dependency that pushes the round past one
+  coherent expansion (Constitution rule 2).
+* From **Proposer 3**: the `available_formats()` lookup function,
+  but *without* a full pluggable Protocol. Ship a single
+  `render_report(format=...)` dispatcher that delegates to the
+  three concrete renderers (`markdown`, `json`, `html`) we actually
+  have. Keeps surface area honest; a future round can promote it to
+  a registry once we have a 4th concrete consumer.
 
-* From **Proposer 1**: catalog expansion (~15 models),
-  alias-resolution, deprecation warnings, `SNAPSHOT_DATE`,
-  `MissingPriceError` + `set_strict()`. Reject P1's split into
-  `_pricing_data.json` — added file/IO surface area for no real
-  win because the catalog still has to be hand-edited per release;
-  keep the data inline as a Python literal (it stays diff-friendly
-  in code review).
-* From **Proposer 3**: `format_usd`, `CostSummary`,
-  `aggregate_costs`, `BudgetCheck`, `check_budget`, `diff_costs`.
-  These are pure, additive, and unblock the next round's
-  `report.py` cleanup. Reject the suggestion to refactor
-  `report.py` / `cli.py` *this round* — out of scope per
-  Constitution rule 2 (one coherent thematic improvement).
+## Concrete file plan (for L3 to deepen)
 
-## Combined public surface
+### `stepback/report.py`
 
-```python
-# constants
-SNAPSHOT_DATE: str
-CURRENCY: str = "USD"
-PRICE_LIST: dict[str, tuple[float, float]]    # back-compat view
-RATE_TABLE: dict[str, TokenRates]              # full rates
-ALIASES: dict[str, str]                        # alias -> canonical
+1. New dataclass:
+   ```python
+   @dataclass(frozen=True)
+   class SeverityScore:
+       score: int
+       level: str
+       components: Dict[str, float]
+       reasons: List[str]
+       def to_dict(self) -> dict: ...
+   ```
+2. New function `severity_score(baseline, counterfactual, subs) ->
+   SeverityScore`. Implements P2's rubric:
+   * `cost_delta = min(1.0, abs(b.total - a.total) / max(a.total,
+     0.01))`
+   * `dirty_fraction = b.dirty_count / max(1, len(b.steps))`
+   * `decision_flips`: count llm_call steps where `finish_reason`
+     OR first `tool_calls[0].name` differs / max(1, llm_step_count)
+   * `subtree_depth`: dirty-subtree max depth / total step depth
+     (use `parent_step_id` chain)
+   * `nondeterminism`: fraction of dirty steps with changed
+     `nondeterminism_hash`
+   * Weights: 0.25 / 0.25 / 0.30 / 0.10 / 0.10. Score = round(sum
+     × 100). Bands: <10 info, <25 low, <50 medium, <75 high, ≥75
+     critical.
+   * Each non-zero axis appends one `reason` string.
+   * For single-replay (no counterfactual), `severity_score` returns
+     a degenerate `SeverityScore(score=0, level="info",
+     components={}, reasons=[])` so call sites don't need to branch.
+3. New function `render_html_report(trace, baseline, counterfactual,
+   subs, *, options=None) -> str` (P1).
+   * Reuse `_build_report_model` for the data.
+   * Sections: headline, severity banner, substitutions, cost,
+     dirty subtree, decision diffs, step timeline.
+   * Inline `<style>`. No JS, no remote resources.
+   * `html.escape(..., quote=True)` everywhere user content lands.
+4. New `render_report(trace, baseline, counterfactual, subs, *,
+   format="markdown", options=None) -> str` dispatcher.
+5. New `available_formats() -> list[str]` returning
+   `["markdown", "json", "html"]`.
+6. Extend `ReportOptions` with:
+   * `show_severity: bool = True`
+   * `html_inline_css: bool = True`
+   * `html_collapsed_step_table: bool = True`
+7. Wire `severity_score` into `_build_report_model` so the JSON
+   model exposes a `severity` key. Markdown renderer emits a
+   "Severity" subsection between "Headline" and "Substitutions"
+   when `show_severity` is True and a counterfactual exists.
 
-# dataclasses
-class TokenRates: ...        # P2
-class CostBreakdown: ...     # P2
-class CostSummary: ...       # P3
-class BudgetCheck: ...       # P3
+### `stepback/cli.py`
 
-# errors
-class MissingPriceError(KeyError): ...
+* Extend the `report` subcommand with `--format
+  {markdown,json,html}` (default `markdown`). When `-o` is given
+  and `--format` is omitted, infer from the file extension.
 
-# functions
-def compute_cost(model, usage) -> float
-def compute_cost_breakdown(model, usage) -> CostBreakdown
-def resolve_model(name) -> str | None
-def is_known(name) -> bool
-def set_strict(on: bool) -> None
-def format_usd(amount, *, precision=4, unit="$") -> str
-def aggregate_costs(steps) -> CostSummary
-def check_budget(steps, budget_usd) -> BudgetCheck
-def diff_costs(steps_a, steps_b) -> dict[str, float]
-```
+### `tests/test_report.py`
 
-## Algorithm refinements over P2
+(Adopt P1's + P2's test list; deepen in L3.)
 
-P2's pseudocode silently assumed `prompt_total >= cached`. Real
-provider responses occasionally violate that (rounding glitches,
-double-counting). Defensive clamp: `non_cached = max(0,
-prompt_total - cached)` and same for `visible_out = max(0,
-completion - reasoning)`. Otherwise we'd report negative dollars.
+* HTML renders for replay-only and counterfactual cases.
+* HTML is byte-deterministic across two calls.
+* HTML escapes `<script>` payloads in substitution text.
+* Severity score is 0/info when counterfactual is None.
+* Severity score increases monotonically with cost delta.
+* Severity components sum (× weights × 100, rounded) equals score.
+* `available_formats()` returns the expected list.
+* `render_report(format="json")` matches `dump_report_json` byte-
+  for-byte.
 
-P2's `compute_cost_breakdown` should also accept the legacy
-flat-dict shape (`{prompt_tokens, completion_tokens}` only) and
-treat all the optional fields as 0 — this is what
-`tests/test_shims.py:169` will pass in via the FakeOpenAI usage
-shape.
+## What L3 must add (~30% deeper, per advisory)
 
-## Algorithm refinements over P1
+1. Pin the Markdown report's new "Severity" section format so the
+   existing `test_report.py` golden assertions don't break — show
+   the table that L3 will produce.
+2. Spell out the HTML template literal precisely (header,
+   `<style>`, section anchors, table column order) so the
+   determinism test isn't a moving target.
+3. Decide what happens when `b.total_cost_usd == 0` and
+   `a.total_cost_usd == 0` — degenerate denominator. L3 must
+   pin: cost component is 0 in that case (no inflation).
+4. Pin the depth calculation rule for `subtree_depth` when the
+   dirty set is empty — must be 0, not divide-by-zero.
+5. CLI `--format` extension semantics + how it interacts with the
+   existing `--branch` / `--baseline-branch` flags.
 
-P1 wanted `set_strict` as a module-level toggle. That makes
-test isolation painful. Refine to: `set_strict(on)` returns a
-context-manager-friendly object (also callable as a setter) so
-tests can write `with set_strict(True): ...`. Implementation:
-`set_strict` returns a small `_StrictContext` whose `__enter__` /
-`__exit__` save and restore the previous value.
-
-P1's deprecation warning: emit at most once per process per model.
-Use a module-level `_warned: set[str]`.
-
-## Algorithm refinements over P3
-
-`aggregate_costs(steps)` should tolerate steps without a
-`cost_usd` field by recomputing from `model` + `usage` if those
-are present — recovers cost when reading a trace that pre-dates
-the field. Falls back to 0.0 only when neither is available.
-
-`diff_costs(a, b)` returns numbers as **`b - a`** consistently;
-`__total__` is the overall delta. P3 didn't pin the sign — pin
-it now.
-
-## Catalog (final list for this round)
-
-OpenAI: `gpt-4o-2024-11-20`, `gpt-4o-2024-08-06`,
-`gpt-4o-mini-2024-07-18`, `gpt-4.1-2025-04-14`,
-`gpt-4.1-mini-2025-04-14`, `gpt-4.1-nano-2025-04-14`,
-`o1-2024-12-17`, `o1-mini-2024-09-12`, `o3-mini-2025-01-31`.
-
-Anthropic: `claude-3-5-sonnet-20241022`,
-`claude-3-5-haiku-20241022`, `claude-3-7-sonnet-20250219`,
-`claude-sonnet-4-20250514`, `claude-opus-4-20250514`,
-`claude-haiku-4-20250514`.
-
-Google: `gemini-2.5-pro-2025-03-25`, `gemini-2.5-flash-2025-04-09`.
-
-Test stub: `fake-llm`.
-
-Deprecated rows (priced + warned): `gpt-4-0613`, `gpt-3.5-turbo-0613`,
-`claude-2.1`.
-
-Aliases: `gpt-4o -> gpt-4o-2024-11-20`,
-`gpt-4o-mini -> gpt-4o-mini-2024-07-18`,
-`gpt-4.1 -> gpt-4.1-2025-04-14`,
-`gpt-4.1-mini -> gpt-4.1-mini-2025-04-14`,
-`o1 -> o1-2024-12-17`,
-`o3-mini -> o3-mini-2025-01-31`,
-`claude-3.5-sonnet -> claude-3-5-sonnet-20241022`,
-`claude-3.5-haiku -> claude-3-5-haiku-20241022`,
-`claude-3.7-sonnet -> claude-3-7-sonnet-20250219`,
-`claude-sonnet-4 -> claude-sonnet-4-20250514`,
-`claude-opus-4 -> claude-opus-4-20250514`,
-`claude-haiku-4 -> claude-haiku-4-20250514`,
-`gemini-2.5-pro -> gemini-2.5-pro-2025-03-25`,
-`gemini-2.5-flash -> gemini-2.5-flash-2025-04-09`.
-
-## Tests (deduped from P1+P2+P3)
-
-`tests/test_pricing.py`:
-
-1-7: from P2 (signature, breakdown sums, cached, reasoning,
-     cache_creation, unknown-model zero, recorder/replay path).
-8-13: from P1 (alias round-trip, unknown strict raises, deprecated
-     warns once, snapshot date format, PRICE_LIST back-compat,
-     resolve_model None on unknown).
-14-18: from P3 (format_usd default + negative, aggregate_costs
-     per_model + per_step_kind + most_expensive top-5, check_budget
-     under/over, diff_costs total + disjoint).
-19: `test_set_strict_is_context_manager` — refinement above.
-20: `test_aggregate_costs_recomputes_from_usage_when_cost_missing`
-     — refinement above.
-
-## Citation map
-
-* P1: catalog scope, aliases, snapshot date, deprecation warnings,
-  `MissingPriceError`, `is_known`, `resolve_model`.
-* P2: `TokenRates`, `CostBreakdown`, multi-tier algorithm, OpenAI
-  /Anthropic usage normalization, derived `PRICE_LIST` for back-compat.
-* P3: `format_usd`, `CostSummary`, `aggregate_costs`,
-  `BudgetCheck`, `check_budget`, `diff_costs`.
-
-## Out of scope (saved for L3 to deepen)
-
-* Currency conversion (multi-currency BudgetCheck).
-* JSON serialisation of CostBreakdown into trace headers.
-* Light surface integration with `recorder.py` to also persist
-  the breakdown alongside the float on each step.
-* Snapshot freshness check / staleness warning.
+Deferred to a future round (so this stays one coherent expansion):
+SARIF, JUnit, CSV-steps, the renderer Protocol, Sphinx integration.

@@ -42,9 +42,12 @@ from .branch_io import (
 from .replay import Trace, replay
 from .report import (
     ReportOptions,
+    available_formats,
     dump_report_json,
     render_counterfactual_report,
+    render_html_report,
     render_replay_report,
+    render_report,
 )
 from .substitutions import SubstitutionSet
 from .trace_reader import verify_trace
@@ -239,6 +242,19 @@ def _load_subs_from_args(
     return subs, name
 
 
+def _infer_format_from_path(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    p = path.lower()
+    if p.endswith(".html") or p.endswith(".htm"):
+        return "html"
+    if p.endswith(".json"):
+        return "json"
+    if p.endswith(".md") or p.endswith(".markdown"):
+        return "markdown"
+    return None
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     from .replay import Executor
 
@@ -264,27 +280,29 @@ def _cmd_report(args: argparse.Namespace) -> int:
         truncate_text=args.truncate,
     )
 
+    fmt = (args.format or "").lower()
+    if not args.format or args.format == "auto":
+        fmt = _infer_format_from_path(args.output) or "markdown"
+    if fmt == "md":
+        fmt = "markdown"
+
     if not subs_b.items and not args.branch:
         # Single-replay report: just the recorded run.
         result = t.run_replay(subs_a, executor)
-        if args.format == "json":
-            out_text = dump_report_json(t, result, None, subs_a, options=options) + "\n"
-        else:
-            out_text = render_replay_report(t, result, subs_a, options=options)
+        out_text = render_report(t, result, None, subs_a, format=fmt, options=options)
+        if fmt == "json" and not out_text.endswith("\n"):
+            out_text += "\n"
     else:
         baseline = t.run_replay(subs_a, executor)
         counterfactual = t.run_replay(subs_b, executor)
-        if args.format == "json":
-            out_text = dump_report_json(
-                t, baseline, counterfactual, subs_b, options=options
-            ) + "\n"
-        else:
-            out_text = render_counterfactual_report(
-                t, baseline, counterfactual, subs_b, options=options
-            )
+        out_text = render_report(
+            t, baseline, counterfactual, subs_b, format=fmt, options=options
+        )
+        if fmt == "json" and not out_text.endswith("\n"):
+            out_text += "\n"
 
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
+        with open(args.output, "w", encoding="utf-8", newline="\n") as f:
             f.write(out_text)
         print(f"wrote {args.output} ({len(out_text)} bytes)")
     else:
@@ -399,10 +417,10 @@ def main(argv: Optional[list] = None) -> int:
         help="character cap for inline output snippets (default: 120)",
     )
     p_report.add_argument(
-        "--format", choices=["md", "json"], default="md",
-        help="output format: 'md' (default) renders Markdown, 'json' "
-             "emits the structured report model (schema_version, verdict, "
-             "first_divergence_step_id, causal_attribution, ...)",
+        "--format", choices=["md", "markdown", "json", "html", "auto"],
+        default="auto",
+        help="output format. 'auto' (default) infers from --output extension "
+             "(.html→html, .json→json, .md→markdown), else 'markdown'.",
     )
     p_report.set_defaults(func=_cmd_report)
 

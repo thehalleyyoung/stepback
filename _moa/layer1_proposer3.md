@@ -1,113 +1,79 @@
-# Proposer 3 — ergonomics: aggregation, formatting, budgets
+# Proposer 3 — Multi-format pluggable renderer registry
 
 ## Framing
 
-Two siblings call `compute_cost` (`recorder.py:120`,
-`replay.py:384`) and write the result back as a float field
-`cost_usd` on each step record. Then `report.py` (720 lines!)
-re-aggregates those floats: per-step, per-branch, per-model,
-delta between branches, percent-of-budget. None of that
-aggregation lives in `pricing.py`. The result is:
+Today `report.py` has hand-coded `render_replay_report` and
+`render_counterfactual_report` (Markdown), plus
+`dump_report_json`. Adding HTML, SARIF, JUnit-XML, etc., one ad-hoc
+function at a time will sprawl. Build a **renderer registry**: a
+dict of `format_id -> Renderer` plugins, each consuming the same
+report-model dict produced by the existing `_build_report_model`.
 
-* `report.py` and `cli.py` independently call `sum(s["cost_usd"]
-  for s in steps)` and independently format dollars, leading to
-  inconsistent rounding (some places 4 decimals, some places 6).
-* No notion of a *budget* — you can't ask `did this branch blow
-  past 25¢?` without bespoke code.
-* No formatting helpers — every site that prints a cost uses a
-  different `f"${x:.4f}"` template.
-
-This proposer keeps `pricing.py` numerically simple but adds the
-**operations** report.py and cli.py have been doing by hand.
-
-## Public surface (additive)
+## Public surface
 
 ```python
-PRICE_LIST: dict[str, tuple[float, float]]      # unchanged
-def compute_cost(model, usage) -> float: ...    # unchanged
+class Renderer(Protocol):
+    format_id: str
+    media_type: str
+    file_ext: str
+    def render(self, model: dict, options: ReportOptions) -> str | bytes: ...
 
-# NEW
-
-def format_usd(amount: float, *, precision: int = 4,
-               unit: str = "$") -> str:
-    """Stable currency formatting used everywhere."""
-
-def aggregate_costs(steps: Iterable[dict]) -> CostSummary:
-    """Walk an iterable of step records and return a structured
-    summary: total_usd, per_model, per_step_kind, n_steps."""
-
-@dataclass(frozen=True)
-class CostSummary:
-    total_usd:       float
-    n_steps:         int
-    per_model:       dict[str, float]   # model -> usd
-    per_step_kind:   dict[str, float]   # llm_call/tool_call/router -> usd
-    most_expensive:  list[tuple[str, float]]  # top-5 (step_id, usd)
-
-@dataclass(frozen=True)
-class BudgetCheck:
-    budget_usd:      float
-    spent_usd:       float
-    remaining_usd:   float
-    over_budget:     bool
-    fraction_used:   float
-
-def check_budget(steps: Iterable[dict],
-                 budget_usd: float) -> BudgetCheck: ...
-
-def diff_costs(steps_a: Iterable[dict],
-               steps_b: Iterable[dict]) -> dict[str, float]:
-    """Per-model delta b - a; key '__total__' carries the overall
-    delta. Used by report.py to compare a branch against the
-    baseline trace."""
+def register_renderer(r: Renderer) -> None: ...
+def get_renderer(format_id: str) -> Renderer: ...
+def available_formats() -> list[str]: ...
+def render_report(
+    trace, baseline, counterfactual, subs, *,
+    format: str = "markdown", options=None,
+) -> str | bytes: ...
 ```
 
-## Why these specifically
+Built-ins shipped at import time:
 
-* `format_usd` — `f"${x:.4f}"` appears 7 times in `report.py` and
-  `cli.py`. Centralising kills inconsistency and lets us swap to
-  `${x:.2¢}` later if we want.
-* `aggregate_costs` — the report's "summary table" is exactly this
-  structure. Today it's recomputed inline.
-* `BudgetCheck` — for branch experiments ("what if we swapped the
-  big router LLM for a small one — does the trace still fit in
-  $0.10?"), the user wants a single boolean answer.
-* `diff_costs` — the README brags about "cost deltas across
-  branches"; this is the function that makes that one line of
-  code instead of twenty.
+| format_id | media_type | file_ext | producer |
+| --- | --- | --- | --- |
+| `markdown` | `text/markdown` | `.md` | wraps existing `render_*_report` |
+| `json`     | `application/json` | `.json` | wraps `dump_report_json` |
+| `html`     | `text/html` | `.html` | new (proposer 1's design) |
+| `csv-steps` | `text/csv` | `.csv` | one row per step, columns: id, kind, dirty, cost, hash_a, hash_b |
+| `junit`    | `application/xml` | `.xml` | one `<testcase>` per substitution; failure if dirty subtree non-empty |
 
-## Tests (`tests/test_pricing.py`)
+## Why a registry
 
-1. `test_format_usd_default_precision` — `format_usd(0.001234) ==
-   "$0.0012"`.
-2. `test_format_usd_negative` — handles negative deltas:
-   `"-$0.0012"`.
-3. `test_aggregate_costs_per_model` — three steps, two models, the
-   sum across `per_model.values()` equals `total_usd`.
-4. `test_aggregate_costs_per_step_kind` — llm_call vs tool_call
-   buckets.
-5. `test_aggregate_costs_most_expensive_top5` — returns at most 5
-   entries, sorted descending.
-6. `test_check_budget_under` — `over_budget=False`,
-   `fraction_used < 1`.
-7. `test_check_budget_over` — `over_budget=True`,
-   `remaining_usd < 0`.
-8. `test_diff_costs_total_and_per_model` — branch vs baseline.
-9. `test_diff_costs_handles_disjoint_models` — model only in branch.
+* Third parties can register formats from outside the package
+  (`stepback.report.register_renderer(MySarifRenderer())` in user
+  code).
+* Single source of truth — the Markdown, HTML, CSV all consume the
+  same JSON model. They cannot disagree on what dirty/cached/cost
+  means.
+* CLI's `--format` autocompletes from `available_formats()`.
 
-## Refactor opportunities (light, optional)
+## Determinism + safety
 
-* `report.py` and `cli.py` can be patched to call the new helpers
-  in a follow-up round. This proposer does NOT touch those files
-  — purely additive in `pricing.py` so backward compat is bulletproof.
+* All renderers must be pure functions of the model dict.
+* HTML/CSV escape inputs (csv via `csv.writer`, html via
+  `html.escape`).
+* `dispatch` writes through `Path(out).write_bytes` when renderer
+  returns bytes, else `write_text(..., encoding="utf-8",
+  newline="\n")`.
 
-## What this proposer is NOT trying to fix
+## CLI
 
-* Catalog completeness or aliasing (Proposer 1's domain).
-* Tier accuracy — cached / reasoning / image tokens (Proposer 2's
-  domain).
+`stepback report TRACE [--substitute SPEC...] --format FMT [-o OUT]`.
+Auto-pick file extension if `OUT` omitted.
 
-The bet here: **shape of the API matters more than the catalog
-size**. A two-row catalog with great aggregation/diff utilities is
-more useful for the debugger UX than a fifty-row catalog with
-nothing to slice it by.
+## Tests
+
+* `test_registry_has_builtins` — markdown, json, html, csv-steps,
+  junit all listed.
+* `test_register_custom_renderer_roundtrip` — register a fake
+  renderer, dispatch via `render_report(format="x")`.
+* `test_csv_steps_has_one_row_per_step`
+* `test_junit_marks_failure_when_dirty_subtree_nonempty`
+* `test_unknown_format_raises`
+
+## Why this framing
+
+Bets on extensibility. Solves the *future* HTML/SARIF/X requests
+in one stroke. Highest leverage but largest surface area: the
+registry contract has to be right or downstream code that depends
+on the protocol shape will break.

@@ -3,3 +3,6 @@
 {"step":2,"loss":0.0,"gradient_summary":"resume: pytest already at 82/82 passing, loss=0; nothing to descend"}
 {"step":3,"loss":0.0,"gradient_summary":"resume: 82/82 passing, loss already 0; no descent needed (terminate per stop condition)"}
 {"step":4,"loss":0.0,"gradient_summary":"resume: 82/82 passing, loss=0; stop condition met (loss<=0)"}
+{"step":5,"loss":0.0,"gradient_summary":"resume: 132/132 passing, loss=0; stop condition met (loss<=0)"}
+{"step":6,"loss":0.0,"gradient_summary":"resume: 132/132 passing, loss=0; stop condition met (loss<=0); no descent"}
+{"step":7,"loss":0.0,"gradient_summary":"resume: 132/132 passing, loss=0; stop condition met (loss<=0); no descent"}

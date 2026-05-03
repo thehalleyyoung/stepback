@@ -4,3 +4,5 @@
 
 {"ts": "2026-05-03T01:44:01Z", "slot": "infer", "round": "r2e_gym", "score": 1.0, "passed": true, "pytest_passed": 14, "pytest_total": 14, "infer_ok": 1}
 {"ts": "2026-05-03T01:44:18Z", "slot": "infer", "round": "r2e_gym", "score": 1.0, "passed": true, "pytest_passed": 14, "pytest_total": 14, "infer_ok": 1}
+{"ts": "2026-05-03T05:15:05Z", "slot": "infer", "round": "r2e_gym", "score": 1.0, "passed": true, "pytest_passed": 18, "pytest_total": 18, "infer_ok": 1}
+{"ts": "2026-05-03T05:15:22Z", "slot": "infer", "round": "r2e_gym", "score": 1.0, "passed": true, "pytest_passed": 18, "pytest_total": 18, "infer_ok": 1}
