@@ -1,14 +1,35 @@
---- a/stepback/canonical.py
-+++ b/stepback/canonical.py
-@@ -37,6 +37,11 @@ def canonical_json(obj: Any) -> bytes:
- def _default(o: Any) -> Any:
-     if isinstance(o, tuple):
-         return list(o)
-+    if isinstance(o, (set, frozenset)):
-+        try:
-+            return sorted(o)
-+        except TypeError:
-+            return sorted(o, key=repr)
-     if isinstance(o, (bytes, bytearray)):
-         return {"__bytes_hex__": bytes(o).hex()}
-     raise TypeError(f"Object of type {type(o).__name__} is not canonicalisable")
+--- a/stepback/trace_reader.py
++++ b/stepback/trace_reader.py
+@@ -38,7 +38,17 @@ class Trace_:
+     blobs: dict = field(default_factory=dict)
+ 
+ 
++def _has_blob_ref(value) -> bool:
++    if isinstance(value, dict):
++        if BLOB_REF_KEY in value and len(value) == 1:
++            return True
++        return any(_has_blob_ref(v) for v in value.values())
++    if isinstance(value, list):
++        return any(_has_blob_ref(v) for v in value)
++    return False
++
++
+ def _materialise(value, blobs: dict):
+     if isinstance(value, dict):
+         if BLOB_REF_KEY in value and len(value) == 1:
+             digest = value[BLOB_REF_KEY]
+@@ -131,8 +141,12 @@ def verify_trace(path: str, hmac_key: bytes) -> Trace_:
+         prev = h
+         if body.get("type") == "step":
+             step = _decode_gz_step(body)
+-            if blobs:
+-                step = _materialise(step, blobs)
++            if _has_blob_ref(step):
++                if not blobs:
++                    raise TraceVerificationError(
++                        "step frame references a blob but no blob frames seen yet"
++                    )
++                step = _materialise(step, blobs)
+             steps.append(step)
+         elif body.get("type") == "tail":
+             tail = body

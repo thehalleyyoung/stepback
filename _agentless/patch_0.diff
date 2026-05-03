@@ -1,11 +1,12 @@
---- a/stepback/canonical.py
-+++ b/stepback/canonical.py
-@@ -37,6 +37,8 @@ def canonical_json(obj: Any) -> bytes:
- def _default(o: Any) -> Any:
-     if isinstance(o, tuple):
-         return list(o)
-+    if isinstance(o, (set, frozenset)):
-+        return sorted(o)
-     if isinstance(o, (bytes, bytearray)):
-         return {"__bytes_hex__": bytes(o).hex()}
-     raise TypeError(f"Object of type {type(o).__name__} is not canonicalisable")
+--- a/stepback/trace_reader.py
++++ b/stepback/trace_reader.py
+@@ -131,8 +131,7 @@ def verify_trace(path: str, hmac_key: bytes) -> Trace_:
+         prev = h
+         if body.get("type") == "step":
+             step = _decode_gz_step(body)
+-            if blobs:
+-                step = _materialise(step, blobs)
++            step = _materialise(step, blobs)
+             steps.append(step)
+         elif body.get("type") == "tail":
+             tail = body

@@ -54,3 +54,39 @@ entries accumulate.)_
 <!-- KS-ENTRY id=E000009 ts=2026-05-01T23:38:44Z move=constitutional.critic ok=true surfaces=P,Q supersedes= status=active -->
 **Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
 <!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000010 ts=2026-05-03T01:07:45Z move=codeact.execute ok=true surfaces=R supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000011 ts=2026-05-03T01:14:38Z move=codeact.execute ok=true surfaces=R supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000012 ts=2026-05-03T01:27:31Z move=codeact.execute ok=true surfaces=R supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000013 ts=2026-05-03T01:32:40Z move=agentless.localize_repair ok=true surfaces=R supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000014 ts=2026-05-03T01:43:27Z move=moa.layered_mix ok=true surfaces=R supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000015 ts=2026-05-03T01:44:18Z move=r2e_gym.execute_eval ok=true surfaces=E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000016 ts=2026-05-03T01:48:16Z move=grounding.create ok=true surfaces=E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000017 ts=2026-05-03T01:50:42Z move=skeptical.audit ok=true surfaces=P,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000018 ts=2026-05-03T01:52:35Z move=constitutional.critic ok=true surfaces=P,Q supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->

@@ -1,9 +1,37 @@
 [
   {
     "rule_number": 0,
-    "rule_title": "Preconditions",
+    "rule_title": "Repo hygiene — committed build artifacts and OS metadata",
+    "severity": "warning",
+    "message": "Commit 544be11 added .DS_Store (8196 bytes) and ~30 .pyc files under __pycache__/, stepback/__pycache__/, and tests/__pycache__/ directly to the tree. The repo has no .gitignore. These should be ignored, not committed; they balloon the diff and create cross-Python-version churn (both 3.11 and 3.14 .pyc are present).",
+    "evidence": [
+      ".DS_Store                                                             | Bin 0 -> 8196 bytes",
+      "__pycache__/conftest.cpython-311-pytest-9.0.3.pyc                     | Bin 0 -> 592 bytes",
+      "stepback/__pycache__/cli.cpython-314.pyc                              | Bin 0 -> 21220 bytes",
+      "tests/__pycache__/test_e2e_replay.cpython-314-pytest-8.4.2.pyc        | Bin 0 -> 41615 bytes",
+      "(no .gitignore present in repo root)"
+    ]
+  },
+  {
+    "rule_number": 0,
+    "rule_title": "Required artifact missing — CONSTITUTION.md",
     "severity": "advisory",
-    "message": "CONSTITUTION.md does not exist in the repository root, and the repository contains only a single initial commit (no HEAD~1 to diff against). Critique cannot be performed against constitutional rules; no findings issued.",
-    "evidence": ["ls CONSTITUTION.md => No such file or directory", "git log --oneline => 7b422b0 Initial README: stepback specification"]
+    "message": "The brief instructs the critic to read CONSTITUTION.md (must exist), but no CONSTITUTION.md is present at the repo root, in meta/, or in .kitchensink/. Critique was performed against the rule excerpts embedded in the brief itself (Kitchensink Principle rules 1, 2, 3, 3a, 3b, 5, 6). A repo-local copy or symlink should be added so future critic runs have a stable artifact to cite.",
+    "evidence": [
+      "ls CONSTITUTION.md -> No such file or directory",
+      ".kitchensink/ contains only dossier.md",
+      "meta/ contains only run_obligations.md"
+    ]
+  },
+  {
+    "rule_number": 3,
+    "rule_title": "Tests come with features — agent fixture is a deterministic fake, not a real LLM",
+    "severity": "advisory",
+    "message": "tests/fixtures/agent.py defines fake_llm() that hashes messages with sha256 and emits a stable canned reply. For a record/replay library this is defensible (the *point* is replay determinism, and a real LLM would defeat the test contract), so this is logged as advisory rather than a violation of rule 3a's 'real fixture' clause. Consider adding one opt-in integration test (gated on STEPBACK_LIVE=1) that exercises wrap_openai against a real provider so the recorder/replay round-trip is validated end-to-end at least once.",
+    "evidence": [
+      "tests/fixtures/agent.py:30  def fake_llm(model: str, messages: List[dict]) -> dict:",
+      "tests/fixtures/agent.py:36      blob = '\\n'.join(f\"{m['role']}:{m['content']}\" for m in messages)",
+      "tests/fixtures/agent.py:37      digest = hashlib.sha256(blob.encode()).hexdigest()[:12]"
+    ]
   }
 ]

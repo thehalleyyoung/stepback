@@ -1,98 +1,146 @@
-# Layer 3 refiner — final implementation spec (this is what gets applied)
+# Layer 3 Refiner — final design + concrete file plan
 
-Inherits the synthesis from `layer2_refiner.md`; this layer pins the
-*exact* shape of code, JSON schema, CLI flags and tests.
+## What's locked in from Layer 2
 
-## Citations
-* **Proposer 1** — `_ReportModel` intermediate dataclass; `render_report_json`
-  + `dump_report_json` public surface; CLI `--format {md,json}`. (Layer 2
-  adopted this as the backbone.)
-* **Proposer 2** — `_attribute_dirty_steps` helper, `_first_divergence` helper,
-  Markdown `## Causal attribution` section, JSON fields
-  `first_divergence_step_id` + `causal_attribution`.
-* **Proposer 3** — executive-summary banner under the H1 (verdict line +
-  cost delta + first-divergence step). The predicate-assertion DSL from
-  Proposer 3 is **deferred** as Layer 2 decided.
+The L2 refiner picked **Proposer 2's CostBreakdown/TokenRates**
+backbone, layered **P1**'s catalog/aliases/deprecation/strict mode,
+and added **P3**'s aggregation/format/diff/budget helpers. Sign of
+`diff_costs` pinned to `b - a`. Defensive clamps on cached and
+reasoning subtraction. `set_strict` returns a context manager.
 
-## Module changes (`stepback/report.py`)
+L3 keeps all of that and deepens along three axes the prior
+layers under-specified.
 
-1. Add `SCHEMA_VERSION = 1` constant.
-2. Add `_ReportModel` dataclass (private) with fields:
-   ```
-   schema_version: int
-   title: str
-   trace_path: str
-   recorder_version: Optional[str]
-   canonicalisation_version: Optional[str]
-   step_count: int
-   extra_metadata: dict
-   substitutions: list[dict]   # {index, summary, kind, at_step}
-   cost_summary: dict          # baseline / counterfactual / delta
-   dirty_subtree: list[dict]   # step_id, kind, name, cost_usd
-   decision_diffs: list[dict]  # step_id, kind, a, b, cost_delta_usd
-   step_table: list[dict]      # per-row dict
-   first_divergence_step_id: Optional[str]
-   causal_attribution: dict    # step_id -> [substitution_index]
-   verdict: str                # "unchanged" | "diverged" | "no-counterfactual"
-   ```
-3. Add `_build_report_model(trace, baseline, counterfactual, subs, options)`.
-4. Add `_attribute_dirty_steps(steps, subs) -> dict[str, list[int]]`:
-   * Build `parents: dict[step_id, parent_step_id]` from `steps`.
-   * For each substitution index `i` with `at_step = sid`, every step
-     whose parent-chain passes through `sid` (inclusive) is attributed
-     to `i` *if* it is dirty in `steps`. Use BFS forward over
-     `children = inverse(parents)`.
-5. Add `_first_divergence(a_steps, b_steps) -> Optional[str]`:
-   * Walk steps sorted by integer suffix; first id where `hash_obj(a.outputs)
-     != hash_obj(b.outputs)` is the answer. Returns `None` if none diverge
-     or `b_steps` is None.
-6. Make `render_replay_report` and `render_counterfactual_report`
-   build the model first, then format from it. Add new sections
-   in this order: H1 → `## Headline` (banner; rendered iff
-   `counterfactual` provided OR `verdict != "no-counterfactual"`)
-   → trace metadata bullets → existing sections … → new
-   `## Causal attribution` section *just before* `## Step timeline`
-   (only when there are attributed steps).
-7. Add public `render_report_json(...)` returning a `dict`, and
-   `dump_report_json(...)` returning sorted-keys JSON string with
-   `indent=2`. Float costs rounded to 8dp via the model itself.
-8. Export `render_report_json`, `dump_report_json` from `stepback.report`
-   `__all__` and re-export from `stepback/__init__.py`.
+## L3 deepenings (~30% more depth, per advisory)
 
-## CLI changes (`stepback/cli.py`)
-* Add `--format {md,json}` (default `md`) to the `report` subparser.
-* In `_cmd_report`, when `--format json`, build a counterfactual or
-  single-replay model and emit `dump_report_json(...)`.
+### A. `to_dict` / JSON-serialisable dataclasses
 
-## Tests (`tests/test_report.py`)
-Add the following (all using the existing `run_recorded_agent` fixture):
+`CostBreakdown`, `CostSummary`, `BudgetCheck`, and `TokenRates`
+all get a `to_dict()` method returning a flat str→primitive
+mapping. Reason: `recorder.py:120` writes step records that are
+serialised by `trace_writer.py`. If a follow-up round wants to
+persist breakdown alongside the float `cost_usd`, it needs a
+JSON-safe dict today. P2 mentioned `to_dict` for `CostBreakdown`
+only — extend to all four.
 
-* `test_render_report_json_round_trip`: produce JSON, `json.loads` it,
-  assert required keys (`schema_version`, `verdict`, `cost_summary`,
-  `decision_diffs`, `causal_attribution`).
-* `test_first_divergence_pinpoints_substituted_step`: with a
-  `ToolOutputSubstitution` at `step:2`, the first-divergence id is
-  exactly `"step:2"`.
-* `test_causal_attribution_covers_all_dirty_steps`: every dirty step
-  appears in `causal_attribution` and maps to substitution index 0
-  (the only sub).
-* `test_render_report_json_is_byte_stable`: same inputs ⇒ identical
-  string twice.
-* `test_headline_banner_in_markdown`: counterfactual Markdown contains
-  `Headline` heading and the first-divergence step id.
-* `test_cli_report_json_format`: `python -m stepback report TRACE -s
-  ... --format json -o out.json` writes parseable JSON with
-  `verdict == "diverged"`.
+### B. Snapshot freshness warning
 
-## Compatibility
-All existing tests must still pass — keep:
-* `render_replay_report` / `render_counterfactual_report` signatures
-  unchanged.
-* All existing Markdown headings (`## Substitutions`, `## Cost summary`,
-  `## Dirty subtree`, `## Decision diffs`, `## Step timeline`)
-  preserved exactly. Only *additional* sections are inserted.
-* `_summarise_substitution`, `_render_dirty_subtree`,
-  `_render_step_table` remain (model-builder calls them).
+`SNAPSHOT_DATE = "2026-04-01"`. Add `def
+snapshot_age_days(today=None) -> int` and a one-shot warning the
+first time `compute_cost` runs in a process where the snapshot is
+older than 180 days. Tracker: `_stale_warned: bool`. P1 mentioned
+the snapshot but never used it. This makes the staleness *visible*
+to the user instead of silently rotting.
 
-## Verification
-* `pytest -x -q` must pass.
+### C. Step-record schema convergence
+
+`aggregate_costs` and `diff_costs` accept iterables of dict
+records. Pin the keys we read so future rounds can rely on them:
+
+```
+{
+    "step_id":   str,
+    "step_kind": str,    # "llm_call" | "tool_call" | "router" | ...
+    "model":     str,    # may be empty for non-llm
+    "usage":     dict,   # may be empty
+    "cost_usd":  float,  # optional; recomputed if missing
+}
+```
+
+Anything not matching is silently treated as a no-cost step (so
+report.py can pass *every* step through aggregate_costs without
+filtering first). Document this contract at the top of the module.
+
+### D. `cli` ergonomics
+
+Add a `__main__` shim: `python -m stepback.pricing` prints the
+catalog as a Markdown table to stdout. Useful for users sanity-
+checking what their installed snapshot covers without grepping
+the source. Adds 15 lines, zero risk.
+
+## Final file plan
+
+### `stepback/pricing.py` — full rewrite
+
+Sections, in order:
+
+1. Module docstring (snapshot date, contract for step records,
+   pointer to `_moa/layer3_refiner.md`).
+2. `SNAPSHOT_DATE`, `CURRENCY` constants.
+3. `MissingPriceError` exception.
+4. `TokenRates`, `CostBreakdown`, `CostSummary`, `BudgetCheck`
+   dataclasses with `to_dict`.
+5. Inline `RATE_TABLE` literal (the catalog from L2).
+6. `ALIASES` literal.
+7. Derived `PRICE_LIST = {m: (r.input_per_1k, r.output_per_1k)
+   for m, r in RATE_TABLE.items()}`.
+8. Internal helpers: `_resolve`, `_warn_deprecated_once`,
+   `_warn_stale_once`, `_extract_buckets`.
+9. Public functions: `resolve_model`, `is_known`, `set_strict`,
+   `compute_cost_breakdown`, `compute_cost`, `format_usd`,
+   `aggregate_costs`, `check_budget`, `diff_costs`,
+   `snapshot_age_days`.
+10. `if __name__ == "__main__":` markdown table dump.
+
+### `tests/test_pricing.py` — new
+
+All 20 tests from L2 plus three new for the L3 deepenings:
+
+21. `test_breakdown_to_dict_round_trips_via_json` — `json.dumps(
+    breakdown.to_dict())` parses back, all values are floats/strs.
+22. `test_snapshot_age_days_uses_today_param` — passing a future
+    date returns a positive integer matching the day delta.
+23. `test_aggregate_costs_skips_records_without_step_kind`
+    — `[{}, {"cost_usd": 1.0}]` → total_usd is 1.0 since the
+    second has no step_kind we recognise but cost_usd is read.
+    (Refines C.)
+
+### Deprecated models
+
+P1 specified `gpt-4-0613`, `gpt-3.5-turbo-0613`, `claude-2.1`.
+Mark them with `replaced_by` and verify the warning fires exactly
+once.
+
+## Verification plan
+
+* Run `pytest -x -q` — all 82 existing tests must still pass.
+  Risk surface:
+  - `test_shims.py:169` reads `pricing.PRICE_LIST` — still exposed
+    as a `dict[str, tuple[float, float]]`.
+  - `recorder.py:120` and `replay.py:384` import `compute_cost` and
+    expect a `float` — preserved.
+* Run new `test_pricing.py` — all 23 tests must pass.
+* Run `python -m stepback.pricing` — must print a non-empty
+  Markdown table without crashing.
+
+## Citation map (which idea from where)
+
+| Element                              | Source     |
+|--------------------------------------|------------|
+| `TokenRates`, `CostBreakdown`        | Proposer 2 |
+| Multi-tier algorithm (cached/reason) | Proposer 2 |
+| Provider-shape normalisation         | Proposer 2 |
+| Catalog expansion (~17 models)       | Proposer 1 |
+| Aliases + `resolve_model` + `is_known`| Proposer 1 |
+| Deprecation warnings                 | Proposer 1 |
+| `MissingPriceError` + `set_strict`   | Proposer 1 |
+| `SNAPSHOT_DATE`                      | Proposer 1 |
+| `format_usd`, `aggregate_costs`      | Proposer 3 |
+| `CostSummary`, `BudgetCheck`         | Proposer 3 |
+| `check_budget`, `diff_costs`         | Proposer 3 |
+| Defensive clamps, `with set_strict`  | Layer 2    |
+| `b - a` sign convention              | Layer 2    |
+| `to_dict` on every dataclass         | Layer 3    |
+| Snapshot freshness warning           | Layer 3    |
+| Step-record schema contract          | Layer 3    |
+| `__main__` markdown dump             | Layer 3    |
+
+## Non-goals (explicit, this round)
+
+* Touching `recorder.py`, `replay.py`, `report.py`, or `cli.py`.
+  They keep importing `compute_cost` and reading `PRICE_LIST`
+  exactly as today — pure additive change.
+* Adding a JSON data file. L1 wanted this; L2 rejected it; L3
+  agrees — keep the catalog inline as a Python literal for
+  diff-friendliness.
+* Currency conversion (FX). Out of scope; documented as future.

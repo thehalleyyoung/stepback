@@ -1,16 +1,12 @@
---- a/stepback/canonical.py
-+++ b/stepback/canonical.py
-@@ -35,9 +35,13 @@ def canonical_json(obj: Any) -> bytes:
- 
- 
- def _default(o: Any) -> Any:
-+    # Tuples are canonicalised as JSON arrays (lists) — index-stable order.
-     if isinstance(o, tuple):
-         return list(o)
-+    # Bytes-like objects use a tagged dict so the round-trip is unambiguous.
-     if isinstance(o, (bytes, bytearray)):
-         return {"__bytes_hex__": bytes(o).hex()}
-+    # NB: sets are intentionally NOT supported — set ordering is non-deterministic
-+    # and would break the "same input bytes -> same hash" invariant.
-     raise TypeError(f"Object of type {type(o).__name__} is not canonicalisable")
- 
+--- a/stepback/trace_reader.py
++++ b/stepback/trace_reader.py
+@@ -131,8 +131,7 @@ def verify_trace(path: str, hmac_key: bytes) -> Trace_:
+         prev = h
+         if body.get("type") == "step":
+             step = _decode_gz_step(body)
+-            if blobs:
+-                step = _materialise(step, blobs)
++            step = _materialise(step, blobs) if blobs is not None else step
+             steps.append(step)
+         elif body.get("type") == "tail":
+             tail = body

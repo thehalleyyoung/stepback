@@ -59,16 +59,18 @@ class Executor:
         llm: Optional[Callable[[str, List[dict]], dict]] = None,
         tool: Optional[Callable[[str, dict], Any]] = None,
         router: Optional[Callable[[str, List[str]], str]] = None,
+        join: Optional[Callable[[str, List[Any]], Any]] = None,
         fallback_recorded: bool = False,
     ) -> None:
         self.llm = llm
         self.tool = tool
         self.router = router
+        self.join = join
         self.fallback_recorded = fallback_recorded
         self.real_calls: int = 0
         self.fallback_uses: int = 0
 
-    def execute(self, kind: str, inputs: dict) -> Any:
+    def execute(self, kind: str, inputs: dict, *, branch_outputs: Optional[List[Any]] = None) -> Any:
         self.real_calls += 1
         if kind == "llm_call":
             if self.llm is None:
@@ -82,6 +84,16 @@ class Executor:
             if self.router is None:
                 raise MissingExecutor("no router executor for dirty router")
             return {"choice": self.router(inputs["name"], inputs["options"])}
+        if kind == "parallel_branch_open":
+            return {
+                "branch_names": list(inputs.get("branch_names", [])),
+                "branch_count": int(inputs.get("branch_count", 0)),
+            }
+        if kind == "parallel_branch_join":
+            outs = list(branch_outputs or [])
+            if self.join is not None:
+                return self.join(inputs.get("name", ""), outs)
+            return {"branches": outs}
         if kind == "exception":
             return {"error_class": "Replayed", "message": ""}
         raise MissingExecutor(f"unknown step kind: {kind}")
@@ -304,6 +316,18 @@ class Trace:
             if parent_id and "context" in cur_inputs and parent_id in outputs_hash_by_id:
                 cur_inputs["context"] = outputs_hash_by_id[parent_id]
 
+            # Multi-parent rebinding: parallel_branch_join carries
+            # `branch_tail_hashes` (one per branch tail). Rebind each
+            # to the current output hash so a substitution inside any
+            # branch flows through the join.
+            parent_ids: List[str] = list(rec.get("parent_step_ids") or [])
+            if "branch_tails" in cur_inputs and "branch_tail_hashes" in cur_inputs:
+                tails = cur_inputs["branch_tails"]
+                cur_inputs["branch_tail_hashes"] = [
+                    outputs_hash_by_id.get(t, cur_inputs["branch_tail_hashes"][i])
+                    for i, t in enumerate(tails)
+                ]
+
             # Apply substitutions targeting this step.
             tool_override: Any = sentinel
             for sub in subs.at(sid):
@@ -314,6 +338,11 @@ class Trace:
 
             current_inputs_hash = hash_obj(cur_inputs)
             parent_dirty = dirty_by_id.get(parent_id, False) if parent_id else False
+            # Multi-parent dirtiness for parallel joins.
+            if parent_ids:
+                parent_dirty = parent_dirty or any(
+                    dirty_by_id.get(pid, False) for pid in parent_ids
+                )
 
             if tool_override is not sentinel:
                 cur_outputs = tool_override
@@ -329,11 +358,19 @@ class Trace:
                     (kind == "llm_call" and executor.llm is None)
                     or (kind == "tool_call" and executor.tool is None)
                     or (kind == "router" and executor.router is None)
+                    or (kind == "parallel_branch_join" and executor.join is None
+                        and not parent_ids)
                 ):
                     cur_outputs = rec["outputs"]
                     executor.fallback_uses += 1
                 else:
-                    cur_outputs = executor.execute(kind, cur_inputs)
+                    if kind == "parallel_branch_join" and parent_ids:
+                        b_outs = [outputs_by_id[pid] for pid in parent_ids]
+                        cur_outputs = executor.execute(
+                            kind, cur_inputs, branch_outputs=b_outs
+                        )
+                    else:
+                        cur_outputs = executor.execute(kind, cur_inputs)
                     real_n += 1
                 is_dirty = True
                 cache_hit = False
@@ -441,8 +478,19 @@ def replay(path: str, *, hmac_key: Optional[bytes] = None) -> Trace:
         header = verified.header
         steps = verified.steps
     else:
-        from .trace_reader import read_frames
+        from .trace_reader import read_frames, _decode_blob, _decode_gz_step, _materialise
         frames = read_frames(path)
         header = next(f["body"] for f in frames if f["body"].get("type") == "header")
-        steps = [f["body"]["step"] for f in frames if f["body"].get("type") == "step"]
+        blobs: dict = {}
+        steps: list = []
+        for f in frames:
+            body = f["body"]
+            t = body.get("type")
+            if t == "blob":
+                blobs[body["id"]] = _decode_blob(body)
+            elif t == "step":
+                step = _decode_gz_step(body)
+                if blobs:
+                    step = _materialise(step, blobs)
+                steps.append(step)
     return Trace(path=path, header=header, recorded_steps=steps)

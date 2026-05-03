@@ -67,6 +67,20 @@ class Recorder:
         self._parent = step["step_id"]
         return step
 
+    def _parent_outputs_hash(self) -> Optional[str]:
+        """Return the recorded outputs_hash of the current ``_parent`` step,
+        or None if no parent. Looks up by id rather than relying on
+        ``self.steps[-1]``, because parallel-branch recording temporarily
+        re-parents to the open frame even though the most recently
+        appended step belongs to a sibling branch.
+        """
+        if self._parent is None:
+            return None
+        for s in reversed(self.steps):
+            if s["step_id"] == self._parent:
+                return s["outputs_hash"]
+        return None
+
     # --------------------------------------------------------- llm_call
     def llm_call(
         self,
@@ -106,7 +120,7 @@ class Recorder:
         cost = compute_cost(model, usage)
         inputs = {"kind": "llm_call", **request}
         if context_from_parent and self._parent is not None:
-            inputs["context"] = self.steps[-1]["outputs_hash"]
+            inputs["context"] = self._parent_outputs_hash()
         step = {
             "step_id": sid,
             "step_kind": "llm_call",
@@ -133,7 +147,7 @@ class Recorder:
         result = executor(name, arguments)
         inputs = {"kind": "tool_call", "name": name, "arguments": arguments}
         if context_from_parent and self._parent is not None:
-            inputs["context"] = self.steps[-1]["outputs_hash"]
+            inputs["context"] = self._parent_outputs_hash()
         step = {
             "step_id": sid,
             "step_kind": "tool_call",
@@ -150,7 +164,7 @@ class Recorder:
         sid = self._new_id()
         inputs = {"kind": "router", "name": name, "options": options}
         if self._parent is not None:
-            inputs["context"] = self.steps[-1]["outputs_hash"]
+            inputs["context"] = self._parent_outputs_hash()
         step = {
             "step_id": sid,
             "step_kind": "router",
@@ -161,6 +175,112 @@ class Recorder:
             "cost_usd": 0.0,
         }
         return self._record(step)
+
+    # ----------------------------------------------------- parallel
+    def parallel(
+        self,
+        name: str,
+        branches: List[Callable[["Recorder"], Any]],
+        *,
+        join: Optional[Callable[[List[Any]], Any]] = None,
+        branch_names: Optional[List[str]] = None,
+    ) -> dict:
+        """Record a fan-out / fan-in across ``branches``.
+
+        Emits one ``parallel_branch_open`` frame, then sequentially
+        drives each branch closure (each closure receives this same
+        recorder, with ``_parent`` rebracketed to the open frame so
+        every step it appends becomes a child of the open). Then
+        emits one ``parallel_branch_join`` frame whose ``parent_step_id``
+        is the open frame and whose ``parent_step_ids`` lists each
+        branch's tail step.
+
+        The join's ``inputs`` carry a ``branch_tail_hashes`` field bound
+        to each tail's recorded ``outputs_hash``. The replay engine
+        rebinds those to current tail output hashes, so a substitution
+        inside any branch propagates dirtiness through the join (and
+        only through the join — sibling branches stay cached).
+
+        ``join`` is an optional callable receiving the list of branch
+        tail outputs and returning the join's ``outputs`` payload.
+        Defaults to ``{"branches": [...tail_outputs...]}``.
+        Sequential execution today; the on-disk frames are explicitly
+        marked parallel so a future scheduler can re-execute branches
+        concurrently without changing the trace shape.
+        """
+        if branch_names is not None and len(branch_names) != len(branches):
+            raise ValueError("branch_names length must match branches length")
+        bnames = list(branch_names) if branch_names else [
+            f"{name}/branch_{i}" for i in range(len(branches))
+        ]
+        open_parent = self._parent
+        sid_open = self._new_id()
+        open_inputs = {
+            "kind": "parallel_branch_open",
+            "name": name,
+            "branch_names": bnames,
+            "branch_count": len(branches),
+        }
+        if open_parent is not None:
+            open_inputs["context"] = self._parent_outputs_hash()
+        open_step = {
+            "step_id": sid_open,
+            "step_kind": "parallel_branch_open",
+            "name": name,
+            "parent_step_id": open_parent,
+            "inputs": open_inputs,
+            "outputs": {"branch_names": bnames, "branch_count": len(branches)},
+            "cost_usd": 0.0,
+        }
+        self._record(open_step)
+
+        branch_tails: List[str] = []
+        branch_tail_outputs: List[Any] = []
+        for fn in branches:
+            self._parent = sid_open
+            fn(self)
+            tail_id = self._parent
+            if tail_id == sid_open:
+                raise RuntimeError(
+                    "parallel branch produced no steps; "
+                    "every branch must record at least one step"
+                )
+            branch_tails.append(tail_id)
+            branch_tail_outputs.append(self.steps[-1]["outputs"])
+
+        join_outputs = (
+            join(branch_tail_outputs)
+            if join is not None
+            else {"branches": branch_tail_outputs}
+        )
+
+        sid_join = self._new_id()
+        # Build a position-stable mapping of tail_id -> recorded outputs_hash.
+        tail_hashes = {}
+        for tid in branch_tails:
+            for s in self.steps:
+                if s["step_id"] == tid:
+                    tail_hashes[tid] = s["outputs_hash"]
+                    break
+        join_inputs = {
+            "kind": "parallel_branch_join",
+            "name": name,
+            "open_step_id": sid_open,
+            "branch_tails": list(branch_tails),
+            "branch_tail_hashes": [tail_hashes[t] for t in branch_tails],
+        }
+        join_step = {
+            "step_id": sid_join,
+            "step_kind": "parallel_branch_join",
+            "name": name,
+            "parent_step_id": sid_open,
+            "parent_step_ids": list(branch_tails),
+            "inputs": join_inputs,
+            "outputs": join_outputs,
+            "cost_usd": 0.0,
+        }
+        self._record(join_step)
+        return join_step
 
     # ------------------------------------------------------- exception
     def exception(self, error_class: str, message: str) -> dict:

@@ -1,5 +1,5 @@
 {
   "patch_index": 1,
-  "score": 44,
-  "reason": "All three candidates produced 44/44 passing tests, so the tie-breaker is robustness of the canonicalisation extension. patch_1 generalises set/frozenset handling like patch_0 but additionally falls back to sorted(o, key=repr) when the set contains heterogeneous, non-orderable elements (e.g. mixed str+int, or dicts) — the case where a naive sorted(o) would itself raise TypeError and re-introduce the very regression we are localising. patch_0 fixes the common case but leaves a sharp edge; patch_2 documents the limitation but does not fix it. patch_1 strictly dominates."
+  "score": 82,
+  "reason": "All three candidates pass 82/82 tests. Tie-breaker: patch_2 is a no-op — `blobs` is initialised to {} in verify_trace and is never None, so `if blobs is not None` always evaluates True and the silent-corruption bug remains. patch_0 fixes the bug by always materialising, surfacing unknown-digest references via TraceVerificationError inside _materialise; correct but the failure message is generic. patch_1 strictly dominates: it adds a typed pre-check (`_has_blob_ref`) that raises a precise TraceVerificationError ('step frame references a blob but no blob frames seen yet') when a step references blobs but none were emitted, AND falls through to _materialise (which itself raises on unknown digests) for the unknown-digest case. patch_1 also avoids unnecessary dict allocations on the common no-blob path. Picking patch_1."
 }

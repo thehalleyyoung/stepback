@@ -33,6 +33,23 @@ from .report import (
     render_report_json,
     dump_report_json,
 )
+from .shims import (
+    AnthropicMessage,
+    OpenAIChatCompletion,
+    WrappedAnthropic,
+    WrappedLangchainTool,
+    WrappedMCPSession,
+    WrappedOpenAI,
+    anthropic_executor,
+    langchain_tool_executor,
+    mcp_tool_executor,
+    openai_executor,
+    wrap_anthropic,
+    wrap_langchain_tool,
+    wrap_langchain_tools,
+    wrap_mcp_session,
+    wrap_openai,
+)
 
 __all__ = [
     "record",
@@ -55,6 +72,21 @@ __all__ = [
     "render_replay_report",
     "render_report_json",
     "dump_report_json",
+    "OpenAIChatCompletion",
+    "AnthropicMessage",
+    "WrappedOpenAI",
+    "WrappedAnthropic",
+    "WrappedLangchainTool",
+    "WrappedMCPSession",
+    "wrap_openai",
+    "wrap_anthropic",
+    "wrap_langchain_tool",
+    "wrap_langchain_tools",
+    "wrap_mcp_session",
+    "openai_executor",
+    "anthropic_executor",
+    "langchain_tool_executor",
+    "mcp_tool_executor",
 ]
 
 __version__ = "0.1.0"
