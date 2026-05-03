@@ -334,3 +334,15 @@ entries accumulate.)_
 <!-- KS-ENTRY id=E000079 ts=2026-05-03T16:31:53Z move=constitutional.critic ok=true surfaces=P,Q supersedes= status=active -->
 **Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
 <!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000080 ts=2026-05-03T20:06:37Z move=grounding.create ok=true surfaces=E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000081 ts=2026-05-03T20:10:12Z move=skeptical.audit ok=true surfaces=P,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000082 ts=2026-05-03T20:12:26Z move=constitutional.critic ok=true surfaces=P,Q supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->

@@ -1,60 +1,61 @@
 [
   {
-    "rule_number": "0",
+    "rule_number": 0,
     "rule_title": "CONSTITUTION.md must exist and be the source of truth",
     "severity": "warning",
-    "message": "The brief instructs to read CONSTITUTION.md, but no such file exists in the repo or any reachable parent. Critique therefore falls back on the in-brief KITCHENSINK PRINCIPLE rules (1, 2, 3, 3a, 3b, 5). Future rounds should add CONSTITUTION.md or change the brief to reference the actual canon.",
+    "message": "Repo has no CONSTITUTION.md at root; the brief mandates 'Read CONSTITUTION.md (must exist)'. Critique falls back to the inline kitchensink rules embedded in the brief. The repo should either commit the canonical CONSTITUTION.md or symlink it from the kitchensink root so future critic rounds can cite explicit clauses.",
     "evidence": [
-      "ls CONSTITUTION.md -> No such file or directory",
-      "find . -maxdepth 3 -iname constitution* -> (no results)"
+      "$ ls CONSTITUTION.md  ->  No such file or directory",
+      "$ git log --all --oneline -- CONSTITUTION.md  ->  (empty)"
     ]
   },
   {
-    "rule_number": "3b",
-    "rule_title": "TEST-FORGE rounds: tests change, prod code is read-only by default",
+    "rule_number": 2,
+    "rule_title": "Deliver ONE coherent thematic improvement per round",
     "severity": "warning",
-    "message": "Commit 3488ba9 is labeled 'kitchensink r0023 test_forge' yet the diff adds ~1568 lines of brand-new production code under stepback/ (minimize.py +684, policy_audit.py +517, predicates.py +67, shims.py +321, cli.py +255). Rule 3b allows prod edits in a TEST-FORGE round only when 'the only way to make a strict test pass is to fix the underlying pipeline'. Adding three large new prod modules (minimize, policy_audit, predicates) and a 333-line bedrock shim cannot be characterized as 'fix the underlying pipeline so a strict test passes' — these are net-new features. Either re-label the round CODE-FORGE or split the new features out.",
+    "message": "Commit 6f58ea1 ('kitchensink r0023 test_forge') bundles at least four independent thematic expansions in the same round: a new replay-divergence detector (stepback/divergence.py, +484 LOC), a new corpus-scale counterfactual sweep API (stepback/sweep.py, +527 LOC), a major predicate-DSL expansion (stepback/predicates.py, +564 LOC) and a brand-new Gemini shim path (stepback/shims.py +638 LOC, tests/test_gemini_shim.py +380 LOC). Any one of these is a coherent round on its own; shipping all four together violates Rule 2's 'bundling unrelated fixes is what's forbidden, not bigness'. Future rounds should split these into separate commits.",
     "evidence": [
-      "git log -1 --format=%s -> 'kitchensink r0023 test_forge'",
-      "git diff HEAD~1 HEAD --stat shows: stepback/minimize.py 684++, stepback/policy_audit.py 517++, stepback/predicates.py 67++, stepback/shims.py 321++, stepback/cli.py 255++"
+      "git diff --stat HEAD~1 HEAD: stepback/divergence.py | 484 ++++ ; stepback/sweep.py | 527 ++++ ; stepback/predicates.py | 564 ++++ ; stepback/shims.py | 638 ++++ ; tests/test_gemini_shim.py | 380 ++++ ; tests/test_sweep.py | 325 ++++ ; tests/test_divergence.py | 360 ++++ ; tests/test_predicate_dsl.py | 308 ++++"
     ]
   },
   {
-    "rule_number": "2",
-    "rule_title": "ONE coherent thematic improvement per round",
+    "rule_number": 3,
+    "rule_title": "Tests come with features (and TEST-FORGE rounds keep prod read-only)",
     "severity": "warning",
-    "message": "The commit bundles at least four unrelated themes: (a) trace minimization (minimize.py + tests), (b) policy auditing (policy_audit.py + tests), (c) AWS Bedrock shim (test_bedrock_shim.py + shims.py expansion), (d) predicates DSL (predicates.py + tests), plus jsonpatch test additions. Rule 2 forbids 'bundling unrelated fixes'. Suggested split: one round per major module (minimize, policy_audit, bedrock-shim, predicates).",
+    "message": "The commit subject is 'kitchensink r0023 test_forge', which per Rule 3b means tests change and 'Default mode: tests change, prod code is read-only.' Instead this commit adds ~2,200 lines of new production code under stepback/ (divergence.py, sweep.py, large predicates.py and shims.py expansions). A test-forge round should not be inventing new public modules; either the commit subject is wrong or the round mixed test-forge with code-forge work.",
     "evidence": [
-      "diff --stat lists new files: stepback/minimize.py, stepback/policy_audit.py, stepback/predicates.py, tests/test_bedrock_shim.py, tests/test_minimize.py, tests/test_policy_audit.py, tests/test_predicates.py, tests/test_jsonpatch.py, tests/test_cli_new_subs.py — each addresses a distinct concern"
+      "git log -1 --format=%s HEAD  ->  'kitchensink r0023 test_forge'",
+      "git diff --stat HEAD~1 HEAD  ->  stepback/divergence.py +484, stepback/sweep.py +527, stepback/predicates.py +564, stepback/shims.py +638 (all new/expanded production surface)"
     ]
   },
   {
-    "rule_number": "3a",
-    "rule_title": "End-to-end fixture testing is mandatory; one e2e test per round on a real fixture",
+    "rule_number": 3,
+    "rule_title": "End-to-end fixture testing is mandatory (real fixtures, not mocks)",
     "severity": "advisory",
-    "message": "The new test files (test_minimize.py 566L, test_policy_audit.py 484L, test_predicates.py 194L, test_bedrock_shim.py 333L) appear to be unit-style tests around the new modules. The brief requires 'at least one test per round must exercise the full user-facing pipeline with a REAL fixture'. For stepback, that would be: record a real .sb trace, run minimize/policy_audit through the CLI end-to-end, and assert structured output. Verify whether any of the added tests qualifies; if none does, add one next round.",
+    "message": "tests/fixtures/ for this repo contains only Python fixture-agent definitions (agent.py, parallel_agent.py); the new test_divergence.py and test_sweep.py drive their pipelines off those synthetic in-process agents rather than a real recorded .sb corpus on disk that would survive a process restart. Consider committing a tiny set of pre-recorded .sb traces under tests/fixtures/traces/ so the divergence + sweep pipelines have an end-goal-realistic corpus matching the v3 testing pattern.",
     "evidence": [
-      "tests/test_minimize.py, tests/test_policy_audit.py, tests/test_predicates.py, tests/test_bedrock_shim.py — added in last commit; need to confirm any drives the full record→write→replay→cli pipeline against tests/fixtures/agent.py"
+      "$ ls tests/fixtures/  ->  __init__.py  __pycache__  agent.py  parallel_agent.py"
     ]
   },
   {
-    "rule_number": "hygiene",
-    "rule_title": "Compiled artifacts (.pyc, __pycache__) should not be committed",
+    "rule_number": 5,
+    "rule_title": "Build artefacts (__pycache__/*.pyc) must not be committed",
     "severity": "warning",
-    "message": "The diff commits 24+ binary .pyc files under stepback/__pycache__/ and tests/__pycache__/. The repo has no .gitignore (`cat .gitignore` returns empty) and 85 .pyc files are tracked overall. These bloat history, cause merge conflicts, and leak interpreter-version-specific bytecode (cpython-311 and cpython-314 variants both committed). Add a .gitignore covering __pycache__/, *.pyc, *.pyo and `git rm -r --cached` the existing entries.",
+    "message": "Commit 6f58ea1 includes 32 binary __pycache__/*.pyc files under both stepback/__pycache__/ and tests/__pycache__/. These are machine-specific build artefacts (Python 3.11 and 3.14 variants both committed) that bloat diffs, churn on every run, and risk masking real source changes. They should be in .gitignore and removed from the index. While this isn't a literal Rule 5 'sacred files' violation, it touches package internals and pollutes review of dsl.py/runner.py/state.py-adjacent diffs.",
     "evidence": [
-      "ls -la .gitignore -> not present in `ls -la` output",
-      "git ls-files | grep -c pyc -> 85",
-      "diff --stat: stepback/__pycache__/cli.cpython-311.pyc, ...cpython-314.pyc, tests/__pycache__/test_*.cpython-311-pytest-9.0.3.pyc all touched"
+      "stepback/__pycache__/cli.cpython-311.pyc | Bin 49343 -> 62674 bytes",
+      "stepback/__pycache__/sweep.cpython-314.pyc | Bin 0 -> 27815 bytes",
+      "tests/__pycache__/test_divergence.cpython-314-pytest-8.4.2.pyc | Bin 0 -> 60214 bytes",
+      "32 .pyc files changed in this commit"
     ]
   },
   {
-    "rule_number": "5",
-    "rule_title": "kitchensink/dsl.py, runner.py, state.py are sacred",
+    "rule_number": 6,
+    "rule_title": "Agent CLI is the reasoner; OPENAI_API_KEY only for images.generate/edit + Whisper",
     "severity": "advisory",
-    "message": "No files under kitchensink/ were touched by the diff (the repo does not contain a kitchensink/ directory at all — `ls` shows stepback/, tests/, scripts/, meta/). Rule 5 is therefore not violated, but flagging here so subsequent critics know the check was performed.",
+    "message": "stepback/divergence.py docstring correctly notes 'For the *quality* of an LLM output (is the new answer worse?), use the agent CLI through the existing stepback.report critic surface, not this module.' Spot-checked divergence.py and sweep.py — neither imports openai/anthropic SDKs nor calls REST endpoints; classification is structural (volatile-key strip + JSON shape compare), so this rule is respected. No violation; logged as a positive note for the next round.",
     "evidence": [
-      "git diff HEAD~1 HEAD --stat | grep -c '^kitchensink/' -> 0"
+      "stepback/divergence.py docstring: 'The detector is **not GOFAI**: each rule is a structural fact about JSON shape or a hard-coded volatile-key list; nothing is doing fuzzy text matching or hand-tuned scoring.'"
     ]
   }
 ]
