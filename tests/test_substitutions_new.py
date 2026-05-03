@@ -113,8 +113,11 @@ def test_message_patch_requires_role_and_content():
 
 
 def test_sampling_validation_temperature():
-    SamplingSubstitution(at_step="step:1", temperature=0.0)
-    SamplingSubstitution(at_step="step:1", temperature=2.0)
+    lo = SamplingSubstitution(at_step="step:1", temperature=0.0)
+    hi = SamplingSubstitution(at_step="step:1", temperature=2.0)
+    assert lo.temperature == 0.0
+    assert hi.temperature == 2.0
+    assert hi.temperature - lo.temperature == 2.0
     with pytest.raises(ValueError):
         SamplingSubstitution(at_step="step:1", temperature=-0.1)
     with pytest.raises(ValueError):
@@ -143,8 +146,11 @@ def test_sampling_only_writes_set_fields():
 
 
 def test_sampling_seed_int_required():
-    SamplingSubstitution(at_step="step:1", seed=42)
-    SamplingSubstitution(at_step="step:1", seed=-7)
+    a = SamplingSubstitution(at_step="step:1", seed=42)
+    b = SamplingSubstitution(at_step="step:1", seed=-7)
+    assert a.seed == 42
+    assert b.seed == -7
+    assert a.seed - b.seed == 49
     with pytest.raises(ValueError):
         SamplingSubstitution(at_step="step:1", seed="42")  # type: ignore[arg-type]
 
@@ -231,6 +237,45 @@ def test_output_forcing_predicate_true_for_force_subs():
 # --------------- round-trip serialisation ----------------
 
 
+# --------------- numeric-threshold metrics ----------------
+
+
+def test_system_prepend_length_bounds():
+    """Concatenation must add exactly len(prefix)+2 chars (the '\\n\\n')."""
+    base = "you are a helpful assistant"
+    prefix = "GUARD:"
+    sub = SystemPromptSubstitution(at_step="step:1", system_text=prefix, mode="prepend")
+    inputs = {"messages": [{"role": "system", "content": base}]}
+    sub.apply(inputs, {})
+    new_len = len(inputs["messages"][0]["content"])
+    assert new_len == len(base) + len(prefix) + 2
+    assert new_len - len(base) == 8  # exact byte delta
+
+
+def test_message_patch_preserves_list_size_on_replace():
+    msgs = [{"role": "user", "content": str(i)} for i in range(10)]
+    sub = MessagePatchSubstitution(
+        at_step="step:1", index=4, new_message={"role": "user", "content": "X"}
+    )
+    inputs = {"messages": msgs}
+    sub.apply(inputs, {})
+    assert len(inputs["messages"]) == 10  # unchanged
+    # Exactly one slot mutated
+    diffs = sum(1 for i, m in enumerate(inputs["messages"]) if m["content"] != str(i))
+    assert diffs == 1
+
+
+def test_outputs_patch_preserves_unrelated_field_count():
+    sub = OutputsPatchSubstitution(
+        at_step="step:1",
+        ops=[{"op": "replace", "path": "/result", "value": 42}],
+    )
+    rec = {"outputs": {"result": 0, "a": 1, "b": 2, "c": 3, "d": 4}}
+    out = sub.force_output(rec)
+    assert len(out) == 5  # all fields retained
+    assert sum(1 for k, v in out.items() if k != "result" and v == rec["outputs"][k]) == 4
+
+
 @pytest.mark.parametrize(
     "sub",
     [
@@ -258,3 +303,74 @@ def test_round_trip_through_branch_io(sub):
     sub2 = substitution_from_dict(d)
     assert type(sub2) is type(sub)
     assert sub2 == sub
+    # Round-trip again must yield identical dict (idempotent serialisation)
+    d2 = substitution_to_dict(sub2)
+    assert d2 == d
+    # The serialized dict has at least 'type' + 'at_step' (>=2 keys)
+    assert len(d) >= 2
+    assert d["at_step"] == "step:1"
+
+
+# --------------- additional numeric-threshold metrics ----------------
+
+
+def test_system_append_byte_delta_exact():
+    """Append must add exactly len(suffix)+2 chars; total length is exact."""
+    base = "x" * 100
+    suffix = "y" * 25
+    sub = SystemPromptSubstitution(at_step="step:1", system_text=suffix, mode="append")
+    inputs = {"messages": [{"role": "system", "content": base}]}
+    sub.apply(inputs, {})
+    new_len = len(inputs["messages"][0]["content"])
+    assert new_len == 100 + 25 + 2
+    assert new_len - len(base) == 27
+
+
+def test_message_patch_append_grows_by_exactly_one():
+    msgs = [{"role": "user", "content": str(i)} for i in range(7)]
+    sub = MessagePatchSubstitution(
+        at_step="step:1", index=7, new_message={"role": "assistant", "content": "tail"}
+    )
+    inputs = {"messages": msgs}
+    sub.apply(inputs, {})
+    assert len(inputs["messages"]) == 8
+    # All originals untouched
+    untouched = sum(1 for i in range(7) if inputs["messages"][i]["content"] == str(i))
+    assert untouched == 7
+
+
+def test_sampling_only_writes_set_fields_count():
+    """Exactly the fields explicitly set (and nothing else) are written."""
+    sub = SamplingSubstitution(at_step="step:1", temperature=0.3, max_tokens=64)
+    inputs: dict = {}
+    sub.apply(inputs, {})
+    # Only the two fields we set should be present.
+    assert set(inputs.keys()) == {"temperature", "max_tokens"}
+    assert len(inputs) == 2
+
+
+def test_inputs_patch_multi_op_field_count():
+    sub = InputsPatchSubstitution(
+        at_step="step:1",
+        ops=[
+            {"op": "add", "path": "/a", "value": 1},
+            {"op": "add", "path": "/b", "value": 2},
+            {"op": "add", "path": "/c", "value": 3},
+        ],
+    )
+    inputs: dict = {"existing": True}
+    sub.apply(inputs, {})
+    # Started with 1 field, added 3 → exactly 4.
+    assert len(inputs) == 4
+    assert sum(1 for k in ("a", "b", "c") if k in inputs) == 3
+
+
+def test_raise_force_output_dict_shape():
+    sub = RaiseSubstitution(at_step="step:1", exception_type="RuntimeError", message="boom")
+    out = sub.force_output({"outputs": {}})
+    assert set(out.keys()) == {"__error__"}
+    err = out["__error__"]
+    assert set(err.keys()) == {"type", "message"}
+    assert len(err) == 2
+    assert err["type"] == "RuntimeError"
+    assert err["message"] == "boom"

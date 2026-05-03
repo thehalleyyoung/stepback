@@ -127,3 +127,109 @@ def test_unknown_kind_lists_new_verbs():
 def test_existing_verbs_still_work():
     sub = parse_substitution_spec("model@step:1=gpt-4o-mini")
     assert sub.kind() == "ModelSubstitution"
+
+
+# --------------- numeric-threshold metrics ----------------
+
+
+def test_sampling_kv_field_count_threshold():
+    """Only fields named in the spec should be set; others remain None."""
+    sub = parse_substitution_spec(
+        "sampling@step:1=:kv:temperature=0.0,max_tokens=128,seed=42"
+    )
+    set_fields = sum(
+        1
+        for v in (sub.temperature, sub.max_tokens, sub.seed, sub.top_p)
+        if v is not None
+    )
+    assert set_fields == 3
+    assert sub.top_p is None
+
+
+def test_inputs_patch_op_count_matches_spec():
+    sub = parse_substitution_spec(
+        'inputs_patch@step:1=:inline:[{"op":"replace","path":"/a","value":1},'
+        '{"op":"add","path":"/b","value":2},'
+        '{"op":"remove","path":"/c"}]'
+    )
+    assert len(sub.ops) == 3
+    assert sum(1 for op in sub.ops if op["op"] == "replace") == 1
+    assert sum(1 for op in sub.ops if op["op"] == "add") == 1
+    assert sum(1 for op in sub.ops if op["op"] == "remove") == 1
+
+
+def test_message_path_roundtrip_byte_size(tmp_path):
+    payload = {"role": "assistant", "content": "ok" * 32}
+    p = tmp_path / "msg.json"
+    raw = json.dumps(payload)
+    p.write_text(raw)
+    sub = parse_substitution_spec(f"message@step:5=:idx=0,path={p}")
+    # Content length is preserved exactly
+    assert len(sub.new_message["content"]) == len(payload["content"])
+    assert len(sub.new_message["content"]) == 64
+
+
+# --------------- additional strict checks ----------------
+
+
+def test_system_inline_text_byte_exact():
+    sub = parse_substitution_spec('system@step:3=:inline:"Be brief."')
+    assert isinstance(sub, SystemPromptSubstitution)
+    assert len(sub.system_text) == 9
+    assert sub.system_text == "Be brief."
+    assert sub.mode == "replace"
+    assert sub.at_step == "step:3"
+
+
+def test_sampling_inline_field_count_threshold():
+    sub = parse_substitution_spec(
+        'sampling@step:1=:inline:{"temperature":0.7,"top_p":0.9}'
+    )
+    set_fields = sum(
+        1
+        for v in (sub.temperature, sub.max_tokens, sub.seed, sub.top_p)
+        if v is not None
+    )
+    assert set_fields == 2
+    assert sub.max_tokens is None
+    assert sub.seed is None
+    # Numeric values exact
+    assert sub.temperature - sub.top_p == pytest.approx(-0.2)
+
+
+def test_outputs_patch_op_count_and_kinds():
+    sub = parse_substitution_spec(
+        'outputs_patch@step:1=:inline:'
+        '[{"op":"replace","path":"/r","value":1},'
+        '{"op":"add","path":"/x","value":2}]'
+    )
+    assert isinstance(sub, OutputsPatchSubstitution)
+    assert len(sub.ops) == 2
+    kinds = {op["op"] for op in sub.ops}
+    assert kinds == {"replace", "add"}
+    assert len(kinds) == 2
+
+
+def test_raise_message_byte_exact():
+    sub = parse_substitution_spec("raise@step:3=TimeoutError:request timed out")
+    assert isinstance(sub, RaiseSubstitution)
+    assert len(sub.exception_type) == 12
+    assert len(sub.message) == 17
+    assert sub.message == "request timed out"
+
+
+def test_message_inline_strict_keys():
+    spec = 'message@step:3=:idx=2,inline:{"role":"user","content":"hi"}'
+    sub = parse_substitution_spec(spec)
+    assert isinstance(sub, MessagePatchSubstitution)
+    # Strict shape: exactly the keys we provided
+    assert set(sub.new_message.keys()) == {"role", "content"}
+    assert len(sub.new_message) == 2
+    assert sub.index == 2
+
+
+def test_existing_model_verb_kind_string_exact():
+    sub = parse_substitution_spec("model@step:1=gpt-4o-mini")
+    name = sub.kind()
+    assert name == "ModelSubstitution"
+    assert len(name) == 17

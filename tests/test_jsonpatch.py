@@ -207,3 +207,47 @@ def test_apply_patch_does_not_mutate_input():
     src = {"a": [1, 2, 3]}
     apply_patch(src, [{"op": "remove", "path": "/a/0"}])
     assert src == {"a": [1, 2, 3]}
+
+
+# ---------------- numeric-threshold metrics ----------------
+
+
+def test_remove_decreases_array_length_by_one():
+    src = list(range(20))
+    out = apply_patch(src, [{"op": "remove", "path": "/5"}])
+    assert len(out) == len(src) - 1
+    assert len(out) == 19
+    # The removed element is gone, surrounding elements preserved
+    assert sum(1 for x in out if x == 5) == 0
+    assert out[:5] == [0, 1, 2, 3, 4]
+    assert out[5:] == [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+
+def test_add_increases_array_length_by_one():
+    src = list(range(50))
+    out = apply_patch(src, [{"op": "add", "path": "/-", "value": 999}])
+    assert len(out) == len(src) + 1
+    assert len(out) == 51
+    assert out[-1] == 999
+
+
+def test_bulk_patch_op_count_threshold():
+    src = {"k0": 0, "k1": 1, "k2": 2, "k3": 3, "k4": 4}
+    ops = [
+        {"op": "replace", "path": f"/k{i}", "value": i * 10} for i in range(5)
+    ]
+    out = apply_patch(src, ops)
+    assert len(out) == 5
+    # All five values were rewritten
+    rewritten = sum(1 for i in range(5) if out[f"k{i}"] == i * 10)
+    assert rewritten == 5
+
+
+def test_copy_does_not_share_reference():
+    src = {"a": {"x": [1, 2, 3]}}
+    out = apply_patch(src, [{"op": "copy", "from": "/a", "path": "/b"}])
+    # Mutating one side must leave the other untouched (deep copy)
+    out["b"]["x"].append(99)
+    assert len(out["a"]["x"]) == 3
+    assert len(out["b"]["x"]) == 4
+    assert out["b"]["x"][-1] == 99
