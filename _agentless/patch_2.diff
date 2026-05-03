@@ -1,15 +1,19 @@
---- a/tests/test_attestation.py
-+++ b/tests/test_attestation.py
-@@ -147,7 +147,11 @@
-     out = str(tmp_path / "x.pack")
-     write_attestation_pack(pack, out, signing_key=signing)
+--- a/stepback/substitutions.py
++++ b/stepback/substitutions.py
+@@ -294,7 +294,15 @@ class OutputsPatchSubstitution(Substitution):
+         return True
  
--    raw = json.loads(open(out).read())
-+    _f = open(out)
-+    try:
-+        raw = json.loads(_f.read())
-+    finally:
-+        _f.close()
-     # Flip the policy_version_pin to a different value (not in the
-     # original body) without re-signing — must fail.
-     raw["policy_version_pin"] = "tampered-2030-01-01"
+     def force_output(self, recorded_step: dict) -> Any:
+-        return apply_patch(recorded_step.get("outputs"), list(self.ops))
++        outputs = recorded_step.get("outputs")
++        if outputs is None:
++            outputs = {}
++        elif not isinstance(outputs, (dict, list)):
++            raise ValueError(
++                "OutputsPatchSubstitution.force_output: recorded outputs must be "
++                f"dict/list/None, got {type(outputs).__name__}"
++            )
++        return apply_patch(outputs, list(self.ops))
+ 
+ 
+ @dataclass

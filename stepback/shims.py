@@ -566,6 +566,294 @@ def wrap_mcp_session(session: Any, recorder: Recorder, *,
 # =====================================================================
 
 
+# =====================================================================
+# AWS Bedrock shim (Converse API)
+# =====================================================================
+#
+# AWS Bedrock's modern surface is the ``Converse`` API exposed by a
+# ``bedrock-runtime`` client. The shape (as of the 2025-Q1 boto3
+# release pinned in ``stepback/pricing.py``) is:
+#
+#     resp = client.converse(
+#         modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+#         messages=[{"role": "user",
+#                    "content": [{"text": "hi"}]}],
+#         system=[{"text": "be terse"}],
+#         inferenceConfig={"temperature": 0.0, "maxTokens": 1024},
+#         toolConfig={...},                # optional
+#     )
+#     # → {"output": {"message": {"role": "assistant",
+#     #                            "content": [{"text": "..."},
+#     #                                        {"toolUse": {...}}]}},
+#     #    "stopReason": "end_turn",
+#     #    "usage": {"inputTokens": ..., "outputTokens": ...,
+#     #              "totalTokens": ...},
+#     #    "metrics": {"latencyMs": ...}}
+#
+# We canonicalise the Bedrock response into the same OpenAI chat-
+# completion shape every other shim emits, so the substitution / cache
+# / cost-accounting paths are uniform across providers. The native
+# Bedrock payload is preserved under ``llm_response._bedrock`` for
+# replay-side reconstruction.
+
+
+def _bedrock_messages_to_unified(
+    messages: Sequence[Mapping[str, Any]],
+    system: Optional[Sequence[Mapping[str, Any]]],
+) -> List[dict]:
+    """Project Bedrock's ``[{role, content:[{text|toolUse|toolResult}]}]``
+    onto the OpenAI ``[{role, content}]`` list used for hashing /
+    substitution. Concatenates ``text`` blocks; preserves structured
+    blocks under ``_bedrock_blocks`` so a substitution writer can still
+    round-trip them."""
+    unified: List[dict] = []
+    if system:
+        sys_text = "".join(b.get("text", "") for b in system if "text" in b)
+        if sys_text:
+            unified.append({"role": "system", "content": sys_text})
+    for m in messages:
+        role = m.get("role", "user")
+        blocks = m.get("content") or []
+        if isinstance(blocks, str):
+            unified.append({"role": role, "content": blocks})
+            continue
+        text = "".join(b.get("text", "") for b in blocks if isinstance(b, Mapping) and "text" in b)
+        entry: dict = {"role": role, "content": text}
+        # Preserve non-text blocks so a faithful round-trip is possible
+        # (tool results, images, document attachments).
+        non_text = [b for b in blocks if isinstance(b, Mapping) and "text" not in b]
+        if non_text:
+            entry["_bedrock_blocks"] = list(non_text)
+        unified.append(entry)
+    return unified
+
+
+def _unified_to_bedrock_messages(
+    messages: Sequence[Mapping[str, Any]],
+) -> tuple[List[dict], Optional[List[dict]]]:
+    """Inverse of :func:`_bedrock_messages_to_unified` for replay."""
+    system: Optional[List[dict]] = None
+    bed_messages: List[dict] = []
+    for m in messages:
+        role = m.get("role", "user")
+        if role == "system":
+            sys_text = m.get("content") or ""
+            system = [{"text": sys_text}] if sys_text else []
+            continue
+        content_blocks: List[dict] = []
+        text = m.get("content") or ""
+        if text:
+            content_blocks.append({"text": text})
+        for extra in m.get("_bedrock_blocks", []) or []:
+            content_blocks.append(dict(extra))
+        bed_messages.append({"role": role, "content": content_blocks})
+    return bed_messages, system
+
+
+def _bedrock_to_openai_shape(d: Mapping[str, Any]) -> dict:
+    """Project a Bedrock Converse response into the OpenAI chat-
+    completion shape. Preserves the native payload under
+    ``_bedrock`` so :func:`bedrock_executor` can rehydrate it on
+    cached replay."""
+    out_msg = (d.get("output") or {}).get("message") or {}
+    blocks = out_msg.get("content") or []
+    content_text = "".join(
+        b.get("text", "") for b in blocks if isinstance(b, Mapping) and "text" in b
+    ) or None
+    tool_calls = []
+    for b in blocks:
+        if not isinstance(b, Mapping):
+            continue
+        if "toolUse" in b:
+            tu = b["toolUse"]
+            tool_calls.append({
+                "id": tu.get("toolUseId", ""),
+                "type": "function",
+                "function": {
+                    "name": tu.get("name", ""),
+                    "arguments": tu.get("input", {}),
+                },
+            })
+    tool_calls = tool_calls or None
+
+    stop_map = {
+        "end_turn": "stop",
+        "stop_sequence": "stop",
+        "max_tokens": "length",
+        "tool_use": "tool_calls",
+        "content_filtered": "content_filter",
+        "guardrail_intervened": "content_filter",
+    }
+    stop_reason = str(d.get("stopReason", ""))
+    finish_reason = stop_map.get(stop_reason, stop_reason or None)
+
+    usage = d.get("usage", {}) or {}
+    canonical_usage = {
+        "prompt_tokens": int(usage.get("inputTokens", 0)),
+        "completion_tokens": int(usage.get("outputTokens", 0)),
+        "total_tokens": int(
+            usage.get("totalTokens",
+                      int(usage.get("inputTokens", 0)) + int(usage.get("outputTokens", 0)))
+        ),
+    }
+    return _strip_none({
+        "id": d.get("ResponseMetadata", {}).get("RequestId") or d.get("id"),
+        "model": d.get("_modelId") or d.get("modelId"),
+        "choices": [{
+            "index": 0,
+            "finish_reason": finish_reason,
+            "message": {
+                "role": out_msg.get("role", "assistant"),
+                "content": content_text,
+                "tool_calls": tool_calls,
+            },
+        }],
+        "usage": canonical_usage,
+        "_bedrock": dict(d),
+    })
+
+
+def _coerce_bedrock_response(resp: Any) -> dict:
+    if isinstance(resp, Mapping):
+        return dict(resp)
+    if hasattr(resp, "model_dump"):
+        return resp.model_dump()  # type: ignore[no-any-return]
+    if hasattr(resp, "to_dict"):
+        return resp.to_dict()  # type: ignore[no-any-return]
+    raise TypeError(
+        f"unsupported Bedrock response type: {type(resp).__name__}"
+    )
+
+
+# Map a Bedrock modelId to a stepback-canonical pricing key. Bedrock
+# uses provider-prefixed ids (``anthropic.claude-3-5-sonnet-...``)
+# whereas ``stepback/pricing.py`` keys claudes by their native ids
+# (``claude-3-5-sonnet-20241022``). The canonicalisation lets a
+# Bedrock-hosted Claude reuse the same pricing row as a native one.
+_BEDROCK_PRICING_ALIAS: Dict[str, str] = {
+    "anthropic.claude-3-5-sonnet-20241022-v2:0": "claude-3-5-sonnet-20241022",
+    "anthropic.claude-3-5-haiku-20241022-v1:0": "claude-3-5-haiku-20241022",
+    "anthropic.claude-3-7-sonnet-20250219-v1:0": "claude-3-7-sonnet-20250219",
+    "anthropic.claude-sonnet-4-20250514-v1:0": "claude-sonnet-4-20250514",
+    "anthropic.claude-opus-4-20250514-v1:0": "claude-opus-4-20250514",
+    "anthropic.claude-haiku-4-20250514-v1:0": "claude-haiku-4-20250514",
+}
+
+
+def canonical_bedrock_model_id(model_id: str) -> str:
+    """Return the stepback canonical pricing key for a Bedrock modelId.
+
+    Falls back to the input string when the model is not a re-hosted
+    third-party model (e.g., Bedrock-native ``meta.llama3-...``).
+    """
+    return _BEDROCK_PRICING_ALIAS.get(model_id, model_id)
+
+
+class _BedrockConverseProxy:
+    def __init__(self, real: Any, recorder: Recorder) -> None:
+        self._real = real
+        self._rec = recorder
+
+    def __call__(self, *,
+                 modelId: str,
+                 messages: List[dict],
+                 system: Optional[List[dict]] = None,
+                 inferenceConfig: Optional[dict] = None,
+                 toolConfig: Optional[dict] = None,
+                 **kwargs: Any) -> dict:
+        unified_messages = _bedrock_messages_to_unified(messages, system)
+        cfg = dict(inferenceConfig or {})
+        temperature = float(cfg.get("temperature", 0.0))
+        max_tokens = int(cfg.get("maxTokens", 1024))
+        seed = cfg.get("seed", 42)
+        canonical_model = canonical_bedrock_model_id(modelId)
+
+        def executor(_model: str, _messages: List[dict]) -> dict:
+            bed_messages, bed_system = _unified_to_bedrock_messages(_messages)
+            kwargs_clean = {k: v for k, v in kwargs.items()
+                            if k not in ("system", "inferenceConfig", "toolConfig")}
+            call_kwargs = {
+                "modelId": modelId,
+                "messages": bed_messages,
+                "inferenceConfig": cfg or {"temperature": temperature, "maxTokens": max_tokens},
+            }
+            if bed_system is not None:
+                call_kwargs["system"] = bed_system
+            if toolConfig is not None:
+                call_kwargs["toolConfig"] = toolConfig
+            call_kwargs.update(kwargs_clean)
+            resp = self._real.converse(**call_kwargs)
+            native = _coerce_bedrock_response(resp)
+            native.setdefault("_modelId", modelId)
+            return _bedrock_to_openai_shape(native)
+
+        step = self._rec.llm_call(
+            model=canonical_model,
+            messages=unified_messages,
+            executor=executor,
+            temperature=temperature,
+            seed=seed,
+            tools=(toolConfig.get("tools") if toolConfig else None),
+            response_format=None,
+        )
+        # Return the native Bedrock payload so existing agent code that
+        # reads ``resp["output"]["message"]["content"][0]["text"]``
+        # keeps working.
+        native = step["llm_response"].get("_bedrock")
+        if native:
+            return native
+        # Synthesise a minimal native shape from the canonical fields.
+        usage = step["llm_response"].get("usage", {})
+        return {
+            "output": {
+                "message": {
+                    "role": step["llm_response"]["choices"][0]["message"].get("role", "assistant"),
+                    "content": [{"text": step["llm_response"]["choices"][0]["message"].get("content") or ""}],
+                },
+            },
+            "stopReason": step["llm_response"]["choices"][0].get("finish_reason") or "end_turn",
+            "usage": {
+                "inputTokens": int(usage.get("prompt_tokens", 0)),
+                "outputTokens": int(usage.get("completion_tokens", 0)),
+                "totalTokens": int(usage.get("total_tokens", 0)),
+            },
+        }
+
+
+@dataclass
+class WrappedBedrock:
+    converse: _BedrockConverseProxy
+    _real: Any
+    _rec: Recorder
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def wrap_bedrock(client: Any, recorder: Recorder) -> WrappedBedrock:
+    """Wrap a real ``bedrock-runtime`` client so ``converse`` is recorded.
+
+    The wrapped object exposes ``client.converse(modelId=..., messages=...,
+    system=..., inferenceConfig=..., toolConfig=...)`` and returns the
+    native Bedrock response dict (so existing agent code keeps working).
+    Internally each call is canonicalised into the OpenAI chat-completion
+    shape used by every other provider shim, so substitutions, cache
+    semantics, and cost accounting are uniform.
+
+    Raises :class:`TypeError` if the client lacks ``.converse`` (i.e.
+    isn't a Bedrock-runtime-shaped object).
+    """
+    if not hasattr(client, "converse"):
+        raise TypeError(
+            "wrap_bedrock: client lacks .converse; "
+            "expected a boto3 bedrock-runtime-shaped object"
+        )
+    return WrappedBedrock(
+        converse=_BedrockConverseProxy(client, recorder),
+        _real=client, _rec=recorder,
+    )
+
+
 def openai_executor(client: Any) -> Callable[[str, List[dict]], dict]:
     """Adapter so a real OpenAI client can serve dirty replay steps.
 
@@ -611,6 +899,35 @@ def langchain_tool_executor(
     return _tool
 
 
+def bedrock_executor(client: Any) -> Callable[[str, List[dict]], dict]:
+    """Adapter wrapping a real Bedrock-runtime client for replay.
+
+    Accepts the canonical ``model`` (which may be the stepback alias —
+    e.g. ``claude-3-5-sonnet-20241022`` — for a Bedrock-hosted Claude)
+    and translates it back into a Bedrock ``modelId`` before calling
+    ``client.converse``. Falls back to the input string when no inverse
+    alias is registered (e.g. native ``meta.llama3-...``).
+    """
+    inverse: Dict[str, str] = {v: k for k, v in _BEDROCK_PRICING_ALIAS.items()}
+
+    def _llm(model: str, messages: List[dict]) -> dict:
+        bed_messages, bed_system = _unified_to_bedrock_messages(messages)
+        bedrock_id = inverse.get(model, model)
+        kwargs: dict = {
+            "modelId": bedrock_id,
+            "messages": bed_messages,
+            "inferenceConfig": {"temperature": 0.0, "maxTokens": 1024},
+        }
+        if bed_system is not None:
+            kwargs["system"] = bed_system
+        resp = client.converse(**kwargs)
+        native = _coerce_bedrock_response(resp)
+        native.setdefault("_modelId", bedrock_id)
+        return _bedrock_to_openai_shape(native)
+
+    return _llm
+
+
 def mcp_tool_executor(
     sessions: Mapping[str, Any],
 ) -> Callable[[str, dict], Any]:
@@ -638,17 +955,21 @@ def mcp_tool_executor(
 __all__ = [
     "WrappedOpenAI",
     "WrappedAnthropic",
+    "WrappedBedrock",
     "WrappedLangchainTool",
     "WrappedMCPSession",
     "OpenAIChatCompletion",
     "AnthropicMessage",
     "wrap_openai",
     "wrap_anthropic",
+    "wrap_bedrock",
     "wrap_langchain_tool",
     "wrap_langchain_tools",
     "wrap_mcp_session",
     "openai_executor",
     "anthropic_executor",
+    "bedrock_executor",
     "langchain_tool_executor",
     "mcp_tool_executor",
+    "canonical_bedrock_model_id",
 ]

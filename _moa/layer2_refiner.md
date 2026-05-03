@@ -2,120 +2,125 @@
 
 ## Decision
 
-Take **Proposer 2's structure** as the backbone (one generic
-`InputsPatchSubstitution` + a small set of typed conveniences +
-the `is_output_forcing` predicate refactor in `replay.py`). It scales
-better than P1's "one dataclass per question" and avoids P3's
-second persistence format.
+**Backbone: Proposer 1's Strategy abstraction** (algorithmic breadth
+with a clean ABC).
+- Why: it's the only proposer whose change is locally contained in
+  `minimize.py` without touching `replay.py` or invading the CLI
+  with unsafe `eval` features. The Strategy hook is the natural
+  extension point that the other two proposers' ideas slot into.
 
-Then layer in the most useful pieces from the others:
+## Integrated from Proposer 2 (attribution)
 
-* From **P1**: the high-frequency typed conveniences
-  `SystemPromptSubstitution` (with mode prepend/replace/append),
-  `MessagePatchSubstitution` (one message at index `i`), and
-  `ToolArgumentsSubstitution`. Keep them — they're the things users
-  would actually type. Drop `ToolSpecSubstitution`,
-  `RouterOptionsSubstitution`, `OutputPatchSubstitution` — all are
-  trivially expressible by `InputsPatchSubstitution` /
-  `OutputsPatchSubstitution`. Adopt P1's `RaiseSubstitution`.
-* From **P2**: `InputsPatchSubstitution`, `OutputsPatchSubstitution`,
-  `SamplingSubstitution` (with strict validation), `RaiseSubstitution`,
-  the `_apply_patch` mini-engine, the `is_output_forcing` predicate
-  refactor, and the JSON Patch dialect (subset).
-* From **P3**: `is_output_forcing` is essentially the same idea as
-  P3's `CompositeSubstitution` for cleaner dispatch — keep that
-  spirit. **Drop** scenarios + `.sbs` (second format = scope creep
-  beyond one coherent theme). **Drop** `AssertSubstitution` for now
-  (pre-step invariants are a different feature — better as a
-  separate round). **Keep** the `mode={"prepend","replace","append"}`
-  pattern for `SystemPromptSubstitution` (P1's idea, applied
-  cleanly).
+Add `ShapleyAttributionStrategy` as a *fourth* concrete strategy
+(P1 had brute/linear/binary/ddmin). The Shapley path naturally
+extends `Strategy.run` to also populate `weights: dict`. So:
+- Strategies return a richer `StrategyResult` carrying the optional
+  `weights` field; ddmin/linear/binary leave it `None`, Shapley
+  fills it.
+- Keep the `attribute_substitutions(...)` convenience function from P2
+  but implement it as `minimize_substitutions(strategy=ShapleyStrategy())`.
+- Skip P2's "negative inhibitor weight" first cut — it's a v2 feature
+  and complicates the binary value function. Shapley returns
+  non-negative weights only in this round; revisit when we have a
+  real fixture exhibiting inhibition.
+- Keep P2's exact-vs-sampled split inside the Shapley strategy:
+  `mode="exact"` for `n <= 6`, permutation sampling above.
 
-## Final substitution roster (8 new + 5 existing)
+## Integrated from Proposer 3 (operational)
 
-Existing: PromptSubstitution, ModelSubstitution, ToolOutputSubstitution,
-PolicySubstitution, RouterSubstitution.
+- **Adopt** the `MinimizeOptions` dataclass with `probe_budget`,
+  `time_budget_s`, `progress` callback, and the `BudgetExhausted`
+  exception. These are pure quality-of-life and small.
+- **Adopt** `find_all_minimal` — it's just a loop on top of
+  `minimize_substitutions` and gives genuinely new value (alternative
+  root causes).
+- **Defer** the predicate DSL. It's a parser-shaped sub-feature with
+  its own surface area; squeezing it into this round bloats scope and
+  risks the test budget. We DO add a minimal `predicates` namespace
+  with three composable helpers (`all_of`, `any_of`, `not_`) and
+  document the DSL as future work. CLI still accepts `--predicate
+  '<python expr>'` as today (already in tree).
+- **Keep** `progress` callback — costs ~5 LOC, big debugging win.
 
-New, all dataclasses with `at_step`:
+## Skipped from all proposers (with reasons)
 
-1. `SystemPromptSubstitution(at_step, system_text, mode="replace")`
-2. `MessagePatchSubstitution(at_step, index, new_message)`
-3. `SamplingSubstitution(at_step, temperature=None, top_p=None,
-   max_tokens=None, seed=None)`
-4. `ToolArgumentsSubstitution(at_step, new_arguments)`
-5. `InputsPatchSubstitution(at_step, ops)`
-6. `OutputsPatchSubstitution(at_step, ops)` — output-forcing
-7. `RaiseSubstitution(at_step, exception_type, message="")` —
-   output-forcing
-8. (drop: keep at 7 — eight is a clean number for one round)
+- **P1 brute force on n>8** — implement, but cap at `max_n=8` as
+  Proposer 1 said. Bigger would tempt foot-guns.
+- **P2 inhibitor detection** — see above.
+- **P3 predicate DSL** — see above. Three helper combinators only.
+- **P3 multi-witness "block by forbidden=True"** — the cleanest
+  blocking is to pass `excluded: set[Substitution]` to
+  `minimize_substitutions` and have the strategy skip those items
+  rather than mark them on the substitution objects themselves
+  (substitutions are immutable dataclasses).
 
-Output-forcing predicate: `Substitution.is_output_forcing`
-(default False; True for `ToolOutputSubstitution`,
-`OutputsPatchSubstitution`, `RaiseSubstitution`).
-
-`replay.py` change: replace the `isinstance(sub, ToolOutputSubstitution)`
-branch with `if sub.is_output_forcing()`. Each output-forcing sub
-gets a `force_output(recorded_step) -> Any` method:
-
-* `ToolOutputSubstitution.force_output` → `{"result": fake_response}`
-* `OutputsPatchSubstitution.force_output` → apply ops to deep-copy
-  of `recorded_step["outputs"]`, return result
-* `RaiseSubstitution.force_output` → `{"__error__": {"type":...,
-  "message":...}}`
-
-## Five axes L3 should deepen
-
-1. **`_apply_patch` semantics** — pin every op + every error path,
-   especially RFC 6901 escapes (`~0`, `~1`), `-` end-of-array
-   sentinel for `add`, missing key vs out-of-bounds index.
-2. **`SamplingSubstitution` validation** — exact ranges, what
-   counts as None vs explicit, key names in the LLM call inputs
-   (`temperature` / `top_p` / `max_tokens` / `seed`), and the case
-   where the recorded step didn't have those fields at all.
-3. **`SystemPromptSubstitution` modes** — what if there's no
-   system message in `messages`? `replace` adds one at index 0;
-   `prepend` adds; `append` adds at end. Pin these.
-4. **`MessagePatchSubstitution` negative indices** — `-1` =
-   last; raise on out-of-bounds (don't silently expand). Allow
-   `index=len(messages)` to mean append.
-5. **CLI spec parsing** — pick a small, learnable grammar for
-   the new verbs that matches the existing `KIND@step:N=BODY`
-   shape. Multi-arg subs use `:kv:k=v,k=v` or `:inline:JSON`.
-
-## Output-forcing dispatch sketch
+## Final API surface (what Layer 3 will pin)
 
 ```python
-class Substitution:
-    def is_output_forcing(self) -> bool: return False
-    def force_output(self, recorded_step: dict) -> Any:
-        raise NotImplementedError
+# minimize.py public symbols
+class Strategy(ABC): ...
+class DDMinStrategy(Strategy): ...
+class LinearShrinkStrategy(Strategy): ...
+class BinaryHalvingStrategy(Strategy): ...
+class BruteForceStrategy(Strategy): ...
+class ShapleyAttributionStrategy(Strategy): ...
+
+@dataclass
+class MinimizeOptions:
+    strategy: Strategy = DDMinStrategy()
+    probe_budget: int | None = None
+    time_budget_s: float | None = None
+    progress: Callable[[int, int], None] | None = None
+    excluded: frozenset[int] = frozenset()  # item-id
+
+@dataclass
+class MinimizationResult:
+    minimal: list[Substitution]
+    removed: list[Substitution]
+    probes: int
+    cache_hits: int
+    strategy_name: str
+    weights: dict[int, float] | None    # populated by Shapley
+    final_result: ReplayResult | None
+
+class BudgetExhausted(Exception):
+    partial: MinimizationResult
+
+def minimize_substitutions(trace, subs, predicate, *, options=None, executor=None) -> MinimizationResult: ...
+def find_all_minimal(trace, subs, predicate, *, max_witnesses=8, options=None, executor=None) -> list[MinimizationResult]: ...
+def attribute_substitutions(trace, subs, predicate, *, executor=None, permutations=None) -> MinimizationResult: ...
+def ddmin_substitutions(trace, subs, predicate, *, executor=None) -> MinimizationResult: ...   # back-compat shim
+
+# minimize/predicates.py mini-namespace (or sub-attr)
+def all_of(*preds): ...
+def any_of(*preds): ...
+def not_(p): ...
 ```
 
-In `replay.py`:
-```python
-tool_override: Any = sentinel
-for sub in subs.at(sid):
-    if sub.is_output_forcing():
-        tool_override = sub.force_output(rec)
-    else:
-        sub.apply(cur_inputs, rec)
-```
+## CLI surface
 
-This is the only `replay.py` change required (modulo cost handling
-for the `__error__` path, which is `0.0`).
+- Existing `stepback minimize TRACE --substitute … --predicate …` keeps
+  working unchanged.
+- New flags:
+  - `--strategy {ddmin,linear,binary,brute,shapley}` (default ddmin)
+  - `--probe-budget N`
+  - `--all-witnesses` + `--max-witnesses K`
+- JSON payload extended with `strategy`, `cache_hits`, `weights`
+  (when present), `witnesses` (when `--all-witnesses`).
 
-## Tests plan
+## Citations
+- Proposer 1: Strategy ABC, four base strategies, oracle memoisation,
+  brute-force ground-truth oracle, CLI `--strategy`. (Proposer 1 §1–5.)
+- Proposer 2: ShapleyAttributionStrategy + `attribute_substitutions`
+  convenience, exact vs. sampled mode, weights field.
+  (Proposer 2 §1–2 and §"Why this framing".)
+- Proposer 3: `MinimizeOptions`, `BudgetExhausted`, progress callback,
+  `find_all_minimal`, `excluded` set, three predicate combinators
+  only. (Proposer 3 §1–3.)
 
-* `tests/test_substitutions_patch.py` — `_apply_patch` table:
-  add/replace/remove/test/copy/move × array+object × good+bad
-  paths; `~` escaping; `-` sentinel.
-* `tests/test_substitutions_new.py` — round-trip, `force_output`,
-  `apply` per new sub; sampling validation rejects
-  `temperature=-0.1`, `top_p=1.5`, `max_tokens=0`.
-* `tests/test_e2e_substitutions.py` — fixture trace; for each new
-  sub kind, run `replay()` and assert
-  `(cache_hits, dirty_count, total_cost_delta)` triple matches a
-  pinned expected value.
-* `tests/test_cli_new_subs.py` — every new spec verb parses to the
-  expected dataclass; `stepback replay --substitute system@step:0=
-  :inline:"You are concise"` runs end-to-end against a fixture trace.
+## Risk register
+- Shapley sampling variance — mitigate by deterministic seed.
+- Strategy refactor risks back-compat — keep `ddmin_substitutions`
+  signature byte-identical and forward to new path.
+- Multi-witness loop with `excluded` — must include the excluded set
+  in the cache key.

@@ -1,87 +1,82 @@
-# Proposer 3 — Orchestration: composites, validators, scenarios
+# Proposer 3 — Multi-witness search and budget controls
+
+## Target module
+`stepback/minimize.py`.
 
 ## Theme
-What's missing is not raw "more substitution kinds" but the
-ability to *compose* substitutions into a named, reusable scenario
-and to attach *invariants* the replay must satisfy at substitution
-points. A debugger of agent runs is most useful when you can say:
-*"here is the 'paranoid-vendor' scenario — 4 substitutions across
-3 steps + 2 invariants — replay every nightly trace under it"*.
+Two pragmatic limits in today's API:
 
-This proposer wraps a smaller set of new substitutions in a
-*scenario* + *invariant* layer.
+1. **Single witness.** ddmin returns one minimal subset. In practice
+   multiple disjoint minimal subsets often exist (e.g. either fixing
+   the lookup tool OR overriding the policy makes the predicate fire).
+   Returning only the first-found witness hides alternatives the user
+   should choose between.
+2. **Unbounded probes.** The current loop has no probe budget, no
+   timeout, no early-stop. A pathological predicate (slow LLM, dirty
+   subtree) can hang.
 
-## New substitutions
+## What to add
 
-1. **`SystemPromptSubstitution(at_step, system_text)`** — patch only
-   the system message (most common ergonomic miss today).
-2. **`SamplingSubstitution(at_step, temperature=None, top_p=None,
-   max_tokens=None)`** — set sampling knobs in inputs.
-3. **`RaiseSubstitution(at_step, exception_type, message)`** —
-   force the step to raise. Stored as
-   `{"__error__": {"type":..., "message":...}}` output.
-4. **`CompositeSubstitution(at_step, children)`** — bundle multiple
-   subs that target the same step into one named unit. Apply order
-   = list order. Round-trips by recursing in `substitution_to_dict`.
-5. **`AssertSubstitution(at_step, predicate)`** — `predicate` is a
-   small JSON-DSL expression (`{"op":"==","path":"/model","value":
-   "gpt-4o-mini-2024-07-18"}`) evaluated against `inputs` *after*
-   substitutions and *before* the step runs. On failure raises
-   `InvariantViolation` so the replay loudly stops. Lets you write:
-   *"if I'm replaying with `policy=paranoid`, assert step:7's model
-   is the cheap one"*.
-
-## Scenario object
-
-* New module `stepback/scenarios.py` (~80 LoC):
-
-  ```python
-  @dataclass
-  class Scenario:
-      name: str
-      description: str = ""
-      substitutions: List[Substitution] = field(default_factory=list)
-      invariants: List[Substitution] = field(default_factory=list)
-
-      def applied_to(self, trace: Trace) -> SubstitutionSet:
-          subs = SubstitutionSet()
-          for s in self.substitutions: subs.add(s)
-          for s in self.invariants:    subs.add(s)
-          return subs
-
-      def to_json(self) -> dict: ...
-      @classmethod
-      def from_json(cls, d: dict) -> "Scenario": ...
-  ```
-
-* `.sbs` ("stepback scenario") files: JSON, list of scenarios.
-  Authored once, applied to many traces (not pinned to a trace
-  hash, unlike `.sbb`).
+1. `find_all_minimal(trace, subs, predicate, *, max_witnesses=8,
+   probe_budget=200, executor=None) -> list[MinimizationResult]`.
+   - Runs ddmin, records the witness, then "blocks" that witness by
+     pinning at least one of its members to `forbidden=True` and
+     re-runs ddmin on the remaining set. Repeat until no more minimal
+     subsets fit the budget or `max_witnesses` is reached.
+   - Each returned `MinimizationResult` carries `witness_index: int`
+     and references the same probe cache.
+2. Budget controls in `MinimizeOptions` dataclass passed to ddmin:
+   - `probe_budget: int | None` — abort with `BudgetExhausted` when
+     exceeded; return best-effort partial result.
+   - `time_budget_s: float | None` — wall-clock bound.
+   - `progress: Callable[[int, int], None] | None` — called after each
+     probe with `(probes_so_far, current_subset_size)` for live UI.
+3. `BudgetExhausted(MinimizationResult)` exception subclass carrying
+   the partial result so callers can salvage it.
+4. **Predicate combinators** in a new sub-namespace
+   `stepback.minimize.predicates`:
+   - `all_of(*preds)`, `any_of(*preds)`, `not_(p)`.
+   - `step_output_contains(step_id, key, needle)`.
+   - `total_cost_exceeds(usd: float)`.
+   - `step_called_tool(step_id, tool_name)`.
+   - `policy_allowed(step_id) / policy_denied(step_id)`.
+   These let the CLI accept high-level predicate DSL strings instead
+   of raw Python `eval`.
 
 ## CLI
-
-* `stepback replay TRACE --scenario scenarios/paranoid.sbs`
-* `stepback diff TRACE --scenario A.sbs --scenario B.sbs`
-* New parser verbs:
-  - `system@step:N=...`
-  - `sampling@step:N=temperature=0.0,max_tokens=256`
-  - `raise@step:N=TimeoutError:timed out`
-  - `assert@step:N=:inline:{"op":"==","path":"/model","value":"..."}`
+- `stepback minimize TRACE --all-witnesses --max-witnesses 4 …` emits
+  a JSON list of witnesses.
+- `--probe-budget 50` and `--time-budget 30s` flags.
+- `--predicate-dsl 'step_output_contains(step-7, country, US)'` as a
+  safer alternative to `--predicate '<python expr>'`.
 
 ## Tests
+- `test_find_all_minimal_returns_two_disjoint_witnesses`: build a
+  fixture where either ToolOutput@1 or PolicyOverride@9 alone makes
+  the predicate fire; assert exactly two single-element witnesses.
+- `test_probe_budget_raises_with_partial_result`: predicate that
+  always returns False; budget=5 → `BudgetExhausted` with
+  `partial.probes == 5`.
+- `test_time_budget_terminates`: predicate sleeps 0.4s; budget 1s →
+  terminates within 2s real time.
+- `test_predicate_dsl_step_output_contains`: ensures the DSL
+  evaluator parses correctly without `eval()` of arbitrary Python.
+- `test_progress_callback_invoked`: list collects progress events;
+  asserts called >= probes count.
 
-* Unit: scenarios round-trip, composite apply order, predicate DSL.
-* E2E: load a `.sbs` with 4 subs + 2 asserts, replay against a
-  fixture trace, assert the dirty-set / cost / one InvariantViolation.
+## Why this framing
+The two missing pieces today are *operational*: alternatives and
+safety. Multi-witness reframes minimisation as enumerating the
+equivalence class of root causes, which matches how engineers
+actually triage. Budgets prevent the tool from being unusable on
+slow / hanging predicates. The predicate DSL replaces an `eval()`
+security hole in the CLI.
 
-## Risks
+## Risk
+The "block witness then re-run" loop is heuristic; not guaranteed to
+enumerate ALL minimal subsets in pathological cases. Document this:
+the function returns "up to k disjoint minimal witnesses found
+within budget", not "all minimal subsets".
 
-* The scenario layer adds a second persistence format on top of
-  `.sbb`; users may be confused about when to use which (`.sbb` =
-  pinned to trace; `.sbs` = portable across traces).
-* The mini-DSL for predicates is yet another grammar — could just
-  use Python `eval` over the dict, but that's a security cliff.
-* `CompositeSubstitution` introduces nesting; `substitution_to_dict`
-  has to recurse. Worth it for batching.
-* Doesn't add a *generic* input mutator (no JSON Patch) — relies on
-  having the right typed substitution for the question.
+## LOC estimate
+~300 LOC core, ~100 LOC predicate DSL, ~200 LOC tests, ~60 LOC CLI.

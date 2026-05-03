@@ -418,6 +418,24 @@ class Trace:
             real_executions=real_n,
         )
 
+    # --------------------------------------------------- minimize
+    def minimize(
+        self,
+        substitutions: "SubstitutionSet",
+        predicate: Callable[["ReplayResult"], bool],
+        *,
+        executor: Optional[Executor] = None,
+    ):
+        """Delta-debug ``substitutions`` to a 1-minimal triggering subset.
+
+        Convenience wrapper around
+        :func:`stepback.minimize.ddmin_substitutions`.
+        """
+        from .minimize import ddmin_substitutions
+        return ddmin_substitutions(
+            self, substitutions, predicate, executor=executor,
+        )
+
     # ----------------------------------------------------- bisect
     def bisect(
         self,

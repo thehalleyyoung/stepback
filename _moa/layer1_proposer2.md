@@ -1,85 +1,73 @@
-# Proposer 2 — Power: a generic JSON-Patch substitution + 3 typed ones
+# Proposer 2 — Causal *attribution*: not just "which", but "how much"
+
+## Target module
+`stepback/minimize.py`.
 
 ## Theme
-The current 5 substitutions are all "shaped" — each carries a
-custom field (`new_messages`, `new_model_id`, ...) that maps to a
-specific input key. Adding a new substitution per debugging
-question doesn't scale. This proposer favours **expressive power**:
-introduce one generic `InputsPatchSubstitution` that can mutate
-*any* path inside `inputs`, plus three high-frequency typed
-substitutions for ergonomics, plus one substitution that targets
-*outputs* instead of inputs.
+Today the user gets a binary answer per substitution: in the minimal
+set or not. That's necessary for a 1-minimal witness but throws away
+information. A debugger user actually wants to see the **causal weight**
+of every substitution — Shapley-style attribution over the substitution
+set, with the predicate as the value function. Then the 1-minimal answer
+falls out as "the items with non-zero Shapley value".
 
-## New substitutions
+## What to add
 
-1. **`InputsPatchSubstitution(at_step, ops)`** — `ops` is a list of
-   RFC 6902 JSON Patch operations (`{"op":"replace","path":"/messages
-   /0/content","value":"..."}`, `{"op":"add"}`, `{"op":"remove"}`,
-   `{"op":"test"}`). Implementation: a tiny ~50-LoC pure-Python
-   `_apply_patch(doc, ops)` (no `jsonpatch` dependency — keeps the
-   wheel lean). `test` ops short-circuit-raise `PatchTestFailed` so
-   you can pin assumptions: *"this step's temperature was 0.7"*.
-2. **`OutputsPatchSubstitution(at_step, ops)`** — same JSON Patch
-   shape, but applied to a deep-copy of the recorded outputs. Marks
-   step dirty (output diverges) without re-invoking the underlying
-   tool / LLM. Generalises `ToolOutputSubstitution`.
-3. **`SamplingSubstitution(at_step, temperature=None, top_p=None,
-   max_tokens=None, seed=None)`** — special-case typed sub for the
-   most common LLM debugging knob; equivalent to a 1-op
-   `InputsPatchSubstitution` but with strict field validation
-   (rejects `temperature=1.5`, `top_p=2.0`, etc.).
-4. **`RaiseSubstitution(at_step, exception_type, message)`** —
-   force an exception. Like `ToolOutputSubstitution`, this is an
-   *output-forcing* substitution; the replay engine catches and
-   stores `{"__error__": {...}}`.
+1. `attribute_substitutions(trace, subs, predicate, *, executor=None,
+   permutations: int | None = None) -> AttributionResult`.
+   - Value function `v(S) = 1.0 if predicate(replay(S)) else 0.0`.
+   - Exact Shapley for `|subs| <= 6` (enumerate all 2^n subsets).
+   - Permutation sampling Shapley for larger sets — `permutations`
+     defaults to `min(64, 4 * n)`.
+2. `AttributionResult`:
+   - `weights: dict[item_id, float]`  — Shapley value per substitution.
+   - `minimal: list[Substitution]` — items with weight > 0 (this *is*
+     a minimal sufficient subset under the binary value function).
+   - `probes: int`, `cached_probes: int`, `mode: "exact" | "sampled"`.
+3. **Cause vs. counter-cause split.** Some substitutions can *suppress*
+   the predicate when added to others. Report negative Shapley values
+   (cause) vs positive (cause). Surface `inhibitors: list[...]` — items
+   whose Shapley weight is negative.
+4. Keep ddmin as a *fast* path: a thin `ddmin_substitutions` that calls
+   `attribute_substitutions(..., permutations=1)` and returns the
+   first 1-minimal it finds.
+5. Probe-result memoisation by canonical-subset key (sorted item IDs)
+   shared across attribution + ddmin.
 
-## Wiring
-
-* `branch_io._TYPE_MAP` updated; `parse_substitution_spec` gains:
-  - `inputs_patch@step:N=:inline:[{"op":"replace",...}]`
-  - `inputs_patch@step:N=path/to/ops.json`
-  - `outputs_patch@step:N=...`
-  - `sampling@step:N=temperature=0.0,max_tokens=256` (kv-pair
-    grammar — easier to type than JSON for sampling)
-  - `raise@step:N=TimeoutError:request timed out`
-* `replay.py` gets ONE new branch: `OutputsPatchSubstitution` and
-  `RaiseSubstitution` join `ToolOutputSubstitution` as the only
-  sub kinds that override `cur_outputs` rather than mutating inputs.
-  Refactor: introduce `Substitution.is_output_forcing` predicate
-  (default False; True for those three classes) to make the dispatch
-  clean instead of `isinstance` chains.
-
-## JSON Patch dialect (subset, tested)
-
-* `op`: `add` | `replace` | `remove` | `test` | `copy` | `move`
-* `path`: `/foo/0/bar` (RFC 6901; `~1` for `/`, `~0` for `~`)
-* `value`: any JSON value (required for `add`/`replace`/`test`)
-* `from`: source path for `copy`/`move`
-* Errors: `PatchPathNotFound`, `PatchTestFailed`,
-  `PatchInvalidOp` — all subclasses of `PatchError(ValueError)`.
+## CLI
+- `stepback attribute TRACE --substitute ... --predicate ...` →
+  emits a table:
+    ```
+    sub-id           weight   role
+    tool@step-7      +1.000   cause
+    model@step-3      0.000   noise
+    prompt@step-9    -0.250   inhibitor
+    ```
+- `--shapley-mode {exact,sampled}` and `--permutations N`.
 
 ## Tests
+- `test_attribution_assigns_full_weight_to_lone_cause`: 1 cause + 5
+  decoys → cause has weight ≈ 1.0, decoys ≈ 0.0.
+- `test_attribution_splits_weight_for_joint_cause`: 2 substitutions
+  jointly required → each gets weight ≈ 0.5.
+- `test_attribution_detects_inhibitor`: design a triplet where one
+  substitution actively suppresses the predicate; assert negative
+  weight.
+- `test_attribution_sampled_within_tolerance_of_exact`: run both modes
+  on n=5; assert `max(|w_exact - w_sampled|) < 0.15`.
 
-* `tests/test_substitutions_patch.py`:
-  - 12 unit cases of `_apply_patch` covering every op + edge cases
-    (negative array index → reject; `path:""` = whole doc; `~`
-    escaping).
-  - Round-trip through `substitution_to_dict`/`from_dict`.
-  - CLI spec parsing for the new kinds.
-* `tests/test_e2e_inputs_patch.py`: replay a 5-step trace,
-  patch `inputs.messages.[0].content` at step:2, assert step:2
-  becomes dirty and the LLM is re-invoked.
-* `tests/test_e2e_raise_substitution.py`: force step:3 to raise
-  `TimeoutError`, assert downstream step:4 sees the error in its
-  context and is itself dirty.
+## Why this framing
+Attribution > 1-minimal. A 1-minimal answer is a single witness;
+Shapley gives you the *whole picture* of who-is-causing-what, which
+is what an agent debugger user wants when staring at a bug
+reproduction. Inhibitor detection is a genuinely new debugging
+capability — it surfaces "this prompt edit was actually masking the
+bug, not causing it".
 
-## Risks
+## Risk
+Shapley with binary predicates can give degenerate weights when the
+predicate is non-monotone. Document the assumption that for n≥7 the
+result is sampled and approximate.
 
-* JSON Patch is more powerful than typical users want; CLI ergonomics
-  hurt (`:inline:[{"op":"replace","path":"/messages/0/content",
-  "value":"hi"}]` is a mouthful).
-* Output-forcing substitutions multiply the special-case dispatch in
-  `replay.py` — needs the `is_output_forcing` predicate refactor to
-  avoid `isinstance` chains.
-* No coverage of "what if this step's *step kind* itself were
-  different?" — out of scope.
+## LOC estimate
+~350 LOC of new logic, ~200 LOC of tests, ~60 LOC CLI.

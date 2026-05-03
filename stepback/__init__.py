@@ -19,6 +19,23 @@ HMAC-chained frames to an append-only `.sb` file.
 from .recorder import record, Recorder, RecorderKey
 from . import autorecord
 from .replay import replay, Trace, Branch, BranchDiff, ReplayResult, Executor
+from .minimize import (
+    BinaryHalvingStrategy,
+    BruteForceStrategy,
+    BudgetExhausted,
+    DDMinStrategy,
+    LinearShrinkStrategy,
+    MinimizationResult,
+    MinimizeOptions,
+    PredicateNotTriggered,
+    ShapleyAttributionStrategy,
+    Strategy,
+    attribute_substitutions,
+    ddmin_substitutions,
+    find_all_minimal,
+    minimize_substitutions,
+)
+from . import predicates
 from .attestation import (
     AttestationEntry,
     AttestationPack,
@@ -64,6 +81,13 @@ from .trace_diff import (
     StepPair,
     diff_traces,
     render_trace_diff,
+)
+from .policy_audit import (
+    PolicyImpactReport,
+    StepImpact,
+    TraceImpact,
+    audit_policy_change,
+    is_policy_blocked,
 )
 from .report import (
     ReportOptions,
@@ -135,6 +159,11 @@ __all__ = [
     "StepPair",
     "diff_traces",
     "render_trace_diff",
+    "PolicyImpactReport",
+    "TraceImpact",
+    "StepImpact",
+    "audit_policy_change",
+    "is_policy_blocked",
     "OpenAIChatCompletion",
     "AnthropicMessage",
     "WrappedOpenAI",
@@ -157,6 +186,9 @@ __all__ = [
     "read_attestation_pack",
     "verify_attestation_pack",
     "write_attestation_pack",
+    "MinimizationResult",
+    "PredicateNotTriggered",
+    "ddmin_substitutions",
 ]
 
 __version__ = "0.1.0"

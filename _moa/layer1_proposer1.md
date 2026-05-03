@@ -1,87 +1,65 @@
-# Proposer 1 — Breadth-first: more typed substitution dataclasses
+# Proposer 1 — Algorithmic breadth: a strategy-pluggable minimizer
+
+## Target module
+`stepback/minimize.py` (currently 168 LOC: one algorithm — Zeller-Hildebrandt
+ddmin — and one result dataclass).
 
 ## Theme
-The substitution vocabulary in `stepback/substitutions.py` only has 5
-kinds (Prompt / Model / ToolOutput / Policy / Router). The README
-markets `stepback` as a "time-travel debugger for AI agents" with
-the ability to substitute *prompts / tool outputs / policies / models*
-— but in practice debugging an LLM agent regression demands finer
-levers. A 200-step trace has dozens of failure-shape questions:
-*"what if the system prompt added a guardrail?"*, *"what if temperature
-were 0?"*, *"what if this tool call had different arguments?"*,
-*"what if this step raised TimeoutError?"*. None of these are
-expressible today.
+The module has exactly one algorithm. The literature on delta-debugging /
+causal isolation has many useful flavours, each with a different
+probe-budget vs. minimality trade-off. Expose a **strategy** abstraction
+and ship four implementations behind one entry point.
 
-This proposer favours **breadth** — add the largest reasonable set of
-new typed substitution dataclasses, each one small, dataclass-shaped,
-and round-trip-serialisable through `branch_io.substitution_to_dict`
-/ `substitution_from_dict`.
+## What to add
 
-## New substitutions (each a dataclass with `at_step`)
+1. `Strategy` ABC with one method:
+   `run(items, oracle) -> (minimal_items, removed_items)` where
+   `oracle(subset) -> bool` is the cached predicate-on-replay.
+2. Concrete strategies:
+   - `DDMinStrategy` — wrap the existing Zeller code path (default).
+   - `LinearShrinkStrategy` — drop one element at a time, accept if
+     predicate still fires. Simple, n+1 probes worst case, gives a
+     1-minimal answer when items are independent.
+   - `BinaryHalvingStrategy` — split in half, recurse into the half(s)
+     that still trigger; if neither half alone triggers, keep both
+     halves and shrink each. Often beats ddmin when blame is
+     concentrated.
+   - `BruteForceStrategy(max_n=8)` — enumerate every non-empty subset
+     up to size `max_n`, return the smallest one that triggers.
+     Optimal but exponential; useful as a ground-truth oracle in
+     tests and for tiny inputs.
+3. Memoise oracle calls by hashing `frozenset(id(item))` — every
+   strategy benefits, ddmin re-tests overlapping subsets often.
+4. `ddmin_substitutions(...)` keeps its current signature for back-compat
+   and forwards to `minimize_substitutions(..., strategy=DDMinStrategy())`.
+5. New `MinimizationResult` fields: `strategy_name: str`,
+   `cache_hits: int`.
 
-1. **`SystemPromptSubstitution(at_step, system_text, mode={"prepend",
-   "replace","append"})`** — patch only the system message instead of
-   replacing the whole `messages` list. Touches `inputs["messages"]`.
-2. **`MessagePatchSubstitution(at_step, index, new_message)`** — replace
-   one message at index `i`; negative indices supported.
-3. **`SamplingSubstitution(at_step, temperature=None, top_p=None,
-   max_tokens=None, seed=None)`** — set any of the four standard
-   sampling knobs in `inputs`.
-4. **`ToolArgumentsSubstitution(at_step, new_arguments)`** — for
-   `tool_call` steps; mutate `inputs["arguments"]` (changes the input
-   hash, so the tool actually runs again with new args).
-5. **`ToolSpecSubstitution(at_step, new_tools)`** — replace the
-   `inputs["tools"]` JSON-schema list available to an LLM step; lets
-   you ask "would the agent have called the right tool if it knew
-   about `refund_invoice`?".
-6. **`RouterOptionsSubstitution(at_step, new_options)`** — change the
-   list of router branch names the recorded router was choosing
-   among.
-7. **`RaiseSubstitution(at_step, exception_type, message)`** — force
-   the step to raise instead of returning. The replay engine catches
-   it and stores `{"__error__": {"type": ..., "message": ...}}` as
-   the output; descendants become dirty as usual. Lets you debug
-   "what happens downstream if THIS tool call had failed?".
-8. **`OutputPatchSubstitution(at_step, json_pointer, new_value)`** —
-   like `ToolOutputSubstitution` but mutates one field of the
-   recorded output (RFC 6901 pointer like `/result/customer/id`)
-   rather than replacing the whole thing. Marks step dirty.
-
-## Wiring
-
-* All new subs registered in `branch_io._TYPE_MAP` and exported from
-  `stepback/__init__.py`.
-* `parse_substitution_spec` extended with new kinds:
-  - `system@step:N=:inline:"You are..."` (mode=`replace`)
-  - `system_prepend@step:N=...`, `system_append@step:N=...`
-  - `message@step:N=:idx=2,inline:{...}`
-  - `sampling@step:N=:inline:{"temperature":0.0,"max_tokens":256}`
-  - `tool_args@step:N=:inline:{"vendor":"Acme"}`
-  - `tools@step:N=:inline:[...]`
-  - `router_options@step:N=:inline:["a","b","c"]`
-  - `raise@step:N=TimeoutError:request timed out`
-  - `output_patch@step:N=:ptr=/result/total,inline:0.0`
-* `replay.py` only needs ONE change: special-case `RaiseSubstitution`
-  the way `ToolOutputSubstitution` is special-cased, because it
-  forces an output rather than mutating an input.
+## CLI
+Add `--strategy {ddmin,linear,binary,brute}` to `stepback minimize`
+(default `ddmin`). Echo the chosen strategy into the JSON payload.
 
 ## Tests
+- `test_strategy_pluggable_returns_same_minimal`: each of the four
+  strategies returns a 1-element minimal on the existing payments
+  fixture (the lookup substitution is the only cause).
+- `test_brute_force_finds_global_optimum_2_of_5`: craft a fixture
+  where two substitutions are *jointly* required (neither alone
+  triggers). DDMin/linear find a 2-set; brute force confirms it is
+  globally minimal at 2.
+- `test_oracle_cache_hits_recorded`: assert `cache_hits >= 1` when a
+  strategy revisits the same subset.
 
-For each new substitution kind:
-1. Round-trip through `substitution_to_dict` /
-   `substitution_from_dict`.
-2. CLI spec parses to the same dataclass.
-3. Replay against a 3-step toy trace shows the right
-   `(cache_hit, dirty, output)` triple.
-4. End-to-end test: run a fixture trace through
-   `stepback replay --substitute <new spec>` and assert the
-   diff-replay JSON has `divergent_step_count >= 1`.
+## Why this framing
+The cleanest extension: keep ddmin as default, add diversity via
+strategy injection. No changes to `replay.py` or `Trace.minimize`'s
+signature. Algorithmic diversity is the most useful thing for a user
+who hits a pathological input where ddmin oscillates.
 
-## Risks / why this might not be the best framing
+## Risk
+Brute force is exponential — must guard with `max_n`. If users pass
+50 substitutions with `--strategy brute`, refuse with a clear error.
 
-* 8 new dataclasses + 8 new spec verbs is a lot of surface; some pairs
-  overlap (e.g. `MessagePatchSubstitution` ⊃ `SystemPromptSubstitution`
-  if `index=0`).
-* No abstraction — each new debugging question requires a new
-  dataclass. Doesn't scale to "what if I want to flip a single
-  boolean inside the recorded outputs?" without adding yet another.
+## LOC estimate
+~250 LOC of new code in `minimize.py`, ~150 LOC of new tests, ~30
+LOC CLI.

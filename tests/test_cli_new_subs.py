@@ -233,3 +233,82 @@ def test_existing_model_verb_kind_string_exact():
     name = sub.kind()
     assert name == "ModelSubstitution"
     assert len(name) == 17
+
+
+def test_bulk_parse_all_new_verbs_succeeds():
+    """All seven new verbs must parse to the correct dataclass — exact count."""
+    specs = [
+        ('system@step:1=:inline:"x"', SystemPromptSubstitution),
+        ('system_prepend@step:1=:inline:"x"', SystemPromptSubstitution),
+        ('system_append@step:1=:inline:"x"', SystemPromptSubstitution),
+        ('message@step:1=:idx=0,inline:{"role":"user","content":"x"}',
+         MessagePatchSubstitution),
+        ('sampling@step:1=:kv:temperature=0.1', SamplingSubstitution),
+        ('tool_args@step:1=:inline:{"k":"v"}', ToolArgumentsSubstitution),
+        ('inputs_patch@step:1=:inline:[{"op":"add","path":"/x","value":1}]',
+         InputsPatchSubstitution),
+        ('outputs_patch@step:1=:inline:[{"op":"add","path":"/x","value":1}]',
+         OutputsPatchSubstitution),
+        ('raise@step:1=ValueError:boom', RaiseSubstitution),
+    ]
+    parsed = [(parse_substitution_spec(s), cls) for s, cls in specs]
+    correct = sum(1 for sub, cls in parsed if isinstance(sub, cls))
+    assert correct == 9
+    assert correct == len(specs)
+    # All parsed objects are non-None
+    assert sum(1 for sub, _ in parsed if sub is None) == 0
+
+
+def test_inputs_patch_large_op_list_exact_count():
+    n = 25
+    ops_json = ",".join(
+        f'{{"op":"add","path":"/k{i}","value":{i}}}' for i in range(n)
+    )
+    spec = f'inputs_patch@step:1=:inline:[{ops_json}]'
+    sub = parse_substitution_spec(spec)
+    assert isinstance(sub, InputsPatchSubstitution)
+    assert len(sub.ops) == n
+    assert len(sub.ops) == 25
+    assert sum(1 for op in sub.ops if op["op"] == "add") == 25
+    # Path indices preserved in order
+    assert [op["path"] for op in sub.ops[:3]] == ["/k0", "/k1", "/k2"]
+
+
+def test_bulk_parse_kind_string_lengths_exact():
+    """Each parsed sub's kind() string must equal its class.__name__ exactly."""
+    pairs = [
+        ('system@step:1=:inline:"x"', "SystemPromptSubstitution"),
+        ('message@step:1=:idx=0,inline:{"role":"user","content":"x"}',
+         "MessagePatchSubstitution"),
+        ('sampling@step:1=:kv:temperature=0.1', "SamplingSubstitution"),
+        ('tool_args@step:1=:inline:{"k":"v"}', "ToolArgumentsSubstitution"),
+        ('inputs_patch@step:1=:inline:[{"op":"add","path":"/x","value":1}]',
+         "InputsPatchSubstitution"),
+        ('outputs_patch@step:1=:inline:[{"op":"add","path":"/x","value":1}]',
+         "OutputsPatchSubstitution"),
+        ('raise@step:1=ValueError:boom', "RaiseSubstitution"),
+    ]
+    matches = sum(
+        1 for spec, name in pairs if parse_substitution_spec(spec).kind() == name
+    )
+    assert matches == 7
+    assert matches == len(pairs)
+
+
+def test_sampling_kv_all_four_fields_set():
+    sub = parse_substitution_spec(
+        "sampling@step:1=:kv:temperature=0.25,max_tokens=512,seed=7,top_p=0.95"
+    )
+    assert isinstance(sub, SamplingSubstitution)
+    set_fields = sum(
+        1
+        for v in (sub.temperature, sub.max_tokens, sub.seed, sub.top_p)
+        if v is not None
+    )
+    assert set_fields == 4
+    assert sub.temperature == 0.25
+    assert sub.max_tokens == 512
+    assert sub.seed == 7
+    assert sub.top_p == 0.95
+    # Numeric ratio bound
+    assert sub.top_p / sub.temperature == pytest.approx(3.8)

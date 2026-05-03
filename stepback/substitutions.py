@@ -294,7 +294,8 @@ class OutputsPatchSubstitution(Substitution):
         return True
 
     def force_output(self, recorded_step: dict) -> Any:
-        return apply_patch(recorded_step.get("outputs"), list(self.ops))
+        outputs = recorded_step.get("outputs")
+        return apply_patch({} if outputs is None else outputs, list(self.ops))
 
 
 @dataclass

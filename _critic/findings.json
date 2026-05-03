@@ -1,45 +1,33 @@
 [
   {
-    "rule_number": 2,
-    "rule_title": "ONE coherent thematic improvement per round",
-    "severity": "warning",
-    "message": "The commit bundles several arguably distinct themes in a single round: (a) regulator attestation packs (stepback/attestation.py, +426 LOC), (b) ambient process-global autorecord (stepback/autorecord.py, +224 LOC), (c) cross-trace diff (stepback/trace_diff.py, +501 LOC), (d) RFC 6902 JSON Patch primitive (stepback/jsonpatch.py, +214 LOC), and (e) substitutions/CLI extensions (+257/+321 LOC). While these can be framed as 'expanding the record/replay/substitute surface area', a stricter reading of Rule 2 would expect one theme (e.g. attestation OR cross-trace diff). Recommend the next round either justify the unifying theme in dossier or split future work.",
-    "evidence": [
-      "stepback/attestation.py: 'Regulator-replay attestation packs.'",
-      "stepback/autorecord.py: 'Process-global ambient recorder for `stepback record -- python script.py`.'",
-      "stepback/trace_diff.py: 'Cross-trace diff: structural comparison of two recorded `.sb` traces.'",
-      "stepback/jsonpatch.py: 'RFC 6902 JSON Patch (subset) + RFC 6901 JSON Pointer.'",
-      "git diff HEAD~1 HEAD --stat shows 4584 insertions across 5 new top-level modules"
-    ]
-  },
-  {
-    "rule_number": 0,
-    "rule_title": "Repository hygiene (committed build artifacts)",
-    "severity": "advisory",
-    "message": "32 .pyc files under stepback/__pycache__/ and tests/__pycache__/ are included in the commit. These are regenerated on every test run and should be gitignored. Not a constitution rule per se, but pollutes the diff and makes review harder.",
-    "evidence": [
-      "git diff HEAD~1 HEAD --name-only | grep -c '.pyc$' => 32",
-      "stepback/__pycache__/attestation.cpython-311.pyc | Bin 0 -> 22169 bytes"
-    ]
-  },
-  {
     "rule_number": "3a",
     "rule_title": "End-to-end fixture testing is mandatory",
     "severity": "advisory",
-    "message": "tests/fixtures/ contains only agent.py / parallel_agent.py helper scripts — there is no real recorded `.sb` corpus fixture committed alongside this round. The new tests (test_attestation.py, test_trace_diff.py, test_e2e_substitutions_new.py) appear to synthesize traces in-process rather than load a checked-in real `.sb` artifact. Per Rule 3a, at least one e2e test per round should exercise the pipeline against a real on-disk fixture.",
+    "message": "This test_forge round added strict numeric-threshold assertions to UNIT-level tests only (substitution-spec parser, jsonpatch, dataclass field counts in tests/test_cli_new_subs.py, tests/test_jsonpatch.py, tests/test_substitutions_new.py). The repo's natural end-to-end fixture is tests/fixtures/agent.py (run_recorded_agent — record -> .sb -> replay -> substitute -> re-execute, exercised by scripts/bench_replay_caching.py). None of the new strict assertions exercise that full record/replay/substitute pipeline, so the round strengthens parsing surface coverage but adds no new e2e-fixture-grounded numeric guarantees.",
     "evidence": [
-      "ls tests/fixtures/ => __init__.py  __pycache__  agent.py  parallel_agent.py",
-      "No *.sb files under tests/fixtures/"
+      "tests/test_cli_new_subs.py: new tests (test_sampling_kv_field_count_threshold, test_inputs_patch_op_count_matches_spec, test_message_path_roundtrip_byte_size, ...) all call parse_substitution_spec(...) and assert on the parsed dataclass — no Recorder/Replayer involvement.",
+      "tests/test_jsonpatch.py: new tests assert apply_patch length deltas on plain dicts/lists — pure helper-level.",
+      "tests/test_substitutions_new.py: new strict tests (test_system_prepend_length_bounds, test_message_patch_preserves_list_size_on_replace, ...) call sub.apply(inputs, {}) on synthetic dicts; do not run through run_recorded_agent or scripts/bench_replay_caching.py."
     ]
   },
   {
-    "rule_number": 1,
-    "rule_title": "Scope expansion is virtuous (positive note)",
+    "rule_number": "3b",
+    "rule_title": "Tests get equal effort to code; mutation testing must catch defects",
     "severity": "advisory",
-    "message": "+4584 / -839 LOC across 5 new modules and 7 new test files clearly satisfies Rule 1's preference for ambitious surface expansion. Listed for completeness, not as a violation.",
+    "message": "The commit message labels this 'r0023 test_forge', which per rule 3b should include mutation-style validation that the new strict assertions actually catch real defects. The diff shows no mutation-testing run, no _audit/mutation_*.json artifact, and no recorded mutation-survival numbers. Several of the new asserts duplicate values in adjacent lines (e.g. asserting both `new_len == 100 + 25 + 2` and `new_len - len(base) == 27` in tests/test_substitutions_new.py::test_system_append_byte_delta_exact), which is fine for documentation but does not by itself demonstrate mutation coverage.",
     "evidence": [
-      "stepback/attestation.py (426 LOC), stepback/trace_diff.py (501 LOC), stepback/cli.py (+321 LOC)",
-      "tests/test_attestation.py (260 LOC), tests/test_trace_diff.py (384 LOC), tests/test_jsonpatch.py (209 LOC)"
+      "git log -1 --format=%s HEAD -> 'kitchensink r0023 test_forge'",
+      "git diff HEAD~1 HEAD --stat shows no entries under _audit/mutation* or scripts/mutation*; only tests/, meta/run_obligations.md, GROUNDING.md, .kitchensink/dossier.md, _audit/findings.jsonl, _critic/findings.json and pyc files."
+    ]
+  },
+  {
+    "rule_number": "2",
+    "rule_title": "One coherent thematic improvement; no bundled unrelated fixes",
+    "severity": "advisory",
+    "message": "Theme of the round (strengthen test assertions with numeric thresholds) is coherent and well-scoped across the three test files. Minor hygiene note: the commit also re-stages numerous compiled stepback/__pycache__/*.pyc and tests/__pycache__/*.pyc files, which are tracked in this repo but bloat the diff and are unrelated to the thematic change. Pre-existing tracking of .pyc is not this commit's fault, but the round could have refrained from re-committing them.",
+    "evidence": [
+      "git diff HEAD~1 HEAD --stat: 11 of 24 changed paths are .pyc files under stepback/__pycache__/ or tests/__pycache__/.",
+      ".gitignore does not list __pycache__/ or *.pyc — pre-existing repo policy tracks them."
     ]
   }
 ]

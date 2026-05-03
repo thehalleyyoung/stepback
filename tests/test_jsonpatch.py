@@ -251,3 +251,74 @@ def test_copy_does_not_share_reference():
     assert len(out["a"]["x"]) == 3
     assert len(out["b"]["x"]) == 4
     assert out["b"]["x"][-1] == 99
+
+
+def test_large_sequential_add_grows_to_exact_size():
+    """100 sequential add-at-end ops must yield length exactly 100."""
+    src: list[int] = []
+    ops = [{"op": "add", "path": "/-", "value": i} for i in range(100)]
+    out = apply_patch(src, ops)
+    assert len(out) == 100
+    assert out[0] == 0
+    assert out[-1] == 99
+    # Sum of 0..99 is 4950 (Gauss formula): exact arithmetic invariant
+    assert sum(out) == 4950
+    # Source untouched
+    assert len(src) == 0
+
+
+def test_move_preserves_object_size_exactly():
+    src = {f"k{i}": i for i in range(50)}
+    ops = [{"op": "move", "from": "/k0", "path": "/moved"}]
+    out = apply_patch(src, ops)
+    # Move = remove + add: net size unchanged
+    assert len(out) == len(src)
+    assert len(out) == 50
+    assert "k0" not in out
+    assert out["moved"] == 0
+
+
+def test_test_op_failure_atomicity_byte_exact():
+    """When test fails mid-batch, NO partial mutation must reach the result."""
+    src = {"a": 1, "counter": 0}
+    ops = [
+        {"op": "replace", "path": "/counter", "value": 1},
+        {"op": "replace", "path": "/counter", "value": 2},
+        {"op": "test", "path": "/a", "value": 999},  # fails
+        {"op": "replace", "path": "/counter", "value": 3},
+    ]
+    with pytest.raises(PatchTestFailed):
+        apply_patch(src, ops)
+    # Source must be byte-identical to original
+    assert src == {"a": 1, "counter": 0}
+    assert len(src) == 2
+    assert src["counter"] == 0
+
+
+def test_pointer_escape_roundtrip_byte_count():
+    """Path with both ~0 and ~1 escapes resolves to exactly the right key."""
+    weird_key = "a/b~c"  # contains both / and ~
+    # Escape: / -> ~1, ~ -> ~0; ordering matters (~ first)
+    escaped = "/a~1b~0c"
+    src = {weird_key: "x" * 64}
+    out = apply_patch(src, [{"op": "replace", "path": escaped, "value": "y" * 32}])
+    assert out[weird_key] == "y" * 32
+    assert len(out[weird_key]) == 32
+    assert len(out) == 1
+
+
+def test_chained_remove_then_add_net_size_invariant():
+    """remove + add at end must yield same length as the source."""
+    src = list(range(64))
+    ops = [
+        {"op": "remove", "path": "/0"},
+        {"op": "add", "path": "/-", "value": 999},
+    ]
+    out = apply_patch(src, ops)
+    assert len(out) == len(src)
+    assert len(out) == 64
+    assert out[0] == 1
+    assert out[-1] == 999
+    # Sum invariant: original sum 0..63 = 2016; remove 0 keeps 2016; +999 = 3015
+    assert sum(out) == 2016 + 999
+    assert sum(out) == 3015

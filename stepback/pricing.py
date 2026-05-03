@@ -204,6 +204,44 @@ RATE_TABLE: dict[str, TokenRates] = {
         input_per_1k=0.000075, output_per_1k=0.0003,
         cached_input_per_1k=0.0000188, family="gemini-2.5-flash",
     ),
+    # ---------------- AWS Bedrock (native models) ----------------
+    # Re-hosted Anthropic Claude on Bedrock prices identically to
+    # native Anthropic; the Bedrock shim canonicalises modelId so
+    # those calls hit the existing claude-* rows. The rates below
+    # cover Bedrock-native foundation models that aren't otherwise in
+    # the catalog. Snapshot 2026-04-01, on-demand US-East-1 pricing.
+    "meta.llama3-1-70b-instruct-v1:0": TokenRates(
+        input_per_1k=0.00099, output_per_1k=0.00099,
+        family="llama3.1-70b-bedrock",
+    ),
+    "meta.llama3-1-8b-instruct-v1:0": TokenRates(
+        input_per_1k=0.00022, output_per_1k=0.00022,
+        family="llama3.1-8b-bedrock",
+    ),
+    "meta.llama3-1-405b-instruct-v1:0": TokenRates(
+        input_per_1k=0.00532, output_per_1k=0.016,
+        family="llama3.1-405b-bedrock",
+    ),
+    "mistral.mistral-large-2407-v1:0": TokenRates(
+        input_per_1k=0.002, output_per_1k=0.006,
+        family="mistral-large-bedrock",
+    ),
+    "cohere.command-r-plus-v1:0": TokenRates(
+        input_per_1k=0.003, output_per_1k=0.015,
+        family="command-r-plus-bedrock",
+    ),
+    "amazon.nova-pro-v1:0": TokenRates(
+        input_per_1k=0.0008, output_per_1k=0.0032,
+        cached_input_per_1k=0.0002, family="nova-pro",
+    ),
+    "amazon.nova-lite-v1:0": TokenRates(
+        input_per_1k=0.00006, output_per_1k=0.00024,
+        cached_input_per_1k=0.000015, family="nova-lite",
+    ),
+    "amazon.nova-micro-v1:0": TokenRates(
+        input_per_1k=0.000035, output_per_1k=0.00014,
+        cached_input_per_1k=0.00000875, family="nova-micro",
+    ),
     # ---------------- Test stub ----------------
     "fake-llm": TokenRates(
         input_per_1k=0.0001, output_per_1k=0.0001, family="fake",
@@ -243,6 +281,15 @@ ALIASES: dict[str, str] = {
     "claude-haiku-4": "claude-haiku-4-20250514",
     "gemini-2.5-pro": "gemini-2.5-pro-2025-03-25",
     "gemini-2.5-flash": "gemini-2.5-flash-2025-04-09",
+    # Bedrock aliases — short forms so users don't need the full ARN-ish id.
+    "llama3.1-70b": "meta.llama3-1-70b-instruct-v1:0",
+    "llama3.1-8b": "meta.llama3-1-8b-instruct-v1:0",
+    "llama3.1-405b": "meta.llama3-1-405b-instruct-v1:0",
+    "mistral-large": "mistral.mistral-large-2407-v1:0",
+    "command-r-plus": "cohere.command-r-plus-v1:0",
+    "nova-pro": "amazon.nova-pro-v1:0",
+    "nova-lite": "amazon.nova-lite-v1:0",
+    "nova-micro": "amazon.nova-micro-v1:0",
 }
 
 # Backward-compat view consumed by tests/test_shims.py and the trace

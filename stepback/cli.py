@@ -53,6 +53,7 @@ from .report import (
 )
 from .substitutions import SubstitutionSet
 from .trace_diff import diff_traces, render_trace_diff
+from .policy_audit import audit_policy_change
 from .trace_reader import verify_trace
 from .attestation import (
     AttestationVerificationError,
@@ -440,6 +441,132 @@ def _cmd_bisect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_minimize(args: argparse.Namespace) -> int:
+    """Delta-debug a substitution set down to a 1-minimal triggering subset."""
+    from .minimize import (
+        BinaryHalvingStrategy,
+        BruteForceStrategy,
+        BudgetExhausted,
+        DDMinStrategy,
+        LinearShrinkStrategy,
+        MinimizeOptions,
+        PredicateNotTriggered,
+        ShapleyAttributionStrategy,
+        find_all_minimal,
+        minimize_substitutions,
+    )
+
+    t = replay(args.trace)
+    subs = SubstitutionSet()
+    if args.from_branch:
+        loaded = load_branch(args.from_branch)
+        for s in loaded.substitutions.items:
+            subs.add(s)
+    for spec in args.substitute or []:
+        subs.add(parse_substitution_spec(spec))
+    if not subs.items:
+        print("error: no substitutions provided", file=sys.stderr)
+        return 2
+
+    pred_code = compile(args.predicate, "<predicate>", "eval")
+
+    def predicate(result):
+        return bool(eval(pred_code, {"result": result, "any": any, "all": all}))
+
+    strategy_name = getattr(args, "strategy", "ddmin") or "ddmin"
+    strategy_map = {
+        "ddmin": DDMinStrategy(),
+        "linear": LinearShrinkStrategy(),
+        "binary": BinaryHalvingStrategy(),
+        "brute": BruteForceStrategy(),
+        "shapley": ShapleyAttributionStrategy(),
+    }
+    if strategy_name not in strategy_map:
+        print(f"error: unknown strategy '{strategy_name}'", file=sys.stderr)
+        return 2
+    strategy = strategy_map[strategy_name]
+    options = MinimizeOptions(
+        strategy=strategy,
+        probe_budget=getattr(args, "probe_budget", None),
+    )
+
+    from .replay import Executor
+
+    def _serialise_result(outcome) -> dict:
+        d = {
+            "strategy": outcome.strategy_name,
+            "probes": outcome.probes,
+            "cache_hits": outcome.cache_hits,
+            "minimal_count": len(outcome.minimal),
+            "removed_count": len(outcome.removed),
+            "minimal": [
+                {"kind": type(s).__name__, "at_step": s.at_step}
+                for s in outcome.minimal
+            ],
+            "removed": [
+                {"kind": type(s).__name__, "at_step": s.at_step}
+                for s in outcome.removed
+            ],
+            "final_cost_usd": (
+                outcome.final_result.total_cost_usd if outcome.final_result else 0.0
+            ),
+            "final_dirty_count": (
+                outcome.final_result.dirty_count if outcome.final_result else 0
+            ),
+        }
+        if outcome.weights is not None:
+            d["weights"] = [
+                {
+                    "kind": type(s).__name__,
+                    "at_step": s.at_step,
+                    "weight": round(outcome.weight_for(s), 6),
+                }
+                for s in list(outcome.minimal) + list(outcome.removed)
+            ]
+        return d
+
+    try:
+        if getattr(args, "all_witnesses", False):
+            witnesses = find_all_minimal(
+                t, subs, predicate,
+                max_witnesses=getattr(args, "max_witnesses", 4),
+                options=options,
+                executor=Executor(fallback_recorded=True),
+            )
+            if not witnesses:
+                print(
+                    "error: predicate does not fire under the full substitution set",
+                    file=sys.stderr,
+                )
+                return 4
+            payload = {
+                "strategy": strategy.name,
+                "witness_count": len(witnesses),
+                "witnesses": [_serialise_result(w) for w in witnesses],
+            }
+        else:
+            outcome = minimize_substitutions(
+                t, subs, predicate,
+                options=options,
+                executor=Executor(fallback_recorded=True),
+            )
+            payload = _serialise_result(outcome)
+    except PredicateNotTriggered as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 4
+    except BudgetExhausted as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        partial = _serialise_result(exc.partial)
+        partial["budget_exhausted"] = True
+        json.dump(partial, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 5
+
+    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
+
+
 def _cmd_attest(args: argparse.Namespace) -> int:
     """Build a regulator-replay attestation pack over one or more traces."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -551,6 +678,44 @@ def _cmd_trace_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_policy_audit(args: argparse.Namespace) -> int:
+    """Re-run a set of traces under a new policy; emit a structured report."""
+    hmac_key = bytes.fromhex(args.hmac_key_hex) if args.hmac_key_hex else None
+    extra: List = []
+    for spec in args.substitute or []:
+        extra.append(parse_substitution_spec(spec))
+
+    report = audit_policy_change(
+        list(args.traces),
+        hmac_key=hmac_key,
+        new_policy_path=args.policy_path,
+        policy_version_pin=args.policy_version_pin,
+        extra_substitutions=extra,
+        policy_step_id=args.policy_step_id,
+    )
+
+    fmt = (args.format or "auto").lower()
+    if fmt == "auto":
+        fmt = _infer_format_from_path(args.output) or "markdown"
+    if fmt == "md":
+        fmt = "markdown"
+    if fmt == "json":
+        out_text = report.to_json_str() + "\n"
+    else:
+        out_text = report.to_markdown()
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out_text)
+        print(f"wrote {args.output} ({len(out_text)} bytes)")
+    else:
+        sys.stdout.write(out_text)
+
+    if args.exit_nonzero_on_divergence and report.traces_with_divergence > 0:
+        return 3
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(prog="stepback", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -634,6 +799,50 @@ def main(argv: Optional[list] = None) -> int:
         "--predicate", required=True, help="Python expression over `step`"
     )
     p_bisect.set_defaults(func=_cmd_bisect)
+
+    p_min = sub.add_parser(
+        "minimize",
+        help="delta-debug a substitution set to a 1-minimal triggering subset",
+        description=(
+            "Given a set of substitutions and a Python predicate over the "
+            "ReplayResult (`result`), shrink the set to a 1-minimal subset "
+            "that still flips the predicate. Each probe is a cached replay "
+            "(zero LLM calls when no executor is configured)."
+        ),
+    )
+    p_min.add_argument("trace")
+    p_min.add_argument(
+        "--substitute", "-s", action="append",
+        help="substitution spec (repeatable). Same grammar as `replay`.",
+    )
+    p_min.add_argument(
+        "--from-branch", help="load substitutions from a saved .sbb file"
+    )
+    p_min.add_argument(
+        "--predicate", required=True,
+        help='Python expression over `result` (a ReplayResult), e.g. '
+             '"result.any_step(lambda s: s.cost_usd > 0.5)" or '
+             '"any(\'GB99\' in str(s.outputs) for s in result.steps)"',
+    )
+    p_min.add_argument(
+        "--strategy",
+        choices=["ddmin", "linear", "binary", "brute", "shapley"],
+        default="ddmin",
+        help="reduction strategy (default: ddmin)",
+    )
+    p_min.add_argument(
+        "--probe-budget", type=int, default=None,
+        help="abort search after N replays; emits partial result with exit code 5",
+    )
+    p_min.add_argument(
+        "--all-witnesses", action="store_true",
+        help="enumerate up to --max-witnesses disjoint minimal subsets",
+    )
+    p_min.add_argument(
+        "--max-witnesses", type=int, default=4,
+        help="max number of witnesses for --all-witnesses (default 4)",
+    )
+    p_min.set_defaults(func=_cmd_minimize)
 
     p_report = sub.add_parser(
         "report",
@@ -744,6 +953,52 @@ def main(argv: Optional[list] = None) -> int:
              "(useful in CI: detect a regression vs. a golden trace)",
     )
     p_trace_diff.set_defaults(func=_cmd_trace_diff)
+
+    p_policy_audit = sub.add_parser(
+        "policy-audit",
+        help="re-execute traces under a new policy; emit a structured impact report",
+        description=(
+            "Regulator-replay: re-run one or many .sb traces under a "
+            "(counterfactual) policy and emit a structured report of "
+            "every step whose decision would now differ. Implements "
+            "README §Use-cases #2 (counterfactual policy) and #5 "
+            "(regulator replay) and the README §CLI line "
+            "`stepback verify --policy-changed-since DATE`."
+        ),
+    )
+    p_policy_audit.add_argument(
+        "traces", nargs="+", help="one or more .sb trace paths to audit"
+    )
+    p_policy_audit.add_argument(
+        "--hmac-key-hex",
+        help="optional HMAC key (hex) for verifying every trace before audit",
+    )
+    p_policy_audit.add_argument(
+        "--policy-path",
+        help="path to the new policy file (wired in via PolicySubstitution at --policy-step-id)",
+    )
+    p_policy_audit.add_argument(
+        "--policy-step-id", default="step:0",
+        help="step ID to anchor the PolicySubstitution at (default step:0)",
+    )
+    p_policy_audit.add_argument(
+        "--policy-version-pin",
+        help="free-form policy version tag recorded in the report header",
+    )
+    p_policy_audit.add_argument(
+        "--substitute", "-s", action="append", default=[],
+        help="extra substitution spec (same grammar as `stepback replay`); may be repeated",
+    )
+    p_policy_audit.add_argument(
+        "--format", choices=["md", "markdown", "json", "auto"], default="auto",
+        help="output format (default: infer from --output extension, else markdown)",
+    )
+    p_policy_audit.add_argument("-o", "--output", help="write report to FILE instead of stdout")
+    p_policy_audit.add_argument(
+        "--exit-nonzero-on-divergence", action="store_true",
+        help="exit code 3 if any trace diverged under the new policy",
+    )
+    p_policy_audit.set_defaults(func=_cmd_policy_audit)
 
     args = p.parse_args(argv)
     return args.func(args)
