@@ -716,6 +716,177 @@ def _cmd_policy_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sweep(args: argparse.Namespace) -> int:
+    from .sweep import (
+        render_sweep_report,
+        render_sweep_report_json,
+        sweep_traces,
+    )
+
+    paths: List[str] = list(args.traces)
+    candidate_subs = [parse_substitution_spec(s) for s in (args.substitute or [])]
+    baseline_subs = [parse_substitution_spec(s) for s in (args.baseline_substitute or [])]
+
+    report = sweep_traces(
+        paths,
+        candidate_subs,
+        baseline_substitutions=baseline_subs,
+        base_step=args.base_step,
+        on_error="record",
+    )
+
+    fmt = args.format
+    if fmt == "auto":
+        if args.output and args.output.endswith(".json"):
+            fmt = "json"
+        else:
+            fmt = "markdown"
+    if fmt == "md":
+        fmt = "markdown"
+
+    if fmt == "json":
+        out_text = json.dumps(
+            render_sweep_report_json(report, include_diffs=args.include_diffs),
+            indent=2, sort_keys=True,
+        ) + "\n"
+    else:
+        out_text = render_sweep_report(
+            report, title=args.title, max_rows=args.max_rows
+        )
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out_text)
+        print(f"wrote {args.output} ({len(out_text)} bytes)")
+    else:
+        sys.stdout.write(out_text)
+
+    if args.exit_nonzero_on_failure and report.n_traces_failed > 0:
+        return 4
+    if args.exit_nonzero_on_divergence and report.n_traces_diverged > 0:
+        return 3
+    return 0
+
+
+def _cmd_divergence(args: argparse.Namespace) -> int:
+    """Re-execute every step in TRACE against an Executor and report divergences.
+
+    The executor is built by importing a Python callable per kind via
+    ``--llm-callable pkg.mod:fn`` / ``--tool-callable pkg.mod:fn``.
+    Steps without a wired-up executor for their kind are listed under
+    ``skipped_step_ids`` in the report.
+
+    With no executor flags, the only useful classification is the
+    self-replay sanity check: pass ``--executor-recorded`` and every
+    step is "executed" by returning the recorded output (so every
+    classification is IDENTICAL).  Mostly useful for smoke tests and
+    for asserting that the comparator itself is sound.
+    """
+    from .divergence import detect_divergences
+
+    hmac_key = bytes.fromhex(args.hmac_key_hex)
+    llm = _import_callable(args.llm_callable) if args.llm_callable else None
+    tool = _import_callable(args.tool_callable) if args.tool_callable else None
+    router = _import_callable(args.router_callable) if args.router_callable else None
+
+    if args.executor_recorded and any([llm, tool, router]):
+        print(
+            "--executor-recorded is mutually exclusive with --llm-callable / "
+            "--tool-callable / --router-callable",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.executor_recorded:
+        # Synthesise an Executor that re-emits the recorded outputs for
+        # every kind by reading them back from the trace.
+        from .replay import Executor as _Exec
+        from .trace_reader import verify_trace as _vt
+        recorded_by_step: dict = {}
+        for s in _vt(args.trace, hmac_key).steps:
+            recorded_by_step[s["step_id"]] = s.get("outputs")
+        # We need to know which step is being executed. The Executor
+        # interface only provides (kind, inputs); we key by the canonical
+        # hash of inputs to look up the matching recorded output.
+        from .canonical import hash_obj as _h
+        by_inp_hash: dict = {}
+        for s in _vt(args.trace, hmac_key).steps:
+            sk = s.get("step_kind") or s.get("kind")
+            by_inp_hash[(sk, _h(s.get("inputs", {})))] = s.get("outputs")
+        def _replay_llm(model, messages):
+            return by_inp_hash[("llm_call", _h({"model": model, "messages": messages}))]
+        def _replay_tool(name, arguments):
+            return by_inp_hash[("tool_call", _h({"name": name, "arguments": arguments}))]
+        def _replay_router(name, options):
+            return by_inp_hash[("router", _h({"name": name, "options": options}))]
+        executor = _Exec(llm=_replay_llm, tool=_replay_tool, router=_replay_router)
+        # Strip the {"result": ...} wrapper executor.execute adds for tools.
+        # Easier: use the raw recorded output via a custom executor subclass.
+        class _RecordedExecutor(_Exec):
+            def execute(self, kind, inputs, *, branch_outputs=None):
+                self.real_calls += 1
+                return by_inp_hash.get((kind, _h(inputs)))
+        # Set every callback to a sentinel so detect_divergences() does
+        # not classify the kind as 'no executor available'.
+        _noop = lambda *a, **k: None
+        executor = _RecordedExecutor(llm=_noop, tool=_noop, router=_noop)
+    else:
+        from .replay import Executor
+        executor = Executor(llm=llm, tool=tool, router=router)
+
+    report = detect_divergences(
+        args.trace,
+        hmac_key=hmac_key,
+        executor=executor,
+        max_steps=args.max_steps,
+    )
+
+    fmt = args.format
+    if fmt == "auto":
+        if args.output and args.output.endswith(".json"):
+            fmt = "json"
+        else:
+            fmt = "markdown"
+    if fmt == "md":
+        fmt = "markdown"
+
+    if fmt == "json":
+        out_text = json.dumps(report.to_json(), indent=2, sort_keys=True) + "\n"
+    else:
+        out_text = report.render_markdown(max_rows=args.max_rows)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out_text)
+        print(f"wrote {args.output} ({len(out_text)} bytes)")
+    else:
+        sys.stdout.write(out_text)
+
+    if args.exit_nonzero_on_divergence and report.divergent_count > 0:
+        return 3
+    if args.severity_threshold is not None and report.severity_score > args.severity_threshold:
+        return 5
+    return 0
+
+
+def _import_callable(spec: str):
+    """Resolve ``pkg.mod:attr`` into a Python callable."""
+    if ":" not in spec:
+        raise ValueError(
+            f"callable spec must be 'pkg.mod:attr', got {spec!r}"
+        )
+    mod_name, attr = spec.split(":", 1)
+    import importlib
+    mod = importlib.import_module(mod_name)
+    obj = mod
+    for part in attr.split("."):
+        obj = getattr(obj, part)
+    if not callable(obj):
+        raise TypeError(f"{spec!r} resolved to non-callable {type(obj).__name__}")
+    return obj
+
+
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(prog="stepback", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -999,6 +1170,97 @@ def main(argv: Optional[list] = None) -> int:
         help="exit code 3 if any trace diverged under the new policy",
     )
     p_policy_audit.set_defaults(func=_cmd_policy_audit)
+
+    p_sweep = sub.add_parser(
+        "sweep",
+        help="apply substitutions across a corpus of .sb traces; aggregate the deltas",
+        description=(
+            "README §Use-cases #3 — 'test a new system prompt on 1000 "
+            "production traces'. Loads every trace, branches at "
+            "--base-step (default step:0), applies the candidate "
+            "substitutions, replays forward (cached unless --executor-* "
+            "is wired), and prints a markdown or JSON report of "
+            "Δcost / divergent-step counts / decisions changed."
+        ),
+    )
+    p_sweep.add_argument("traces", nargs="+", help=".sb trace paths (or shell glob)")
+    p_sweep.add_argument(
+        "--substitute", "-s", action="append", default=[],
+        help="candidate substitution spec (repeatable). Same grammar as `replay`.",
+    )
+    p_sweep.add_argument(
+        "--baseline-substitute", "-S", action="append", default=[],
+        help="baseline substitution spec applied to branch A (repeatable, default empty)",
+    )
+    p_sweep.add_argument(
+        "--base-step", default="step:1",
+        help="branch base step id (default: step:1 — first recorded step)",
+    )
+    p_sweep.add_argument(
+        "--format", choices=["md", "markdown", "json", "auto"], default="auto",
+        help="output format (default: infer from --output extension, else markdown)",
+    )
+    p_sweep.add_argument("-o", "--output", help="write report to FILE instead of stdout")
+    p_sweep.add_argument("--max-rows", type=int, default=50)
+    p_sweep.add_argument("--title", help="report title (markdown H1)")
+    p_sweep.add_argument(
+        "--include-diffs", action="store_true",
+        help="(JSON only) include the full per-step diff per trace",
+    )
+    p_sweep.add_argument(
+        "--exit-nonzero-on-divergence", action="store_true",
+        help="exit code 3 if at least one trace diverged",
+    )
+    p_sweep.add_argument(
+        "--exit-nonzero-on-failure", action="store_true",
+        help="exit code 4 if at least one trace failed to load/replay",
+    )
+    p_sweep.set_defaults(func=_cmd_sweep)
+
+    p_div = sub.add_parser(
+        "divergence",
+        help="re-execute a trace and classify per-step output divergence",
+        description=(
+            "README §Architecture 'replay/nondet.py' — re-execute every "
+            "step in TRACE against a real LLM/tool callable and classify "
+            "each step as identical / equivalent / minor / semantic / "
+            "structural.  Answers 'how reproducible is this trace right "
+            "now against my provider?'."
+        ),
+    )
+    p_div.add_argument("trace", help=".sb trace path")
+    p_div.add_argument("--hmac-key-hex", required=True)
+    p_div.add_argument(
+        "--llm-callable",
+        help="pkg.mod:fn — Python callable matching Executor.llm signature",
+    )
+    p_div.add_argument(
+        "--tool-callable",
+        help="pkg.mod:fn — Python callable matching Executor.tool signature",
+    )
+    p_div.add_argument(
+        "--router-callable",
+        help="pkg.mod:fn — Python callable matching Executor.router signature",
+    )
+    p_div.add_argument(
+        "--executor-recorded", action="store_true",
+        help="self-replay: re-emit recorded outputs (smoke-tests the comparator)",
+    )
+    p_div.add_argument(
+        "--format", choices=["md", "markdown", "json", "auto"], default="auto",
+    )
+    p_div.add_argument("-o", "--output")
+    p_div.add_argument("--max-rows", type=int, default=50)
+    p_div.add_argument("--max-steps", type=int, default=None)
+    p_div.add_argument(
+        "--exit-nonzero-on-divergence", action="store_true",
+        help="exit code 3 if any step is not IDENTICAL",
+    )
+    p_div.add_argument(
+        "--severity-threshold", type=int, default=None,
+        help="exit code 5 if total severity_score > THRESHOLD",
+    )
+    p_div.set_defaults(func=_cmd_divergence)
 
     args = p.parse_args(argv)
     return args.func(args)

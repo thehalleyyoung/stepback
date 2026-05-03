@@ -1,19 +1,37 @@
---- a/stepback/substitutions.py
-+++ b/stepback/substitutions.py
-@@ -294,7 +294,15 @@ class OutputsPatchSubstitution(Substitution):
-         return True
+--- a/stepback/predicates.py	2026-05-03 08:18:19
++++ b/stepback/predicates.py	2026-05-03 11:40:59
+@@ -1,10 +1,10 @@
+ """Tiny composable predicate helpers for :mod:`stepback.minimize`.
  
-     def force_output(self, recorded_step: dict) -> Any:
--        return apply_patch(recorded_step.get("outputs"), list(self.ops))
-+        outputs = recorded_step.get("outputs")
-+        if outputs is None:
-+            outputs = {}
-+        elif not isinstance(outputs, (dict, list)):
-+            raise ValueError(
-+                "OutputsPatchSubstitution.force_output: recorded outputs must be "
-+                f"dict/list/None, got {type(outputs).__name__}"
-+            )
-+        return apply_patch(outputs, list(self.ops))
+ A *predicate* is any ``Callable[[ReplayResult], bool]`` passed to the
+-minimisation toolkit. These three helpers let you compose predicates
++minimisation toolkit. These helpers let you compose predicates
+ without writing lambdas:
+ 
+-    from stepback.predicates import all_of, any_of, not_
++    from stepback.predicates import all_of, any_of, not_, xor_
+ 
+     p = all_of(
+         lambda r: r.total_cost_usd > 0.10,
+@@ -21,7 +21,7 @@
+ 
+ from typing import Any, Callable
+ 
+-__all__ = ["all_of", "any_of", "not_"]
++__all__ = ["all_of", "any_of", "not_", "xor_"]
  
  
- @dataclass
+ def all_of(*predicates: Callable[[Any], bool]) -> Callable[[Any], bool]:
+@@ -65,3 +65,12 @@
+         return not predicate(value)
+ 
+     return _negated
++
++
++def xor_(a: Callable[[Any], bool], b: Callable[[Any], bool]) -> Callable[[Any], bool]:
++    """Return a predicate that fires iff exactly one of ``a`` or ``b`` fires."""
++
++    def _xor(value: Any) -> bool:
++        return bool(a(value)) != bool(b(value))
++
++    return _xor

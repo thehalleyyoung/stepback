@@ -278,3 +278,59 @@ entries accumulate.)_
 <!-- KS-ENTRY id=E000065 ts=2026-05-03T12:52:15Z move=constitutional.critic ok=true surfaces=P,Q supersedes= status=active -->
 **Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
 <!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000066 ts=2026-05-03T15:21:06Z move=codeact.execute ok=true surfaces=R supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000067 ts=2026-05-03T15:29:38Z move=codeact.execute ok=true surfaces=R supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000068 ts=2026-05-03T15:37:24Z move=codeact.execute ok=true surfaces=R supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000069 ts=2026-05-03T15:43:01Z move=agentless.localize_repair ok=true surfaces=R supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000070 ts=2026-05-03T15:57:55Z move=moa.layered_mix ok=true surfaces=R supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000071 ts=2026-05-03T15:59:06Z move=r2e_gym.execute_eval ok=true surfaces=E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000072 ts=2026-05-03T16:06:17Z move=grounding.create ok=true surfaces=E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000073 ts=2026-05-03T16:11:08Z move=skeptical.audit ok=true surfaces=P,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000074 ts=2026-05-03T16:14:56Z move=mealy_supervisor.test_forge_agent ok=true surfaces=R,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000075 ts=2026-05-03T16:16:56Z move=mealy_supervisor.test_forge_agent ok=true surfaces=R,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000076 ts=2026-05-03T16:21:04Z move=mealy_supervisor.test_forge_agent ok=true surfaces=R,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000077 ts=2026-05-03T16:24:43Z move=grounding.create ok=true surfaces=E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000078 ts=2026-05-03T16:29:55Z move=skeptical.audit ok=true surfaces=P,E supersedes= status=active -->
+**Note:** final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->
+
+<!-- KS-ENTRY id=E000079 ts=2026-05-03T16:31:53Z move=constitutional.critic ok=true surfaces=P,Q supersedes= status=active -->
+**Note:** 1 verification command(s) failed; final JSON: final non-empty line was not valid JSON
+<!-- /KS-ENTRY -->

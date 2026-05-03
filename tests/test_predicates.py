@@ -192,3 +192,35 @@ def test_not_idempotent_under_quadruple_negation():
     matches = sum(1 for r in inputs if quad(r))
     assert matches == 100
     assert matches / 500 == 0.20
+
+
+def test_all_of_evaluates_all_when_all_true():
+    """When every predicate returns True, all_of must evaluate every one."""
+    calls = []
+
+    def make(name):
+        def p(_):
+            calls.append(name)
+            return True
+        return p
+
+    preds = [make(f"p{i}") for i in range(32)]
+    assert all_of(*preds)(None) is True
+    assert len(calls) == 32
+    assert calls == [f"p{i}" for i in range(32)]
+
+
+def test_any_of_evaluates_all_when_all_false():
+    """When every predicate returns False, any_of must evaluate every one."""
+    calls = []
+
+    def make(name):
+        def p(_):
+            calls.append(name)
+            return False
+        return p
+
+    preds = [make(f"p{i}") for i in range(16)]
+    assert any_of(*preds)(None) is False
+    assert len(calls) == 16
+    assert calls == [f"p{i}" for i in range(16)]

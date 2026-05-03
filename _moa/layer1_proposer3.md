@@ -1,82 +1,124 @@
-# Proposer 3 — Multi-witness search and budget controls
+# Proposer 3 — JSONLogic-style structured predicates + parser
 
 ## Target module
-`stepback/minimize.py`.
+`stepback/predicates.py`. Same gap (no string DSL).
 
-## Theme
-Two pragmatic limits in today's API:
+## Framing
+Rather than a textual DSL, expose predicates as **JSON-serialisable
+trees** so they can be saved into `.sb` traces, attached to bisect
+runs, diffed across users, and round-tripped through a CLI.
 
-1. **Single witness.** ddmin returns one minimal subset. In practice
-   multiple disjoint minimal subsets often exist (e.g. either fixing
-   the lookup tool OR overriding the policy makes the predicate fire).
-   Returning only the first-found witness hides alternatives the user
-   should choose between.
-2. **Unbounded probes.** The current loop has no probe budget, no
-   timeout, no early-stop. A pathological predicate (slow LLM, dirty
-   subtree) can hang.
+```python
+from stepback.predicates import from_json, to_json, compile_predicate
 
-## What to add
+p_json = {
+    "and": [
+        {">":  [{"var": "total_cost_usd"}, 0.10]},
+        {"any_step": {
+            "and": [
+                {"==": [{"var": "step.kind"}, "tool_call"]},
+                {"in": ["GB99", {"call": ["str", {"var": "step.outputs"}]}]},
+            ],
+        }},
+    ],
+}
+p = from_json(p_json)              # → Callable
+src = "total_cost_usd > 0.10 and any(step.kind == 'tool_call' " \
+      "and 'GB99' in str(step.outputs))"
+p2 = compile_predicate(src)        # textual surface → same JSON tree
+assert to_json(p2) == p_json       # canonical form
+```
 
-1. `find_all_minimal(trace, subs, predicate, *, max_witnesses=8,
-   probe_budget=200, executor=None) -> list[MinimizationResult]`.
-   - Runs ddmin, records the witness, then "blocks" that witness by
-     pinning at least one of its members to `forbidden=True` and
-     re-runs ddmin on the remaining set. Repeat until no more minimal
-     subsets fit the budget or `max_witnesses` is reached.
-   - Each returned `MinimizationResult` carries `witness_index: int`
-     and references the same probe cache.
-2. Budget controls in `MinimizeOptions` dataclass passed to ddmin:
-   - `probe_budget: int | None` — abort with `BudgetExhausted` when
-     exceeded; return best-effort partial result.
-   - `time_budget_s: float | None` — wall-clock bound.
-   - `progress: Callable[[int, int], None] | None` — called after each
-     probe with `(probes_so_far, current_subset_size)` for live UI.
-3. `BudgetExhausted(MinimizationResult)` exception subclass carrying
-   the partial result so callers can salvage it.
-4. **Predicate combinators** in a new sub-namespace
-   `stepback.minimize.predicates`:
-   - `all_of(*preds)`, `any_of(*preds)`, `not_(p)`.
-   - `step_output_contains(step_id, key, needle)`.
-   - `total_cost_exceeds(usd: float)`.
-   - `step_called_tool(step_id, tool_name)`.
-   - `policy_allowed(step_id) / policy_denied(step_id)`.
-   These let the CLI accept high-level predicate DSL strings instead
-   of raw Python `eval`.
+## Why JSON-first
 
-## CLI
-- `stepback minimize TRACE --all-witnesses --max-witnesses 4 …` emits
-  a JSON list of witnesses.
-- `--probe-budget 50` and `--time-budget 30s` flags.
-- `--predicate-dsl 'step_output_contains(step-7, country, US)'` as a
-  safer alternative to `--predicate '<python expr>'`.
+stepback's whole pitch is "every artefact in the debugger is
+inspectable, signed, and replayable." A predicate used to bisect a
+production trace is itself an artefact. JSON-first means:
+
+1. The predicate that found a regression goes into the
+   `report.md` verbatim.
+2. CI can ship a library of predicates as YAML files in repo.
+3. Two engineers comparing branches can diff predicates structurally,
+   not via string-equal.
+4. The textual DSL is just sugar — it lowers to JSON.
+
+## Architecture
+
+### Two layers
+- `from_json(node) -> Callable`: walks a JSON dict, returns a
+  Python callable. Each operator is a registered handler in a
+  small dispatch table.
+- `compile_predicate(src) -> Callable`: tokenizes + Pratt-parses
+  the textual surface into the **same JSON tree**, then calls
+  `from_json`. So all sandboxing logic lives in one place
+  (`from_json`) and the textual surface gains nothing beyond
+  ergonomic.
+
+### Operator table
+```
+arith:    + - * / %                  (binary, numeric)
+compare:  == != < <= > >= in
+boolean:  and or not                 (variadic and/or, unary not)
+access:   var (dotted path resolved against ctx),
+          item (subscript)
+quant:    any_step, all_step         (body evaluated per step)
+calls:    call (name + args, name in {len,str,abs,min,max,sum})
+literals: bare JSON scalars (int/float/str/bool/null)
+```
+
+### `var` resolution
+`{"var": "step.outputs.error_class"}` walks dotted path against
+the active context. Names bound by default:
+- `total_cost_usd`, `dirty_count`, `cache_hit_count`,
+  `real_executions`, `steps`
+- `result` (full ReplayResult)
+- `step` (only inside `any_step`/`all_step` bodies)
+
+Dotted access uses `getattr` for objects, `[]` for dicts, and is
+**limited to attribute names not starting with `_`**.
+
+### Pratt parser for the textual surface
+Pratt parsing handles the precedence ladder
+(`or` < `and` < `not` < compare < `in` < `+/-` < `*/%`) in ~80
+LOC with a single token loop and a `bp` (binding-power) table.
+It's strictly more compact than recursive-descent for an
+expression-only grammar.
+
+## Public API
+```python
+def from_json(spec: dict | list | str | int | float | bool | None) -> Callable
+def to_json(predicate: Callable) -> dict        # only round-trips DSL-built predicates
+def compile_predicate(src: str) -> Callable     # sugar: parse → from_json
+def register_op(name: str, arity: int, fn: Callable) -> None  # extension hook
+class PredicateError(ValueError): ...
+```
+
+`register_op` lets advanced users wire in a custom op — but only
+*before* `compile_predicate` is called for that op name; defensive
+double-registration raises.
+
+## Persistence integration
+Add a tiny piece in `stepback/branch_io.py`: when a `Branch` is
+serialised it includes the JSON predicate that was used to discover
+it (if any), in a new `discovery_predicate` field. This is the
+artefact-as-evidence story the README talks about.
 
 ## Tests
-- `test_find_all_minimal_returns_two_disjoint_witnesses`: build a
-  fixture where either ToolOutput@1 or PolicyOverride@9 alone makes
-  the predicate fire; assert exactly two single-element witnesses.
-- `test_probe_budget_raises_with_partial_result`: predicate that
-  always returns False; budget=5 → `BudgetExhausted` with
-  `partial.probes == 5`.
-- `test_time_budget_terminates`: predicate sleeps 0.4s; budget 1s →
-  terminates within 2s real time.
-- `test_predicate_dsl_step_output_contains`: ensures the DSL
-  evaluator parses correctly without `eval()` of arbitrary Python.
-- `test_progress_callback_invoked`: list collects progress events;
-  asserts called >= probes count.
+`tests/test_predicate_dsl.py`:
+- JSON round-trip for ~10 expressions
+- text → JSON canonicalisation (textual `1 + 2 * 3` → JSON tree
+  with correct precedence)
+- denylist: `{"var": "step.__class__"}` raises
+- extension: `register_op("regex_match", 2, ...)` works once and
+  errors on re-registration
+- end-to-end: predicate used by `Trace.bisect`, then serialised
+  into a `Branch` and re-loaded
 
-## Why this framing
-The two missing pieces today are *operational*: alternatives and
-safety. Multi-witness reframes minimisation as enumerating the
-equivalence class of root causes, which matches how engineers
-actually triage. Budgets prevent the tool from being unusable on
-slow / hanging predicates. The predicate DSL replaces an `eval()`
-security hole in the CLI.
-
-## Risk
-The "block witness then re-run" loop is heuristic; not guaranteed to
-enumerate ALL minimal subsets in pathological cases. Document this:
-the function returns "up to k disjoint minimal witnesses found
-within budget", not "all minimal subsets".
-
-## LOC estimate
-~300 LOC core, ~100 LOC predicate DSL, ~200 LOC tests, ~60 LOC CLI.
+## Strengths / weaknesses
+- + Predicates are *data*: storable, diffable, signable, shareable.
+- + Single sandboxing chokepoint (`from_json`); textual parser is
+  pure sugar that can't reach the runtime directly.
+- + Pratt parser is the smallest correct expression parser known.
+- − JSON form is verbose for humans; expect everyone to prefer the
+  textual surface in REPLs.
+- − Two surfaces means two mental models for newcomers.

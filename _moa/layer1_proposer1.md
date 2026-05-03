@@ -1,65 +1,110 @@
-# Proposer 1 — Algorithmic breadth: a strategy-pluggable minimizer
+# Proposer 1 — Hand-rolled recursive-descent parser
 
 ## Target module
-`stepback/minimize.py` (currently 168 LOC: one algorithm — Zeller-Hildebrandt
-ddmin — and one result dataclass).
+`stepback/predicates.py` — currently exposes only 4 combinators
+(`all_of`, `any_of`, `not_`, `xor_`). Module docstring already
+admits "A future round may add a safe predicate DSL string-parser."
+That's the gap to fill.
 
-## Theme
-The module has exactly one algorithm. The literature on delta-debugging /
-causal isolation has many useful flavours, each with a different
-probe-budget vs. minimality trade-off. Expose a **strategy** abstraction
-and ship four implementations behind one entry point.
+## Framing
+Implement a small **string-DSL** so users can write predicates as
+plain text and pass the compiled `Callable[[ReplayResult], bool]`
+to `Trace.bisect`, `find_minimal`, etc.
 
-## What to add
+```python
+from stepback.predicates import compile_predicate
 
-1. `Strategy` ABC with one method:
-   `run(items, oracle) -> (minimal_items, removed_items)` where
-   `oracle(subset) -> bool` is the cached predicate-on-replay.
-2. Concrete strategies:
-   - `DDMinStrategy` — wrap the existing Zeller code path (default).
-   - `LinearShrinkStrategy` — drop one element at a time, accept if
-     predicate still fires. Simple, n+1 probes worst case, gives a
-     1-minimal answer when items are independent.
-   - `BinaryHalvingStrategy` — split in half, recurse into the half(s)
-     that still trigger; if neither half alone triggers, keep both
-     halves and shrink each. Often beats ddmin when blame is
-     concentrated.
-   - `BruteForceStrategy(max_n=8)` — enumerate every non-empty subset
-     up to size `max_n`, return the smallest one that triggers.
-     Optimal but exponential; useful as a ground-truth oracle in
-     tests and for tiny inputs.
-3. Memoise oracle calls by hashing `frozenset(id(item))` — every
-   strategy benefits, ddmin re-tests overlapping subsets often.
-4. `ddmin_substitutions(...)` keeps its current signature for back-compat
-   and forwards to `minimize_substitutions(..., strategy=DDMinStrategy())`.
-5. New `MinimizationResult` fields: `strategy_name: str`,
-   `cache_hits: int`.
+p = compile_predicate(
+    'total_cost_usd > 0.10 and any(step.kind == "tool_call" '
+    'and "GB99" in str(step.outputs))'
+)
+trace.bisect(predicate=p)
+```
 
-## CLI
-Add `--strategy {ddmin,linear,binary,brute}` to `stepback minimize`
-(default `ddmin`). Echo the chosen strategy into the JSON payload.
+## Architecture: hand-written recursive descent
+
+Three layers — tokenizer, parser, evaluator — no third-party deps,
+no `eval`, no `compile`. ~200 LOC.
+
+### Tokenizer
+Regex-based scanner producing `Token(kind, value, pos)`. Tokens:
+- literals: `NUMBER`, `STRING` (single/double quotes, `\` escapes),
+  `TRUE`, `FALSE`, `NONE`
+- identifiers: `IDENT`
+- operators: `==`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `/`,
+  `%`, `(`, `)`, `[`, `]`, `,`, `.`
+- keywords: `and`, `or`, `not`, `in`, `any`, `all`, `len`,
+  `step` (the per-step iterator var)
+
+### Grammar (pseudo-EBNF)
+```
+expr     := or_expr
+or_expr  := and_expr ('or' and_expr)*
+and_expr := not_expr ('and' not_expr)*
+not_expr := 'not' not_expr | comp
+comp     := add (('==' | '!=' | '<' | '<=' | '>' | '>=' | 'in') add)?
+add      := mul (('+' | '-') mul)*
+mul      := unary (('*' | '/' | '%') unary)*
+unary    := '-' unary | postfix
+postfix  := primary ('.' IDENT | '[' expr ']' | '(' args? ')')*
+primary  := NUMBER | STRING | TRUE | FALSE | NONE
+          | 'any' '(' expr ')'   # iterates over result.steps as 'step'
+          | 'all' '(' expr ')'
+          | 'len' '(' expr ')'
+          | 'str' '(' expr ')'
+          | IDENT                # resolved against context
+          | '(' expr ')'
+```
+
+### AST nodes
+Plain dataclasses: `BinOp(op,l,r)`, `UnaryOp(op,x)`, `Compare(op,l,r)`,
+`MemberAccess(obj,attr)`, `Index(obj,key)`, `Call(name,args)`,
+`Literal(value)`, `Identifier(name)`, `Quantifier(kind,body)`.
+
+### Evaluator
+`eval_node(node, ctx)` where `ctx` is a chain-map dict containing
+the top-level binding `result -> ReplayResult` plus convenience
+short-cuts: `total_cost_usd`, `dirty_count`, `cache_hit_count`,
+`real_executions`, `steps`. Inside `any(...)`/`all(...)` the
+evaluator pushes a frame `{step: StepView}` per iteration over
+`result.steps`.
+
+`MemberAccess` allowlists attributes: only public dataclass fields
+of `StepView` / `ReplayResult` plus the documented `cost` and
+`error_class` properties (already present). Anything else raises
+`PredicateError("attribute 'X' not allowed in DSL")`.
+
+`Call` only resolves to the four whitelisted built-ins (`len`,
+`str`, `any`, `all`). No arbitrary callables.
+
+## Public API additions
+```python
+def compile_predicate(src: str) -> Callable[[Any], bool]
+class PredicateSyntaxError(ValueError): pos: int; src: str
+class PredicateRuntimeError(RuntimeError): ...
+```
+
+`__all__` adds `compile_predicate`, `PredicateSyntaxError`,
+`PredicateRuntimeError`.
+
+## Why hand-rolled (not Python `ast`)
+Python's `ast` module is appealing but its grammar surface is huge
+— anyone who later swaps `ast.parse` for the underlying compiler
+opens an injection vector. A hand-written grammar is auditable in
+one screen.
 
 ## Tests
-- `test_strategy_pluggable_returns_same_minimal`: each of the four
-  strategies returns a 1-element minimal on the existing payments
-  fixture (the lookup substitution is the only cause).
-- `test_brute_force_finds_global_optimum_2_of_5`: craft a fixture
-  where two substitutions are *jointly* required (neither alone
-  triggers). DDMin/linear find a 2-set; brute force confirms it is
-  globally minimal at 2.
-- `test_oracle_cache_hits_recorded`: assert `cache_hits >= 1` when a
-  strategy revisits the same subset.
+`tests/test_predicate_dsl.py`:
+- happy paths: cost compare, `any(step.kind == "llm_call")`,
+  `len(steps) > 5`, string `in`, nested booleans
+- syntax errors with `pos` pointing at offending token
+- attribute denylist: `compile_predicate("step.__class__")` raises
+- builtin denylist: `compile_predicate("open('/etc/passwd')")` raises
+- end-to-end: `Trace.bisect(predicate=compile_predicate(...))` finds
+  the right step on the existing fixture trace
 
-## Why this framing
-The cleanest extension: keep ddmin as default, add diversity via
-strategy injection. No changes to `replay.py` or `Trace.minimize`'s
-signature. Algorithmic diversity is the most useful thing for a user
-who hits a pathological input where ddmin oscillates.
-
-## Risk
-Brute force is exponential — must guard with `max_n`. If users pass
-50 substitutions with `--strategy brute`, refuse with a clear error.
-
-## LOC estimate
-~250 LOC of new code in `minimize.py`, ~150 LOC of new tests, ~30
-LOC CLI.
+## Strengths / weaknesses
+- + Zero deps, ~200 LOC, fully sandboxed by construction.
+- + Easy to extend (add a node type, add a parse rule).
+- − Re-implements the wheel; no operator precedence climbing helper.
+- − Error messages are only as good as we make them.

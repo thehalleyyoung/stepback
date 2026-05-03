@@ -928,6 +928,636 @@ def bedrock_executor(client: Any) -> Callable[[str, List[dict]], dict]:
     return _llm
 
 
+# =====================================================================
+# Google Gemini shim (google-genai SDK)
+# =====================================================================
+#
+# The 2025-Q1 ``google-genai`` SDK exposes Gemini through:
+#
+#     from google import genai
+#     client = genai.Client(api_key=...)
+#     resp = client.models.generate_content(
+#         model="gemini-2.5-flash",
+#         contents=[
+#             {"role": "user",
+#              "parts": [{"text": "hello"}]}
+#         ],
+#         config={
+#             "system_instruction": "be terse",
+#             "temperature": 0.0,
+#             "max_output_tokens": 1024,
+#             "tools": [...],
+#             "seed": 42,
+#         },
+#     )
+#     # → resp.text, resp.candidates[*].content.parts[*],
+#     #   resp.candidates[*].finish_reason,
+#     #   resp.usage_metadata.{prompt_token_count,
+#     #                       candidates_token_count,
+#     #                       total_token_count}
+#
+# Vertex AI's ``vertexai.generative_models.GenerativeModel`` exposes
+# the same shape under ``model.generate_content(contents, generation_
+# config=..., tools=..., system_instruction=...)``; the duck-typed
+# helper :func:`wrap_vertex_model` below records that surface too,
+# delegating to the same canonicaliser.
+#
+# We project Gemini's ``contents=[{role, parts:[{text|function_call|
+# function_response}]}]`` onto the unified OpenAI-style
+# ``[{role, content}]`` list so substitutions, the content-addressed
+# cache, and ``stepback/pricing.py`` cost accounting are uniform
+# across providers. The native Gemini payload is preserved under
+# ``llm_response._gemini`` for replay-side reconstruction.
+
+
+_GEMINI_ROLE_FROM = {"user": "user", "model": "assistant", "assistant": "assistant"}
+_GEMINI_ROLE_TO = {"user": "user", "assistant": "model", "system": "user"}
+
+
+def _gemini_contents_to_unified(
+    contents: Any,
+    system_instruction: Optional[Any],
+) -> List[dict]:
+    """Project Gemini ``contents=[{role, parts:[...]}]`` onto the
+    unified OpenAI-style ``[{role, content}]`` list. Concatenates
+    ``text`` parts; preserves structured parts (``function_call``,
+    ``function_response``, inline data, file data) under
+    ``_gemini_parts`` so a substitution writer can still round-trip
+    them on replay."""
+    unified: List[dict] = []
+    if system_instruction is not None:
+        sys_text = _gemini_extract_system_text(system_instruction)
+        if sys_text:
+            unified.append({"role": "system", "content": sys_text})
+
+    if contents is None:
+        return unified
+    # Allow a bare string (the SDK accepts it) and bare list-of-strings.
+    if isinstance(contents, str):
+        return unified + [{"role": "user", "content": contents}]
+    if not isinstance(contents, (list, tuple)):
+        contents = [contents]
+
+    for c in contents:
+        if isinstance(c, str):
+            unified.append({"role": "user", "content": c})
+            continue
+        if not isinstance(c, Mapping):
+            # Duck-typed object: pull .role / .parts off it.
+            role = getattr(c, "role", "user") or "user"
+            parts = getattr(c, "parts", []) or []
+        else:
+            role = c.get("role", "user") or "user"
+            parts = c.get("parts") or []
+        unified_role = _GEMINI_ROLE_FROM.get(role, role)
+        if isinstance(parts, str):
+            unified.append({"role": unified_role, "content": parts})
+            continue
+        text_chunks: List[str] = []
+        non_text: List[dict] = []
+        for p in parts:
+            if isinstance(p, str):
+                text_chunks.append(p)
+                continue
+            if isinstance(p, Mapping):
+                if "text" in p and isinstance(p["text"], str):
+                    text_chunks.append(p["text"])
+                else:
+                    non_text.append(dict(p))
+            else:
+                # Duck-typed Part object.
+                t = getattr(p, "text", None)
+                if isinstance(t, str) and t:
+                    text_chunks.append(t)
+                    continue
+                fc = getattr(p, "function_call", None)
+                if fc is not None:
+                    name = getattr(fc, "name", None) or (fc.get("name") if isinstance(fc, Mapping) else None)
+                    args = getattr(fc, "args", None) or (fc.get("args") if isinstance(fc, Mapping) else None)
+                    non_text.append({"function_call": {"name": name, "args": args or {}}})
+                    continue
+                fr = getattr(p, "function_response", None)
+                if fr is not None:
+                    name = getattr(fr, "name", None) or (fr.get("name") if isinstance(fr, Mapping) else None)
+                    resp_ = getattr(fr, "response", None) or (fr.get("response") if isinstance(fr, Mapping) else None)
+                    non_text.append({"function_response": {"name": name, "response": resp_ or {}}})
+                    continue
+        entry: dict = {"role": unified_role, "content": "".join(text_chunks)}
+        if non_text:
+            entry["_gemini_parts"] = non_text
+        unified.append(entry)
+    return unified
+
+
+def _gemini_extract_system_text(system_instruction: Any) -> str:
+    """Coerce the variety of shapes the SDK accepts for
+    ``system_instruction`` (str, dict with ``parts``, list of parts,
+    duck-typed Content) into a flat string."""
+    if system_instruction is None:
+        return ""
+    if isinstance(system_instruction, str):
+        return system_instruction
+    if isinstance(system_instruction, Mapping):
+        parts = system_instruction.get("parts") or []
+    else:
+        parts = getattr(system_instruction, "parts", None) or []
+        if not parts and isinstance(system_instruction, (list, tuple)):
+            parts = system_instruction
+    chunks: List[str] = []
+    for p in parts or []:
+        if isinstance(p, str):
+            chunks.append(p)
+        elif isinstance(p, Mapping) and isinstance(p.get("text"), str):
+            chunks.append(p["text"])
+        else:
+            t = getattr(p, "text", None)
+            if isinstance(t, str):
+                chunks.append(t)
+    return "".join(chunks)
+
+
+def _unified_to_gemini_contents(
+    messages: Sequence[Mapping[str, Any]],
+) -> tuple[List[dict], Optional[dict]]:
+    """Inverse of :func:`_gemini_contents_to_unified` for replay."""
+    system: Optional[dict] = None
+    contents: List[dict] = []
+    for m in messages:
+        role = m.get("role", "user")
+        if role == "system":
+            sys_text = m.get("content") or ""
+            system = {"parts": [{"text": sys_text}]} if sys_text else None
+            continue
+        gem_role = _GEMINI_ROLE_TO.get(role, role)
+        parts: List[dict] = []
+        text = m.get("content") or ""
+        if text:
+            parts.append({"text": text})
+        for extra in m.get("_gemini_parts", []) or []:
+            parts.append(dict(extra))
+        if not parts:
+            # Gemini rejects empty parts lists; emit a single empty
+            # text part so the round-trip survives.
+            parts.append({"text": ""})
+        contents.append({"role": gem_role, "parts": parts})
+    return contents, system
+
+
+_GEMINI_FINISH_MAP = {
+    "STOP": "stop",
+    "MAX_TOKENS": "length",
+    "SAFETY": "content_filter",
+    "RECITATION": "content_filter",
+    "BLOCKLIST": "content_filter",
+    "PROHIBITED_CONTENT": "content_filter",
+    "SPII": "content_filter",
+    "MALFORMED_FUNCTION_CALL": "tool_calls",
+    "TOOL_CODE": "tool_calls",
+    "OTHER": "stop",
+}
+
+
+# Map a Gemini SDK alias to the canonical pricing key. The SDK lets
+# users say ``gemini-2.5-flash`` and routes to whatever the latest
+# dated snapshot is; we record the alias as the canonical key so the
+# ``RESOLVER`` table in ``stepback/pricing.py`` can reuse the row.
+_GEMINI_PRICING_ALIAS: Dict[str, str] = {
+    "gemini-2.5-pro-latest": "gemini-2.5-pro-2025-03-25",
+    "gemini-2.5-flash-latest": "gemini-2.5-flash-2025-04-09",
+    "models/gemini-2.5-pro": "gemini-2.5-pro-2025-03-25",
+    "models/gemini-2.5-flash": "gemini-2.5-flash-2025-04-09",
+    "publishers/google/models/gemini-2.5-pro": "gemini-2.5-pro-2025-03-25",
+    "publishers/google/models/gemini-2.5-flash": "gemini-2.5-flash-2025-04-09",
+}
+
+
+def canonical_gemini_model_id(model_id: str) -> str:
+    """Return the stepback canonical pricing key for a Gemini model id.
+
+    Strips the ``models/`` and Vertex
+    ``publishers/google/models/`` prefixes and collapses ``-latest``
+    suffixes onto the dated snapshot listed in
+    :data:`stepback.pricing.PRICE_LIST`. Falls back to the input string
+    when no alias is registered (so unknown models still record, just
+    with a 0 price).
+    """
+    return _GEMINI_PRICING_ALIAS.get(model_id, model_id)
+
+
+def _gemini_to_openai_shape(d: Mapping[str, Any]) -> dict:
+    """Project a Gemini ``generate_content`` response into the OpenAI
+    chat-completion shape every other shim emits. Preserves the native
+    payload under ``_gemini`` so :func:`gemini_executor` can rehydrate
+    it on cached replay."""
+    candidates = d.get("candidates") or []
+    cand0: dict = candidates[0] if candidates else {}
+    content = cand0.get("content") or {}
+    parts = content.get("parts") or []
+
+    text_chunks: List[str] = []
+    tool_calls: List[dict] = []
+    for p in parts:
+        if not isinstance(p, Mapping):
+            continue
+        if "text" in p and isinstance(p["text"], str):
+            text_chunks.append(p["text"])
+        elif "function_call" in p:
+            fc = p["function_call"] or {}
+            tool_calls.append({
+                "id": fc.get("id") or f"gemcall_{len(tool_calls):04d}",
+                "type": "function",
+                "function": {
+                    "name": fc.get("name", ""),
+                    "arguments": fc.get("args") or {},
+                },
+            })
+
+    content_text = "".join(text_chunks) or None
+    finish_raw = str(cand0.get("finish_reason") or "")
+    finish_reason = _GEMINI_FINISH_MAP.get(finish_raw, finish_raw or None)
+
+    usage = d.get("usage_metadata") or {}
+    canonical_usage = {
+        "prompt_tokens": int(usage.get("prompt_token_count", 0)),
+        "completion_tokens": int(usage.get("candidates_token_count", 0)),
+        "total_tokens": int(
+            usage.get("total_token_count",
+                      int(usage.get("prompt_token_count", 0))
+                      + int(usage.get("candidates_token_count", 0)))
+        ),
+    }
+    cached = usage.get("cached_content_token_count")
+    if cached:
+        canonical_usage["prompt_tokens_details"] = {"cached_tokens": int(cached)}
+
+    return _strip_none({
+        "id": d.get("response_id") or d.get("id"),
+        "model": d.get("model_version") or d.get("_modelId"),
+        "choices": [{
+            "index": 0,
+            "finish_reason": finish_reason,
+            "message": {
+                "role": "assistant",
+                "content": content_text,
+                "tool_calls": tool_calls or None,
+            },
+        }],
+        "usage": canonical_usage,
+        "_gemini": dict(d),
+    })
+
+
+def _coerce_gemini_response(resp: Any) -> dict:
+    if isinstance(resp, Mapping):
+        return dict(resp)
+    if hasattr(resp, "model_dump"):
+        try:
+            return resp.model_dump()  # type: ignore[no-any-return]
+        except Exception:
+            pass
+    if hasattr(resp, "to_dict"):
+        try:
+            return resp.to_dict()  # type: ignore[no-any-return]
+        except Exception:
+            pass
+    # Duck-typed dataclass-style object: walk known attributes.
+    out: dict = {}
+    cand_attr = getattr(resp, "candidates", None)
+    if cand_attr is not None:
+        cands: List[dict] = []
+        for c in cand_attr:
+            content = getattr(c, "content", None)
+            content_d: dict = {}
+            if isinstance(content, Mapping):
+                content_d = dict(content)
+            elif content is not None:
+                role = getattr(content, "role", "model")
+                parts_attr = getattr(content, "parts", []) or []
+                parts_d: List[dict] = []
+                for p in parts_attr:
+                    if isinstance(p, Mapping):
+                        parts_d.append(dict(p))
+                        continue
+                    pt = getattr(p, "text", None)
+                    if isinstance(pt, str):
+                        parts_d.append({"text": pt})
+                        continue
+                    fc = getattr(p, "function_call", None)
+                    if fc is not None:
+                        parts_d.append({"function_call": {
+                            "name": getattr(fc, "name", "") or (fc.get("name") if isinstance(fc, Mapping) else ""),
+                            "args": getattr(fc, "args", {}) or (fc.get("args") if isinstance(fc, Mapping) else {}),
+                        }})
+                content_d = {"role": role, "parts": parts_d}
+            cands.append({
+                "content": content_d,
+                "finish_reason": getattr(c, "finish_reason", None),
+            })
+        out["candidates"] = cands
+    um = getattr(resp, "usage_metadata", None)
+    if um is not None:
+        if isinstance(um, Mapping):
+            out["usage_metadata"] = dict(um)
+        else:
+            out["usage_metadata"] = {
+                "prompt_token_count": getattr(um, "prompt_token_count", 0),
+                "candidates_token_count": getattr(um, "candidates_token_count", 0),
+                "total_token_count": getattr(um, "total_token_count", 0),
+            }
+    mv = getattr(resp, "model_version", None)
+    if mv is not None:
+        out["model_version"] = mv
+    if not out:
+        raise TypeError(
+            f"unsupported Gemini response type: {type(resp).__name__}"
+        )
+    return out
+
+
+@dataclass
+class GeminiCandidate:
+    content: dict
+    finish_reason: Optional[str]
+    index: int = 0
+
+
+@dataclass
+class GeminiUsageMetadata:
+    prompt_token_count: int
+    candidates_token_count: int
+    total_token_count: int
+
+
+@dataclass
+class GeminiResponse:
+    """SDK-shaped namespace returned by the wrapped ``generate_content``.
+
+    Mirrors the fields agents read off the real
+    ``google.genai`` response: ``.text``, ``.candidates``,
+    ``.usage_metadata``, plus dict-style access to the canonical
+    OpenAI-shaped payload for stepback's own tooling."""
+
+    text: Optional[str]
+    candidates: List[GeminiCandidate]
+    usage_metadata: GeminiUsageMetadata
+    model_version: Optional[str]
+    _native: dict
+    _canonical: dict
+
+    def __getitem__(self, k: str) -> Any:
+        return self._canonical[k]
+
+    def get(self, k: str, default: Any = None) -> Any:
+        return self._canonical.get(k, default)
+
+    @property
+    def function_calls(self) -> List[dict]:
+        out = []
+        for c in self.candidates:
+            for p in (c.content or {}).get("parts", []) or []:
+                if isinstance(p, Mapping) and "function_call" in p:
+                    out.append(p["function_call"])
+        return out
+
+    @classmethod
+    def from_native_and_canonical(cls, native: dict, canonical: dict) -> "GeminiResponse":
+        cands_native = native.get("candidates") or []
+        cands: List[GeminiCandidate] = []
+        for i, c in enumerate(cands_native):
+            cands.append(GeminiCandidate(
+                content=dict(c.get("content") or {}),
+                finish_reason=c.get("finish_reason"),
+                index=i,
+            ))
+        usage_n = native.get("usage_metadata") or {}
+        usage = GeminiUsageMetadata(
+            prompt_token_count=int(usage_n.get("prompt_token_count", 0)),
+            candidates_token_count=int(usage_n.get("candidates_token_count", 0)),
+            total_token_count=int(usage_n.get("total_token_count", 0)),
+        )
+        text = canonical["choices"][0]["message"].get("content") if canonical.get("choices") else None
+        return cls(
+            text=text,
+            candidates=cands,
+            usage_metadata=usage,
+            model_version=native.get("model_version"),
+            _native=native,
+            _canonical=canonical,
+        )
+
+
+def _gemini_config_get(config: Any, key: str, default: Any = None) -> Any:
+    if config is None:
+        return default
+    if isinstance(config, Mapping):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
+class _GeminiModelsProxy:
+    def __init__(self, real: Any, recorder: Recorder, *,
+                 default_model: Optional[str]) -> None:
+        self._real = real
+        self._rec = recorder
+        self._default_model = default_model
+
+    def generate_content(self, *,
+                         contents: Any,
+                         model: Optional[str] = None,
+                         config: Any = None,
+                         **kwargs: Any) -> GeminiResponse:
+        chosen_model = model or self._default_model
+        if chosen_model is None:
+            raise ValueError(
+                "wrap_gemini: no model given and no default_model set on the wrapper"
+            )
+        system_instruction = _gemini_config_get(config, "system_instruction")
+        unified_messages = _gemini_contents_to_unified(contents, system_instruction)
+        temperature = float(_gemini_config_get(config, "temperature", 0.0) or 0.0)
+        seed = _gemini_config_get(config, "seed", 42)
+        tools = _gemini_config_get(config, "tools")
+        response_format = None
+        rmime = _gemini_config_get(config, "response_mime_type")
+        rschema = _gemini_config_get(config, "response_schema")
+        if rmime or rschema:
+            response_format = {
+                "mime_type": rmime, "schema": rschema,
+            }
+        canonical_model = canonical_gemini_model_id(chosen_model)
+
+        def executor(_model: str, _messages: List[dict]) -> dict:
+            gem_contents, gem_system = _unified_to_gemini_contents(_messages)
+            call_kwargs = dict(kwargs)
+            cfg = config
+            if gem_system is not None:
+                if isinstance(cfg, Mapping):
+                    cfg = dict(cfg)
+                    cfg["system_instruction"] = gem_system
+                elif cfg is None:
+                    cfg = {"system_instruction": gem_system}
+                else:
+                    try:
+                        setattr(cfg, "system_instruction", gem_system)
+                    except Exception:
+                        cfg = {"system_instruction": gem_system}
+            resp = self._real.generate_content(
+                model=chosen_model, contents=gem_contents, config=cfg, **call_kwargs
+            )
+            native = _coerce_gemini_response(resp)
+            native.setdefault("model_version", chosen_model)
+            return _gemini_to_openai_shape(native)
+
+        step = self._rec.llm_call(
+            model=canonical_model,
+            messages=unified_messages,
+            executor=executor,
+            temperature=temperature,
+            seed=seed if isinstance(seed, int) else 42,
+            tools=tools,
+            response_format=response_format,
+        )
+        native = step["llm_response"].get("_gemini")
+        if not native:
+            # Synthesise a minimal native shape from the canonical fields.
+            usage = step["llm_response"].get("usage", {}) or {}
+            ch0 = (step["llm_response"].get("choices") or [{}])[0]
+            msg = ch0.get("message") or {}
+            parts: List[dict] = []
+            if msg.get("content"):
+                parts.append({"text": msg["content"]})
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                parts.append({"function_call": {
+                    "name": fn.get("name", ""),
+                    "args": fn.get("arguments") or {},
+                }})
+            native = {
+                "candidates": [{
+                    "content": {"role": "model", "parts": parts or [{"text": ""}]},
+                    "finish_reason": (ch0.get("finish_reason") or "STOP").upper(),
+                }],
+                "usage_metadata": {
+                    "prompt_token_count": int(usage.get("prompt_tokens", 0)),
+                    "candidates_token_count": int(usage.get("completion_tokens", 0)),
+                    "total_token_count": int(usage.get("total_tokens", 0)),
+                },
+                "model_version": chosen_model,
+            }
+        return GeminiResponse.from_native_and_canonical(native, step["llm_response"])
+
+
+@dataclass
+class WrappedGemini:
+    """Drop-in wrapper for ``google.genai.Client`` recording every
+    ``client.models.generate_content`` call.
+
+    Other surfaces (``client.files``, ``client.caches``, ...) are
+    passed through to the real client untouched."""
+
+    models: _GeminiModelsProxy
+    _real: Any
+    _rec: Recorder
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def wrap_gemini(client: Any, recorder: Recorder, *,
+                default_model: Optional[str] = None) -> WrappedGemini:
+    """Wrap a real ``google.genai.Client`` so ``models.generate_content``
+    is recorded.
+
+    Example::
+
+        from google import genai
+        from stepback import record
+        from stepback.shims import wrap_gemini
+
+        with record("./trace.sb") as rec:
+            client = wrap_gemini(genai.Client(), rec,
+                                 default_model="gemini-2.5-flash")
+            resp = client.models.generate_content(
+                contents="hi",
+                config={"temperature": 0.0,
+                        "system_instruction": "be terse"},
+            )
+
+    Raises :class:`TypeError` if the client lacks ``models.generate_content``
+    (i.e. isn't a google-genai-shaped object).
+    """
+    models = getattr(client, "models", None)
+    if models is None or not hasattr(models, "generate_content"):
+        raise TypeError(
+            "wrap_gemini: client lacks .models.generate_content; "
+            "expected a google.genai.Client-shaped object"
+        )
+    return WrappedGemini(
+        models=_GeminiModelsProxy(models, recorder, default_model=default_model),
+        _real=client, _rec=recorder,
+    )
+
+
+def wrap_vertex_model(model: Any, recorder: Recorder, *,
+                      model_name: Optional[str] = None) -> "_GeminiModelsProxy":
+    """Wrap a Vertex AI ``GenerativeModel`` instance. Vertex's
+    ``model.generate_content(contents, generation_config=...,
+    system_instruction=..., tools=...)`` is duck-typed onto the
+    google-genai surface so the same canonicaliser handles it.
+
+    Returns a proxy whose ``generate_content`` records the call.
+    """
+    inferred_name = model_name or getattr(model, "_model_name", None) or getattr(model, "model_name", None)
+
+    class _VertexAdapter:
+        def generate_content(self, *, model: Optional[str] = None,
+                             contents: Any, config: Any = None,
+                             **kwargs: Any) -> Any:
+            gen_kwargs: dict = dict(kwargs)
+            if config is not None:
+                if isinstance(config, Mapping):
+                    cfg = dict(config)
+                    sys_inst = cfg.pop("system_instruction", None)
+                    tools = cfg.pop("tools", None)
+                    if sys_inst is not None:
+                        gen_kwargs["system_instruction"] = sys_inst
+                    if tools is not None:
+                        gen_kwargs["tools"] = tools
+                    gen_kwargs["generation_config"] = cfg
+                else:
+                    gen_kwargs["generation_config"] = config
+            return model_obj.generate_content(contents, **gen_kwargs)
+
+    model_obj = model
+    return _GeminiModelsProxy(_VertexAdapter(), recorder, default_model=inferred_name)
+
+
+def gemini_executor(client: Any) -> Callable[[str, List[dict]], dict]:
+    """Adapter wrapping a real ``google.genai`` client for replay.
+
+    Translates the canonical pricing-id back into a Gemini SDK model
+    name (e.g. ``gemini-2.5-flash-2025-04-09`` → kept as-is, while
+    ``models/gemini-2.5-flash`` is resolved via
+    :func:`canonical_gemini_model_id` on record). Returns a callable
+    shaped the way :class:`stepback.replay.Executor` expects.
+    """
+    inverse: Dict[str, str] = {v: k for k, v in _GEMINI_PRICING_ALIAS.items()}
+
+    def _llm(model: str, messages: List[dict]) -> dict:
+        gem_contents, gem_system = _unified_to_gemini_contents(messages)
+        gem_id = inverse.get(model, model)
+        config: dict = {"temperature": 0.0, "max_output_tokens": 1024}
+        if gem_system is not None:
+            config["system_instruction"] = gem_system
+        resp = client.models.generate_content(
+            model=gem_id, contents=gem_contents, config=config,
+        )
+        native = _coerce_gemini_response(resp)
+        native.setdefault("model_version", gem_id)
+        return _gemini_to_openai_shape(native)
+
+    return _llm
+
+
 def mcp_tool_executor(
     sessions: Mapping[str, Any],
 ) -> Callable[[str, dict], Any]:
@@ -956,20 +1586,28 @@ __all__ = [
     "WrappedOpenAI",
     "WrappedAnthropic",
     "WrappedBedrock",
+    "WrappedGemini",
     "WrappedLangchainTool",
     "WrappedMCPSession",
     "OpenAIChatCompletion",
     "AnthropicMessage",
+    "GeminiResponse",
+    "GeminiCandidate",
+    "GeminiUsageMetadata",
     "wrap_openai",
     "wrap_anthropic",
     "wrap_bedrock",
+    "wrap_gemini",
+    "wrap_vertex_model",
     "wrap_langchain_tool",
     "wrap_langchain_tools",
     "wrap_mcp_session",
     "openai_executor",
     "anthropic_executor",
     "bedrock_executor",
+    "gemini_executor",
     "langchain_tool_executor",
     "mcp_tool_executor",
     "canonical_bedrock_model_id",
+    "canonical_gemini_model_id",
 ]

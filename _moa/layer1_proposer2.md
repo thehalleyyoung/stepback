@@ -1,73 +1,116 @@
-# Proposer 2 — Causal *attribution*: not just "which", but "how much"
+# Proposer 2 — Sandboxed `ast` walker
 
 ## Target module
-`stepback/minimize.py`.
+`stepback/predicates.py`. Same opportunity: ship a string DSL.
 
-## Theme
-Today the user gets a binary answer per substitution: in the minimal
-set or not. That's necessary for a 1-minimal witness but throws away
-information. A debugger user actually wants to see the **causal weight**
-of every substitution — Shapley-style attribution over the substitution
-set, with the predicate as the value function. Then the 1-minimal answer
-falls out as "the items with non-zero Shapley value".
+## Framing
+Re-use Python's own parser (`ast.parse(src, mode="eval")`), then
+walk the resulting tree through a strict **allowlist visitor**
+that rejects everything not on the safe list. Compile the surviving
+tree with `compile(tree, "<predicate>", "eval")` and execute against
+a frozen `{"__builtins__": {}}` globals dict. ~150 LOC.
 
-## What to add
+This is the same pattern Django's template-tag `Variable` resolver,
+asteval, and `simpleeval` use; but we keep it tiny and tailored.
 
-1. `attribute_substitutions(trace, subs, predicate, *, executor=None,
-   permutations: int | None = None) -> AttributionResult`.
-   - Value function `v(S) = 1.0 if predicate(replay(S)) else 0.0`.
-   - Exact Shapley for `|subs| <= 6` (enumerate all 2^n subsets).
-   - Permutation sampling Shapley for larger sets — `permutations`
-     defaults to `min(64, 4 * n)`.
-2. `AttributionResult`:
-   - `weights: dict[item_id, float]`  — Shapley value per substitution.
-   - `minimal: list[Substitution]` — items with weight > 0 (this *is*
-     a minimal sufficient subset under the binary value function).
-   - `probes: int`, `cached_probes: int`, `mode: "exact" | "sampled"`.
-3. **Cause vs. counter-cause split.** Some substitutions can *suppress*
-   the predicate when added to others. Report negative Shapley values
-   (cause) vs positive (cause). Surface `inhibitors: list[...]` — items
-   whose Shapley weight is negative.
-4. Keep ddmin as a *fast* path: a thin `ddmin_substitutions` that calls
-   `attribute_substitutions(..., permutations=1)` and returns the
-   first 1-minimal it finds.
-5. Probe-result memoisation by canonical-subset key (sorted item IDs)
-   shared across attribution + ddmin.
+## Allowlisted AST node types
+```
+Module, Expression,
+BoolOp(And/Or), UnaryOp(Not/USub),
+Compare(Eq/NotEq/Lt/LtE/Gt/GtE/In/NotIn),
+BinOp(Add/Sub/Mult/Div/Mod),
+Constant, Name, Load,
+Attribute, Subscript, Index, Slice,
+Call (function name only — see below),
+GeneratorExp, comprehension, ListComp,
+List, Tuple
+```
+Forbidden (raises `PredicateSyntaxError` from the visitor):
+`Lambda`, `FunctionDef`, `Import`, `ImportFrom`, `Assign`,
+`AugAssign`, `AnnAssign`, `Global`, `Nonlocal`, `Yield`,
+`Await`, `Try`, `For`, `While`, `If`, `With`, `Raise`,
+`Delete`, dunder attribute access (`Attribute.attr.startswith("_")`),
+star-args, `f-string` formatting (`JoinedStr`), `Set`, `Dict`.
 
-## CLI
-- `stepback attribute TRACE --substitute ... --predicate ...` →
-  emits a table:
-    ```
-    sub-id           weight   role
-    tool@step-7      +1.000   cause
-    model@step-3      0.000   noise
-    prompt@step-9    -0.250   inhibitor
-    ```
-- `--shapley-mode {exact,sampled}` and `--permutations N`.
+## Allowed names
+- `result` → the `ReplayResult`
+- shorthand fields: `total_cost_usd`, `dirty_count`,
+  `cache_hit_count`, `real_executions`, `steps`
+- `step` (only inside a generator/list comp iterating `steps`)
+- builtins: `len`, `str`, `int`, `float`, `bool`, `any`, `all`,
+  `min`, `max`, `sum`, `abs`
 
-## Tests
-- `test_attribution_assigns_full_weight_to_lone_cause`: 1 cause + 5
-  decoys → cause has weight ≈ 1.0, decoys ≈ 0.0.
-- `test_attribution_splits_weight_for_joint_cause`: 2 substitutions
-  jointly required → each gets weight ≈ 0.5.
-- `test_attribution_detects_inhibitor`: design a triplet where one
-  substitution actively suppresses the predicate; assert negative
-  weight.
-- `test_attribution_sampled_within_tolerance_of_exact`: run both modes
-  on n=5; assert `max(|w_exact - w_sampled|) < 0.15`.
+`Call` requires the callee to be a `Name` whose id is in the
+builtin allowlist — no method calls, no chained `getattr`. (The
+strictness here matters: allowing `Attribute` callees lets users
+reach `''.__class__.__mro__[1].__subclasses__()` style escapes.)
 
-## Why this framing
-Attribution > 1-minimal. A 1-minimal answer is a single witness;
-Shapley gives you the *whole picture* of who-is-causing-what, which
-is what an agent debugger user wants when staring at a bug
-reproduction. Inhibitor detection is a genuinely new debugging
-capability — it surfaces "this prompt edit was actually masking the
-bug, not causing it".
+## Public API
+```python
+def compile_predicate(src: str, *, extra_names: dict | None = None) -> Callable[[Any], bool]
+def parse_predicate(src: str) -> ast.Expression   # exposed for IDEs/REPLs
+class PredicateSyntaxError(ValueError): ...
+```
 
-## Risk
-Shapley with binary predicates can give degenerate weights when the
-predicate is non-monotone. Document the assumption that for n≥7 the
-result is sampled and approximate.
+`extra_names` lets advanced callers inject named references (e.g.
+a regex they precompiled) without weakening the global denylist.
 
-## LOC estimate
-~350 LOC of new logic, ~200 LOC of tests, ~60 LOC CLI.
+## Walker structure
+```
+class _SafeVisitor(ast.NodeVisitor):
+    ALLOWED = { ... node-class set ... }
+    BUILTINS = { "len": len, ... }
+
+    def visit(self, node):
+        cls = type(node)
+        if cls not in self.ALLOWED:
+            raise PredicateSyntaxError(f"{cls.__name__} not allowed",
+                                       lineno=getattr(node,"lineno",1),
+                                       col=getattr(node,"col_offset",0))
+        if cls is ast.Attribute and node.attr.startswith("_"):
+            raise PredicateSyntaxError("dunder attribute access blocked")
+        if cls is ast.Call and not isinstance(node.func, ast.Name):
+            raise PredicateSyntaxError("only bare-name calls allowed")
+        if cls is ast.Call and node.func.id not in self.BUILTINS:
+            raise PredicateSyntaxError(f"function '{node.func.id}' not allowed")
+        self.generic_visit(node)
+```
+
+After `_SafeVisitor` validates, we still defend at runtime by
+running with `{"__builtins__": {}}` as `globals` and
+`{**BUILTINS, "result": result, ...shorthands}` as `locals`.
+
+## Why this beats hand-rolled
+- Re-uses CPython's battle-tested parser → exact Python operator
+  precedence semantics, exact f-string-style error positions
+  (`SyntaxError.lineno`/`offset`).
+- ~150 LOC vs ~400 LOC. Smaller attack surface in our code, even
+  though we depend on a bigger underlying parser.
+- Users already know Python; no DSL learning curve.
+
+## Risks & mitigations
+- The classic escape vector is `Attribute` access on string/dict
+  literals reaching dunder method tables. Mitigated by:
+  (a) blocking any attr starting with `_`, and (b) blocking
+  attribute-call (only `Name` callees allowed).
+- `**` (`Pow`) is excluded — a 1-char input can DoS via
+  `9**9**9`. Excluded from BinOp allowlist.
+- `[i]` is allowed but step-bounds are validated by Python; we
+  limit list/tuple literal length to 1024 in the visitor.
+- Compiled bytecode is cached via `functools.lru_cache` on `src`.
+
+## Tests (mirror Proposer 1 plus)
+- explicit denylist tests for `__class__`, `().__class__`,
+  `lambda x: x`, `__import__("os")`, `(1).bit_length`
+- `9**9**9` rejected
+- comprehension scoping: `step` only resolves inside the comp
+- `extra_names` round-trips a precompiled regex
+
+## Strengths / weaknesses
+- + Tiny + leverages CPython semantics; users get full Python
+  expressivity in the safe subset.
+- + Familiar grammar (no DSL manual to write).
+- − Allowlist drift is a real risk: a future Python version may
+  add a node type that bypasses the visitor. CI must pin
+  `sys.version_info` and re-validate.
+- − Less control over error UX than a hand-rolled parser.

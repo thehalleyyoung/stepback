@@ -1,0 +1,1 @@
+Step 16 backward pass: loss is already 0.0 (449/449 passing in pytest -x -q). No artifact has positive loss under the chosen evidence-derived metric, so the gradient ∂L/∂code is zero everywhere. The minimal change to reduce L is the empty change; any modification would risk increasing L above the floor. Stop condition (loss <= 0.0) met at the initial measurement.

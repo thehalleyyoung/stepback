@@ -1,33 +1,60 @@
 [
   {
-    "rule_number": "3a",
-    "rule_title": "End-to-end fixture testing is mandatory",
-    "severity": "advisory",
-    "message": "This test_forge round added strict numeric-threshold assertions to UNIT-level tests only (substitution-spec parser, jsonpatch, dataclass field counts in tests/test_cli_new_subs.py, tests/test_jsonpatch.py, tests/test_substitutions_new.py). The repo's natural end-to-end fixture is tests/fixtures/agent.py (run_recorded_agent — record -> .sb -> replay -> substitute -> re-execute, exercised by scripts/bench_replay_caching.py). None of the new strict assertions exercise that full record/replay/substitute pipeline, so the round strengthens parsing surface coverage but adds no new e2e-fixture-grounded numeric guarantees.",
+    "rule_number": "0",
+    "rule_title": "CONSTITUTION.md must exist and be the source of truth",
+    "severity": "warning",
+    "message": "The brief instructs to read CONSTITUTION.md, but no such file exists in the repo or any reachable parent. Critique therefore falls back on the in-brief KITCHENSINK PRINCIPLE rules (1, 2, 3, 3a, 3b, 5). Future rounds should add CONSTITUTION.md or change the brief to reference the actual canon.",
     "evidence": [
-      "tests/test_cli_new_subs.py: new tests (test_sampling_kv_field_count_threshold, test_inputs_patch_op_count_matches_spec, test_message_path_roundtrip_byte_size, ...) all call parse_substitution_spec(...) and assert on the parsed dataclass — no Recorder/Replayer involvement.",
-      "tests/test_jsonpatch.py: new tests assert apply_patch length deltas on plain dicts/lists — pure helper-level.",
-      "tests/test_substitutions_new.py: new strict tests (test_system_prepend_length_bounds, test_message_patch_preserves_list_size_on_replace, ...) call sub.apply(inputs, {}) on synthetic dicts; do not run through run_recorded_agent or scripts/bench_replay_caching.py."
+      "ls CONSTITUTION.md -> No such file or directory",
+      "find . -maxdepth 3 -iname constitution* -> (no results)"
     ]
   },
   {
     "rule_number": "3b",
-    "rule_title": "Tests get equal effort to code; mutation testing must catch defects",
-    "severity": "advisory",
-    "message": "The commit message labels this 'r0023 test_forge', which per rule 3b should include mutation-style validation that the new strict assertions actually catch real defects. The diff shows no mutation-testing run, no _audit/mutation_*.json artifact, and no recorded mutation-survival numbers. Several of the new asserts duplicate values in adjacent lines (e.g. asserting both `new_len == 100 + 25 + 2` and `new_len - len(base) == 27` in tests/test_substitutions_new.py::test_system_append_byte_delta_exact), which is fine for documentation but does not by itself demonstrate mutation coverage.",
+    "rule_title": "TEST-FORGE rounds: tests change, prod code is read-only by default",
+    "severity": "warning",
+    "message": "Commit 3488ba9 is labeled 'kitchensink r0023 test_forge' yet the diff adds ~1568 lines of brand-new production code under stepback/ (minimize.py +684, policy_audit.py +517, predicates.py +67, shims.py +321, cli.py +255). Rule 3b allows prod edits in a TEST-FORGE round only when 'the only way to make a strict test pass is to fix the underlying pipeline'. Adding three large new prod modules (minimize, policy_audit, predicates) and a 333-line bedrock shim cannot be characterized as 'fix the underlying pipeline so a strict test passes' — these are net-new features. Either re-label the round CODE-FORGE or split the new features out.",
     "evidence": [
-      "git log -1 --format=%s HEAD -> 'kitchensink r0023 test_forge'",
-      "git diff HEAD~1 HEAD --stat shows no entries under _audit/mutation* or scripts/mutation*; only tests/, meta/run_obligations.md, GROUNDING.md, .kitchensink/dossier.md, _audit/findings.jsonl, _critic/findings.json and pyc files."
+      "git log -1 --format=%s -> 'kitchensink r0023 test_forge'",
+      "git diff HEAD~1 HEAD --stat shows: stepback/minimize.py 684++, stepback/policy_audit.py 517++, stepback/predicates.py 67++, stepback/shims.py 321++, stepback/cli.py 255++"
     ]
   },
   {
     "rule_number": "2",
-    "rule_title": "One coherent thematic improvement; no bundled unrelated fixes",
-    "severity": "advisory",
-    "message": "Theme of the round (strengthen test assertions with numeric thresholds) is coherent and well-scoped across the three test files. Minor hygiene note: the commit also re-stages numerous compiled stepback/__pycache__/*.pyc and tests/__pycache__/*.pyc files, which are tracked in this repo but bloat the diff and are unrelated to the thematic change. Pre-existing tracking of .pyc is not this commit's fault, but the round could have refrained from re-committing them.",
+    "rule_title": "ONE coherent thematic improvement per round",
+    "severity": "warning",
+    "message": "The commit bundles at least four unrelated themes: (a) trace minimization (minimize.py + tests), (b) policy auditing (policy_audit.py + tests), (c) AWS Bedrock shim (test_bedrock_shim.py + shims.py expansion), (d) predicates DSL (predicates.py + tests), plus jsonpatch test additions. Rule 2 forbids 'bundling unrelated fixes'. Suggested split: one round per major module (minimize, policy_audit, bedrock-shim, predicates).",
     "evidence": [
-      "git diff HEAD~1 HEAD --stat: 11 of 24 changed paths are .pyc files under stepback/__pycache__/ or tests/__pycache__/.",
-      ".gitignore does not list __pycache__/ or *.pyc — pre-existing repo policy tracks them."
+      "diff --stat lists new files: stepback/minimize.py, stepback/policy_audit.py, stepback/predicates.py, tests/test_bedrock_shim.py, tests/test_minimize.py, tests/test_policy_audit.py, tests/test_predicates.py, tests/test_jsonpatch.py, tests/test_cli_new_subs.py — each addresses a distinct concern"
+    ]
+  },
+  {
+    "rule_number": "3a",
+    "rule_title": "End-to-end fixture testing is mandatory; one e2e test per round on a real fixture",
+    "severity": "advisory",
+    "message": "The new test files (test_minimize.py 566L, test_policy_audit.py 484L, test_predicates.py 194L, test_bedrock_shim.py 333L) appear to be unit-style tests around the new modules. The brief requires 'at least one test per round must exercise the full user-facing pipeline with a REAL fixture'. For stepback, that would be: record a real .sb trace, run minimize/policy_audit through the CLI end-to-end, and assert structured output. Verify whether any of the added tests qualifies; if none does, add one next round.",
+    "evidence": [
+      "tests/test_minimize.py, tests/test_policy_audit.py, tests/test_predicates.py, tests/test_bedrock_shim.py — added in last commit; need to confirm any drives the full record→write→replay→cli pipeline against tests/fixtures/agent.py"
+    ]
+  },
+  {
+    "rule_number": "hygiene",
+    "rule_title": "Compiled artifacts (.pyc, __pycache__) should not be committed",
+    "severity": "warning",
+    "message": "The diff commits 24+ binary .pyc files under stepback/__pycache__/ and tests/__pycache__/. The repo has no .gitignore (`cat .gitignore` returns empty) and 85 .pyc files are tracked overall. These bloat history, cause merge conflicts, and leak interpreter-version-specific bytecode (cpython-311 and cpython-314 variants both committed). Add a .gitignore covering __pycache__/, *.pyc, *.pyo and `git rm -r --cached` the existing entries.",
+    "evidence": [
+      "ls -la .gitignore -> not present in `ls -la` output",
+      "git ls-files | grep -c pyc -> 85",
+      "diff --stat: stepback/__pycache__/cli.cpython-311.pyc, ...cpython-314.pyc, tests/__pycache__/test_*.cpython-311-pytest-9.0.3.pyc all touched"
+    ]
+  },
+  {
+    "rule_number": "5",
+    "rule_title": "kitchensink/dsl.py, runner.py, state.py are sacred",
+    "severity": "advisory",
+    "message": "No files under kitchensink/ were touched by the diff (the repo does not contain a kitchensink/ directory at all — `ls` shows stepback/, tests/, scripts/, meta/). Rule 5 is therefore not violated, but flagging here so subsequent critics know the check was performed.",
+    "evidence": [
+      "git diff HEAD~1 HEAD --stat | grep -c '^kitchensink/' -> 0"
     ]
   }
 ]

@@ -12,3 +12,6 @@
 {"step":11,"loss":0.0,"gradient_summary":"resume: 359/359 passing, loss=0; stop condition met (loss<=0); no descent"}
 {"step":12,"loss":0.0,"gradient_summary":"resume: 359/359 passing, loss=0; stop condition met (loss<=0); no descent"}
 {"step":13,"loss":0.0,"gradient_summary":"resume: 359/359 passing, loss=0; stop condition met (loss<=0); no descent"}
+{"step":14,"loss":0.0,"gradient_summary":"resume: 449/449 passing, loss=0; stop condition met at initial measurement; no descent applied"}
+{"step":15,"loss":0.0,"gradient_summary":"resume: 449/449 passing, loss=0; stop condition met at initial measurement; no descent applied"}
+{"step":16,"loss":0.0,"gradient_summary":"resume: 449/449 passing, loss=0; stop condition met at initial measurement; no descent applied"}

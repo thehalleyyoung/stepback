@@ -205,8 +205,15 @@ def test_error_hierarchy():
 
 def test_apply_patch_does_not_mutate_input():
     src = {"a": [1, 2, 3]}
-    apply_patch(src, [{"op": "remove", "path": "/a/0"}])
-    assert src == {"a": [1, 2, 3]}
+    snapshot = {"a": [1, 2, 3]}
+    out = apply_patch(src, [{"op": "remove", "path": "/a/0"}])
+    # Strict: source unchanged byte-for-byte; result distinct object with size-1
+    assert src == snapshot
+    assert len(src["a"]) == 3
+    assert sum(src["a"]) == 6
+    assert id(out) != id(src)
+    assert len(out["a"]) == 2
+    assert sum(out["a"]) == 5
 
 
 # ---------------- numeric-threshold metrics ----------------
@@ -322,3 +329,65 @@ def test_chained_remove_then_add_net_size_invariant():
     # Sum invariant: original sum 0..63 = 2016; remove 0 keeps 2016; +999 = 3015
     assert sum(out) == 2016 + 999
     assert sum(out) == 3015
+
+
+def test_deep_nested_add_path_resolves_exactly():
+    """Adding into a 5-level-deep object reaches the right leaf, others unchanged."""
+    src = {"a": {"b": {"c": {"d": {"e": 1}}}}}
+    out = apply_patch(
+        src,
+        [{"op": "add", "path": "/a/b/c/d/f", "value": 2}],
+    )
+    assert out["a"]["b"]["c"]["d"]["e"] == 1
+    assert out["a"]["b"]["c"]["d"]["f"] == 2
+    assert len(out["a"]["b"]["c"]["d"]) == 2
+    # Source must be untouched
+    assert "f" not in src["a"]["b"]["c"]["d"]
+    assert len(src["a"]["b"]["c"]["d"]) == 1
+
+
+def test_nested_array_replace_index_count_invariant():
+    """Replacing an element inside a nested array preserves all lengths."""
+    src = {"rows": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}
+    out = apply_patch(
+        src,
+        [{"op": "replace", "path": "/rows/1/1", "value": 99}],
+    )
+    assert len(out["rows"]) == 3
+    assert all(len(row) == 3 for row in out["rows"])
+    assert out["rows"][1][1] == 99
+    # Only one cell changed: exact diff count
+    diffs = sum(
+        1
+        for i in range(3)
+        for j in range(3)
+        if src["rows"][i][j] != out["rows"][i][j]
+    )
+    assert diffs == 1
+
+
+def test_thousand_op_batch_exact_arithmetic():
+    """1000 sequential add-then-remove pairs: net length unchanged, sum bounded."""
+    src = list(range(1000))
+    ops = []
+    for i in range(500):
+        ops.append({"op": "add", "path": "/-", "value": 10_000 + i})
+        ops.append({"op": "remove", "path": "/0"})
+    out = apply_patch(src, ops)
+    assert len(out) == 1000
+    assert len(out) == len(src)
+    # Original sum 0..999 = 499500. Removed 0..499 (sum 124750), added 10000..10499 (sum 5124750).
+    expected = sum(range(1000)) - sum(range(500)) + sum(range(10_000, 10_500))
+    assert sum(out) == expected
+    # Source must be byte-identical
+    assert src == list(range(1000))
+
+
+def test_error_subclass_chain_depth_exact():
+    """Strict: every patch error inherits from PatchError AND ValueError, depth >= 2."""
+    for cls in (PatchPathNotFound, PatchTestFailed, PatchInvalidOp):
+        mro_names = [c.__name__ for c in cls.__mro__]
+        assert "PatchError" in mro_names
+        assert "ValueError" in mro_names
+        # Distance from concrete -> ValueError must be at least 2 hops
+        assert mro_names.index("ValueError") >= 2

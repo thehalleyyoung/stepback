@@ -312,3 +312,91 @@ def test_sampling_kv_all_four_fields_set():
     assert sub.top_p == 0.95
     # Numeric ratio bound
     assert sub.top_p / sub.temperature == pytest.approx(3.8)
+
+
+def test_raise_message_contains_no_extra_whitespace():
+    sub = parse_substitution_spec("raise@step:3=TimeoutError:request timed out")
+    assert isinstance(sub, RaiseSubstitution)
+    # Message must not be padded with leading/trailing whitespace
+    assert sub.message == sub.message.strip()
+    assert sub.message.count(" ") == 2
+    assert sub.exception_type.isalpha()
+
+
+def test_inputs_patch_path_indices_strictly_increasing():
+    n = 16
+    ops_json = ",".join(
+        f'{{"op":"add","path":"/k{i}","value":{i}}}' for i in range(n)
+    )
+    spec = f'inputs_patch@step:1=:inline:[{ops_json}]'
+    sub = parse_substitution_spec(spec)
+    assert isinstance(sub, InputsPatchSubstitution)
+    assert len(sub.ops) == 16
+    indices = [int(op["path"].lstrip("/k")) for op in sub.ops]
+    assert indices == list(range(16))
+    # Strictly increasing -- exact diff invariant
+    diffs = [b - a for a, b in zip(indices, indices[1:])]
+    assert diffs == [1] * 15
+    assert sum(diffs) == 15
+
+
+def test_all_substitution_classes_have_distinct_kinds():
+    """Each parsed sub returns a distinct kind() — set size == count."""
+    specs = [
+        'system@step:1=:inline:"x"',
+        'message@step:1=:idx=0,inline:{"role":"user","content":"x"}',
+        'sampling@step:1=:kv:temperature=0.1',
+        'tool_args@step:1=:inline:{"k":"v"}',
+        'inputs_patch@step:1=:inline:[{"op":"add","path":"/x","value":1}]',
+        'outputs_patch@step:1=:inline:[{"op":"add","path":"/x","value":1}]',
+        'raise@step:1=ValueError:boom',
+    ]
+    kinds = [parse_substitution_spec(s).kind() for s in specs]
+    assert len(set(kinds)) == 7
+    assert len(kinds) == 7
+    # Every kind name ends with "Substitution"
+    assert sum(1 for k in kinds if k.endswith("Substitution")) == 7
+
+
+def test_sampling_kv_numeric_field_ranges_strict():
+    sub = parse_substitution_spec(
+        "sampling@step:1=:kv:temperature=0.0,max_tokens=2048,seed=123,top_p=1.0"
+    )
+    assert isinstance(sub, SamplingSubstitution)
+    assert 0.0 <= sub.temperature <= 2.0
+    assert 1 <= sub.max_tokens <= 32_768
+    assert sub.max_tokens == 2048
+    assert sub.seed == 123
+    assert 0.0 < sub.top_p <= 1.0
+    # Exact zero must round-trip as float, not int
+    assert isinstance(sub.temperature, float)
+    assert sub.temperature == 0.0
+
+
+def test_inputs_patch_huge_op_list_count_and_byte_size(tmp_path):
+    """200-op patch parses with exact count and bounded JSON byte size."""
+    n = 200
+    ops_json = ",".join(
+        f'{{"op":"replace","path":"/k{i}","value":{i}}}' for i in range(n)
+    )
+    spec = f'inputs_patch@step:1=:inline:[{ops_json}]'
+    sub = parse_substitution_spec(spec)
+    assert isinstance(sub, InputsPatchSubstitution)
+    assert len(sub.ops) == n
+    # Every op preserved its index in path
+    paths = [op["path"] for op in sub.ops]
+    assert paths == [f"/k{i}" for i in range(n)]
+    # Re-serialized payload size lies within tight bounds
+    serialized = json.dumps(sub.ops, separators=(",", ":"))
+    assert 6_000 <= len(serialized) <= 9_000
+
+
+def test_message_path_unicode_byte_count(tmp_path):
+    """Unicode content survives path-load with exact codepoint count."""
+    text = "héllo wörld " * 8  # 12 codepoints * 8 = 96
+    p = tmp_path / "msg.json"
+    p.write_text(json.dumps({"role": "user", "content": text}), encoding="utf-8")
+    sub = parse_substitution_spec(f"message@step:1=:idx=0,path={p}")
+    assert sub.new_message["content"] == text
+    assert len(sub.new_message["content"]) == 96
+    assert sub.new_message["content"].count("ö") == 8

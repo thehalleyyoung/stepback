@@ -2,176 +2,188 @@
 
 ## What's locked in from Layer 2
 
-L2 picked **Proposer 1's Strategy ABC** as the backbone, integrated
-**Proposer 2's Shapley attribution** as a fifth strategy, and adopted
-**Proposer 3's `MinimizeOptions` + `find_all_minimal` + budget
-controls + 3-helper predicates namespace**. Inhibitor detection,
-predicate DSL, and brute-force-on-large-n are deferred.
+L2 picked **Proposer 2's sandboxed `ast` walker** as the backbone,
+adopted **Proposer 1's `PredicateSyntaxError(pos, src)` shape** and
+its tight 4-builtin set (`len`, `str`, `any_step`, `all_step`),
+and integrated **Proposer 3's quantifier-as-sugar idea** (so we
+never let `GeneratorExp` reach the visitor). JSON IR, branch_io
+persistence, and the wider builtin set are deferred per Rule 2.
 
-This refiner pins the implementation details and tightens scope to
-fit one round + tests.
+This refiner pins implementation details and tightens scope so the
+whole change fits one round + tests + e2e fixture coverage.
+
+## One additional ground-truth fact discovered before pinning
+
+Inspection of `stepback/replay.py:440` shows
+`Trace.bisect(predicate=...)` calls the predicate with a
+**`StepView`**, while `stepback/minimize.py:205` calls it with a
+**`ReplayResult`**. The L2 plan treated only the latter. The
+compiled predicate must work in both contexts.
+
+**Resolution**: at call-time the compiled callable inspects the
+argument:
+- if it has `.steps` attribute → bind `result = arg` and unpack
+  shorthands (`total_cost_usd`, `dirty_count`, `cache_hit_count`,
+  `real_executions`, `steps`).
+- elif it has `.step_id` and `.kind` → bind `step = arg` and unpack
+  StepView field shorthands (`kind`, `name`, `outputs`, `inputs`,
+  `cost_usd`, `cost`, `dirty`, `cache_hit`, `error_class`,
+  `step_id`, `parent_step_id`).
+- else: bind `value = arg` only.
+
+Names not in the active context just resolve to `None` so a single
+predicate can target both surfaces, e.g.
+`compile_predicate("kind == 'tool_call' and 'GB99' in str(outputs)")`
+works as a `bisect` predicate, and
+`compile_predicate("total_cost_usd > 0.10")` works as a minimize
+predicate, with no API split.
 
 ## Concrete file changes
 
-### 1. `stepback/minimize.py` — extended (~440 LOC up from 168)
+### 1. `stepback/predicates.py` — extended (~340 LOC up from 76)
 
-New public surface (matches L2 §"Final API surface"):
+Existing combinators (`all_of`, `any_of`, `not_`, `xor_`) stay
+unchanged. New additions, in this order in the file:
 
-- `Strategy(ABC)` with `name: ClassVar[str]` and
-  `run(items, oracle) -> tuple[list[Sub], list[Sub], dict|None]`.
-  The third tuple element is `weights or None`.
-- `DDMinStrategy` — verbatim port of the existing ddmin loop, lifted
-  out of `ddmin_substitutions` into the strategy class.
-- `LinearShrinkStrategy` — drop one at a time, accept if oracle still
-  fires.
-- `BinaryHalvingStrategy` — recursive halving with both-halves
-  fallback (L1 §2 binary).
-- `BruteForceStrategy(max_n: int = 8)` — enumerate non-empty subsets
-  in increasing size order; raise `ValueError` if `len(items) > max_n`.
-- `ShapleyAttributionStrategy(permutations: int|None = None,
-  rng_seed: int = 0xC0DE)` — exact (`n<=6`) or sampled.
-- `MinimizeOptions` dataclass — strategy, probe_budget, time_budget_s,
-  progress, excluded.
-- `MinimizationResult` extended with `strategy_name`, `cache_hits`,
-  `weights: dict[int,float] | None` keyed by `id(item)` *but also
-  exposed as `weight_for(item) -> float`* — id-keyed dict is brittle
-  across processes; provide a method.
-- `BudgetExhausted(Exception)` carrying `.partial: MinimizationResult`.
-- `_OracleCache` — wraps the predicate-on-replay closure;
-  canonicalises a subset by `tuple(sorted(map(id, items)))` *plus*
-  the frozen `excluded` set; counts hits and probes; honours
-  `probe_budget` (raises `BudgetExhausted` mid-flight) and
-  `time_budget_s` (checks wall clock before each new probe).
-- `minimize_substitutions(trace, subs, predicate, *, options=None,
-  executor=None) -> MinimizationResult` — orchestrates: trigger-on-full
-  check, empty-already-triggers check, delegates to
-  `options.strategy.run`, then runs a final replay.
-- `find_all_minimal(trace, subs, predicate, *, max_witnesses=8,
-  options=None, executor=None) -> list[MinimizationResult]` — loop
-  using `excluded` to block prior witnesses; returns up to k
-  disjoint-on-at-least-one-element witnesses.
-- `attribute_substitutions(...)` — convenience wrapping
-  `ShapleyAttributionStrategy`; returns `MinimizationResult` with
-  populated weights.
-- `ddmin_substitutions(trace, subs, predicate, *, executor=None)` —
-  back-compat shim. **Signature, return type, exception type
-  unchanged. All four existing tests must still pass.**
-- Module-level `__all__` updated.
+#### Public exception classes
+```python
+class PredicateSyntaxError(ValueError):
+    def __init__(self, msg: str, *, src: str, pos: tuple[int, int] = (1, 0)):
+        self.src, self.pos = src, pos
+        line, col = pos
+        excerpt = src.splitlines()[line - 1] if src.splitlines() else src
+        caret = " " * col + "^"
+        super().__init__(f"{msg}\n  at line {line}, col {col}:\n    {excerpt}\n    {caret}")
 
-### 2. `stepback/predicates.py` — NEW (~70 LOC)
+class PredicateRuntimeError(RuntimeError): ...
+```
 
-Tiny module with `all_of`, `any_of`, `not_` combinators only. Each
-takes 1+ `Callable[[ReplayResult], bool]` and returns one. Doctests
-plus three unit tests. Re-exported from `stepback/__init__.py`.
+#### `parse_predicate(src) -> ast.Expression`
+Wraps `ast.parse(src, mode="eval")`. Catches `SyntaxError` and
+re-raises `PredicateSyntaxError` carrying the original
+`(lineno, offset-1)`.
 
-### 3. `stepback/replay.py` — NO CHANGES
+#### `_QuantifierRewriter(ast.NodeTransformer)`
+Walks the parsed tree and rewrites top-level
+`Call(func=Name(id="any_step"|"all_step"), args=[BODY])` into a
+synthesised marker node `_Quantifier(kind, body)`. We use a
+dataclass-based node held inside a `ast.Constant`-wrapped
+`(kind, body)` payload — but cleaner: subclass `ast.expr` and
+register the node type so the visitor can recognise it. **This
+ensures `GeneratorExp` never appears in the validated tree.**
 
-`Trace.minimize` already forwards to `ddmin_substitutions`. Add a
-**new** `Trace.minimize_with(strategy, ...)` thin method that
-forwards to `minimize_substitutions` so users can pick a strategy
-without leaving the Trace API. **Wait** — L2 forbids replay.py
-changes. Move that method onto `Trace` via a tiny helper exported
-from minimize.py and have `Trace.minimize_with` be added in a
-`Trace.minimize_with = ...` assignment at the bottom of
-`minimize.py`. (Same monkey-patch pattern as `Trace.minimize`,
-which is already done that way — confirmed in `__init__.py`.)
+Rejects `any_step`/`all_step` with arity ≠ 1 with
+`PredicateSyntaxError`.
 
-  Actually re-checking: `Trace.minimize` is currently *not* set in
-  `replay.py`. Let me verify in the implementation phase. If it IS
-  set in `replay.py`, the monkey-patch goes in `__init__.py`
-  alongside the existing one. If `Trace.minimize` is currently a
-  method on `Trace`, then it's a real `replay.py` change and we'll
-  add `minimize_with` as an alias function instead — no monkey-patch
-  needed.
+#### `_SafeVisitor(ast.NodeVisitor)`
+Allowlist (frozen):
 
-### 4. `stepback/cli.py` — extended (~80 new LOC)
+| AST node | Allowed? |
+| -------- | -------- |
+| `Expression` | ✅ |
+| `BoolOp` (`And`, `Or`) | ✅ |
+| `UnaryOp` (`Not`, `USub`) | ✅ |
+| `Compare` (`Eq` `NotEq` `Lt` `LtE` `Gt` `GtE` `In` `NotIn`) | ✅ |
+| `BinOp` (`Add` `Sub` `Mult` `Div` `Mod`) | ✅ |
+| `Constant` (str, int, float, bool, None only) | ✅ |
+| `Name` / `Load` | ✅ |
+| `Attribute` (attr name not starting `_`) | ✅ |
+| `Subscript`, `Index`, `Slice` | ✅ |
+| `Call` — only `Name` callees in `{len, str}`; `_Quantifier` exempt | ✅ |
+| `List`, `Tuple` (literal length ≤ 1024) | ✅ |
+| any other node (incl. `Lambda`, `GeneratorExp`, `Pow`, `Set`, `Dict`, `JoinedStr`, …) | ❌ |
 
-In the `minimize` subcommand:
-- Add `--strategy {ddmin,linear,binary,brute,shapley}` (default ddmin).
-- Add `--probe-budget INT`.
-- Add `--all-witnesses` + `--max-witnesses K` (default 4).
-- JSON payload gains `strategy`, `cache_hits`, optional `weights`
-  (when shapley), optional `witnesses` (when `--all-witnesses`).
-- Existing flags / exit codes unchanged.
+`Compare` left/right operands restricted: `Pow` rejected by
+not allowing `ast.Pow` operator.
 
-### 5. `stepback/__init__.py` — re-exports
+`Call` callees that are `Attribute` (i.e. method calls like
+`x.get(...)`) are explicitly rejected with a clear message:
+"method calls are not allowed in predicate DSL".
 
-Add: `Strategy`, `DDMinStrategy`, `LinearShrinkStrategy`,
-`BinaryHalvingStrategy`, `BruteForceStrategy`,
-`ShapleyAttributionStrategy`, `MinimizeOptions`, `BudgetExhausted`,
-`find_all_minimal`, `attribute_substitutions`,
-`minimize_substitutions`, plus `predicates` module.
+#### `_Evaluator`
+Compiles the validated tree by walking it and producing a Python
+closure. Quantifier nodes become a Python `for step in steps:`
+loop with `step` pushed onto a thread-local context stack. Name
+lookups consult the stack top first, then the bound shorthands,
+then `extra_names`, then return `None`. (No `NameError` — predicate
+DSL is forgiving so cross-context predicates just don't fire.)
 
-### 6. `tests/test_minimize.py` — extended (~250 new LOC)
+#### `compile_predicate(src, *, extra_names=None) -> Callable`
+1. `tree = parse_predicate(src)`
+2. `tree = _QuantifierRewriter().visit(tree); ast.fix_missing_locations(tree)`
+3. `_SafeVisitor().visit(tree)` — raises on disallowed nodes
+4. Build the evaluator closure
+5. Wrap in `lambda v: bool(_run(v))`; attach `.source = src`,
+   `.parsed = tree` for tooling
 
-Existing 5 tests stay green. New tests:
-- `test_strategy_pluggable_returns_same_minimal[ddmin|linear|binary|brute|shapley]` — parametrised; all 5 strategies on the
-  6-noisy fixture must return the same 1-element minimal.
-- `test_brute_force_finds_global_optimum` — pin a small fixture
-  where ddmin happens to find a 1-element minimal; brute force on
-  same input also returns size-1 minimal. (Joint-cause fixture is
-  hard to construct with current substitutions — defer to a future
-  round.)
-- `test_oracle_cache_hits_recorded` — same minimisation across
-  ddmin and binary shows `cache_hits >= 1`.
-- `test_minimize_options_probe_budget_raises` — set `probe_budget=2`
-  on the standard fixture; assert `BudgetExhausted`, partial.probes
-  <= 2.
-- `test_minimize_options_progress_callback` — collects events;
-  asserts `len(events) == result.probes`.
-- `test_find_all_minimal_returns_at_least_one` — on the standard
-  6-noisy fixture, returns >= 1 witness; first witness equals what
-  ddmin would return.
-- `test_shapley_assigns_full_weight_to_lone_cause` — exact mode (n=4),
-  the one cause has weight ≈ 1.0 (within 1e-9), decoys ≈ 0.0.
-- `test_shapley_sampled_within_tolerance_of_exact` — n=5; both modes;
-  tolerance 0.2.
-- `test_attribute_substitutions_convenience_wrapper` — returns a
-  `MinimizationResult` with non-None `weights`.
+The wrapper coerces with `bool(...)` so predicate semantics are
+strict booleans.
 
-### 7. `tests/test_predicates.py` — NEW (~50 LOC)
+`functools.lru_cache(maxsize=128)` on `(src, frozenset(extra_names or {}))`.
 
-- `test_all_of_short_circuits_false`
-- `test_any_of_short_circuits_true`
-- `test_not_inverts`
-- `test_combinators_compose` — `all_of(p1, any_of(p2, not_(p3)))`.
+#### `__all__` extended
+```python
+__all__ = [
+    "all_of", "any_of", "not_", "xor_",
+    "compile_predicate", "parse_predicate",
+    "PredicateSyntaxError", "PredicateRuntimeError",
+]
+```
 
-### 8. `tests/test_cli_minimize_strategy.py` — NEW (~100 LOC)
+### 2. `tests/test_predicate_dsl.py` — NEW (~280 LOC)
 
-- `test_cli_minimize_strategy_brute` — `--strategy brute` produces
-  same JSON shape, with `strategy="brute"` field.
-- `test_cli_minimize_strategy_shapley_emits_weights` — JSON payload
-  has `weights` array; cause weight ≈ 1.0.
-- `test_cli_minimize_all_witnesses_emits_list` — payload has
-  `witnesses: [...]` of length >= 1.
+Real coverage in 5 sections:
 
-## Implementation order
-1. Write `predicates.py` + its tests.
-2. Refactor `minimize.py`: introduce `Strategy`, port ddmin into
-   `DDMinStrategy`, keep `ddmin_substitutions` as shim. Run existing
-   5 minimise tests — they must stay green.
-3. Add `LinearShrink`, `BinaryHalving`, `BruteForce`,
-   `ShapleyAttribution`. Add `_OracleCache` + budget enforcement.
-   Add `find_all_minimal` + `attribute_substitutions`.
-4. CLI plumbing.
-5. New tests.
-6. Full pytest -x -q.
+1. **Smoke / happy paths** — constants, arithmetic precedence,
+   string `in`, `and/or/not`, `len(steps)`, attribute access,
+   subscript on dicts, comparison chains.
+2. **Quantifiers** — `any_step(kind == "llm_call")` and
+   `all_step(cost_usd >= 0)` against a synthetic `ReplayResult`.
+3. **Sandboxing denylist** — every escape vector listed in L2:
+   `step.__class__`, `__import__('os')`, `lambda x: x`,
+   `9**9**9`, `().__class__.__mro__`, `step.outputs.get('x')`,
+   bare `import os`, `{1,2,3}`, `f"{x}"`, generators
+   (`any(s for s in steps)`).
+4. **Error UX** — `PredicateSyntaxError.pos` is `(line, col)`
+   pointing at the offending token; `PredicateSyntaxError.src`
+   round-trips; message contains a caret.
+5. **End-to-end with real fixtures** (Rule 3a):
+   - Build a real fixture trace using
+     `tests.fixtures.agent.simulate_agent` (already used by other
+     e2e tests in the suite).
+   - Replay and apply
+     `compile_predicate("any_step(kind == 'tool_call')")` via
+     `result.any_step(...)`.
+   - Use `Trace.bisect(good=..., bad=..., predicate=compile_predicate("kind == 'tool_call'"))`
+     and assert it locates a real tool-call step (no mocks).
+   - Assert the predicate's `.source` round-trips into `report.md`
+     unchanged.
 
-## Citations (per-section)
-- §1 Strategy ABC + 4 base strategies + oracle memoisation + brute
-  cap: **Proposer 1** §1–3, §"Risk".
-- §1 ShapleyAttributionStrategy + exact/sampled split: **Proposer 2**
-  §1, §"Risk".
-- §1 MinimizeOptions, BudgetExhausted, progress callback,
-  `find_all_minimal`, `excluded`: **Proposer 3** §2, §1.
-- §2 predicates module (3 helpers only, no DSL): **Proposer 3** §3
-  (trimmed per L2).
-- §4 CLI flags: **Proposer 1** §"CLI" + **Proposer 3** §"CLI".
-- §"Skipped" inhibitor weights, predicate DSL, large-n brute:
-  **Layer 2** decisions.
+### 3. Update `stepback/predicates.py` module docstring
+Replace the "A future round may add a safe predicate DSL string-
+parser; for now…" sentence with a usage block pointing to the new
+`compile_predicate` and listing the safe subset.
 
-## Acceptance gate
-- All 359 existing tests stay green.
-- New strategy/predicates/CLI tests pass.
-- `ddmin_substitutions(...)` signature & exception unchanged.
-- `pytest -x -q` exits 0.
+## LOC budget
+- `stepback/predicates.py`: 76 → ~340 (+264)
+- `tests/test_predicate_dsl.py`: 0 → ~280 (+280)
+- Total: ~544 LOC, one coherent feature.
+
+## Verification gates (must pass before exit)
+```
+pytest -x -q                                # all 449 + new tests green
+pytest -x -q tests/test_predicate_dsl.py    # specifically green
+```
+
+## Citations to prior layers
+- Backbone (visitor architecture, allowlist node set, sandboxed
+  globals): **Proposer 2** §"Allowlisted AST node types",
+  §"Walker structure".
+- Quantifier-as-sugar to avoid GeneratorExp + extra_names hook:
+  **Proposer 3** §"Operator table" (any_step/all_step) + L2's
+  hardening rationale.
+- Error class shape + tight builtin set + `bool(...)` coercion:
+  **Proposer 1** §"Public API additions" + §"Tests".
+- Cross-context (StepView vs ReplayResult) call-time binding: **L3
+  refinement** (not in any L1 proposer; surfaced from
+  `stepback/replay.py:440` reading).
