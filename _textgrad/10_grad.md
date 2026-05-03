@@ -1,0 +1,1 @@
+Step 10 (resume): pytest -x -q reports 204 passed in 15.36s. The numeric loss derived from the failure count is 0.0, already at threshold. No artifact has positive loss to descend on; backward pass is therefore vacuous — there is no symptom to attribute, no minimal change that would further reduce L. Per stop rule (loss <= 0.0), the descent terminates without a forward step.

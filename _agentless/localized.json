@@ -1,8 +1,6 @@
 {
   "candidate_files": [
-    "tests/test_e2e_replay.py",
-    "tests/test_branch_io_and_cli.py",
-    "tests/test_compression.py"
+    "tests/test_attestation.py"
   ],
-  "reasoning": "Most recent commit 23d548d ('test_forge') introduced four new test files; three of them use bare open(...).read()/open(...).write() expressions that leak file handles. Under pytest -W error these surface as PytestUnraisableExceptionWarning (5 failures: tests/test_branch_io_and_cli.py::test_save_and_load_branch_roundtrip, ::test_cli_replay_writes_branch_file, ::test_cli_diff_rejects_branch_for_different_trace, tests/test_compression.py::test_compressed_trace_tamper_detected, tests/test_e2e_replay.py::test_verify_trace_detects_tampering). Default `pytest -x -q` is green but the resource leaks are a real regression introduced this round. Localization: (a) failing-test traceback frames point to test_e2e_replay.py:91/99, test_branch_io_and_cli.py:123/334/389/391, test_compression.py:264/277; (b) git show 23d548d --name-only matches; (c) keyword 'ResourceWarning unclosed file' grepped to the same three files. Repair scope restricted to these three test files; no production code under stepback/ needs to change."
+  "reasoning": "Most-recently-introduced regression: under `pytest -W error::ResourceWarning -q` the suite triggers a PytestUnraisableExceptionWarning at tests/test_attestation.py:150 — `raw = json.loads(open(out).read())` leaks the file handle (unclosed _io.TextIOWrapper on x.pack). Default `pytest -x -q` is green, but the leak is a real defect introduced when test_tampered_pack_body_fails_verification was last edited. Localization heuristics: (a) failing-warning traceback frame is exactly tests/test_attestation.py:150; (b) `grep -rE 'open\\([^)]+\\)\\.(read|write)'` across tests/ and stepback/ returns ONLY this single hit, so the regression is fully contained in this one file/line; (c) the surrounding test (test_tampered_pack_body_fails_verification) already uses the safe `with open(out, 'w') as f:` pattern at L154, so the L150 read-side is the lone outlier. Repair scope strictly limited to tests/test_attestation.py."
 }

@@ -17,7 +17,17 @@ HMAC-chained frames to an append-only `.sb` file.
 `bisect(...)`, `branch_at(...)`, and `compare_branches(...)`.
 """
 from .recorder import record, Recorder, RecorderKey
+from . import autorecord
 from .replay import replay, Trace, Branch, BranchDiff, ReplayResult, Executor
+from .attestation import (
+    AttestationEntry,
+    AttestationPack,
+    AttestationVerificationError,
+    build_attestation_pack,
+    read_attestation_pack,
+    verify_attestation_pack,
+    write_attestation_pack,
+)
 from .branch_io import (
     BranchTraceMismatch,
     diff_replays,
@@ -25,6 +35,35 @@ from .branch_io import (
     parse_substitution_spec,
     save_branch,
     trace_chain_hash,
+)
+from .substitutions import (
+    InputsPatchSubstitution,
+    MessagePatchSubstitution,
+    ModelSubstitution,
+    OutputsPatchSubstitution,
+    PolicySubstitution,
+    PromptSubstitution,
+    RaiseSubstitution,
+    RouterSubstitution,
+    SamplingSubstitution,
+    Substitution,
+    SubstitutionSet,
+    SystemPromptSubstitution,
+    ToolArgumentsSubstitution,
+    ToolOutputSubstitution,
+)
+from .jsonpatch import (
+    PatchError,
+    PatchInvalidOp,
+    PatchPathNotFound,
+    PatchTestFailed,
+    apply_patch,
+)
+from .trace_diff import (
+    CrossTraceDiff,
+    StepPair,
+    diff_traces,
+    render_trace_diff,
 )
 from .report import (
     ReportOptions,
@@ -53,6 +92,7 @@ from .shims import (
 
 __all__ = [
     "record",
+    "autorecord",
     "replay",
     "Recorder",
     "RecorderKey",
@@ -67,11 +107,34 @@ __all__ = [
     "parse_substitution_spec",
     "save_branch",
     "trace_chain_hash",
+    "Substitution",
+    "SubstitutionSet",
+    "PromptSubstitution",
+    "ModelSubstitution",
+    "ToolOutputSubstitution",
+    "PolicySubstitution",
+    "RouterSubstitution",
+    "SystemPromptSubstitution",
+    "MessagePatchSubstitution",
+    "SamplingSubstitution",
+    "ToolArgumentsSubstitution",
+    "InputsPatchSubstitution",
+    "OutputsPatchSubstitution",
+    "RaiseSubstitution",
+    "apply_patch",
+    "PatchError",
+    "PatchInvalidOp",
+    "PatchPathNotFound",
+    "PatchTestFailed",
     "ReportOptions",
     "render_counterfactual_report",
     "render_replay_report",
     "render_report_json",
     "dump_report_json",
+    "CrossTraceDiff",
+    "StepPair",
+    "diff_traces",
+    "render_trace_diff",
     "OpenAIChatCompletion",
     "AnthropicMessage",
     "WrappedOpenAI",
@@ -87,6 +150,13 @@ __all__ = [
     "anthropic_executor",
     "langchain_tool_executor",
     "mcp_tool_executor",
+    "AttestationEntry",
+    "AttestationPack",
+    "AttestationVerificationError",
+    "build_attestation_pack",
+    "read_attestation_pack",
+    "verify_attestation_pack",
+    "write_attestation_pack",
 ]
 
 __version__ = "0.1.0"

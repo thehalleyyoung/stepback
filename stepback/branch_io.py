@@ -36,12 +36,19 @@ from typing import Any, Dict, List, Optional
 
 from .canonical import hash_obj
 from .substitutions import (
+    InputsPatchSubstitution,
+    MessagePatchSubstitution,
     ModelSubstitution,
+    OutputsPatchSubstitution,
     PolicySubstitution,
     PromptSubstitution,
+    RaiseSubstitution,
     RouterSubstitution,
+    SamplingSubstitution,
     Substitution,
     SubstitutionSet,
+    SystemPromptSubstitution,
+    ToolArgumentsSubstitution,
     ToolOutputSubstitution,
 )
 
@@ -55,6 +62,13 @@ _TYPE_MAP = {
     "ToolOutputSubstitution": ToolOutputSubstitution,
     "PolicySubstitution": PolicySubstitution,
     "RouterSubstitution": RouterSubstitution,
+    "SystemPromptSubstitution": SystemPromptSubstitution,
+    "MessagePatchSubstitution": MessagePatchSubstitution,
+    "SamplingSubstitution": SamplingSubstitution,
+    "ToolArgumentsSubstitution": ToolArgumentsSubstitution,
+    "InputsPatchSubstitution": InputsPatchSubstitution,
+    "OutputsPatchSubstitution": OutputsPatchSubstitution,
+    "RaiseSubstitution": RaiseSubstitution,
 }
 
 
@@ -211,10 +225,108 @@ def parse_substitution_spec(spec: str) -> Substitution:
         return PolicySubstitution(at_step=step_id, policy_path=body)
     if kind == "router":
         return RouterSubstitution(at_step=step_id, choice=body)
+    if kind in ("system", "system_replace", "system_prepend", "system_append"):
+        text = _read_json(body) if body.startswith((":inline:", "{", "[", '"')) else body
+        if body.startswith(":inline:"):
+            text = json.loads(body[len(":inline:") :])
+        if not isinstance(text, str):
+            raise ValueError("system body must be a JSON string")
+        mode = "replace" if kind in ("system", "system_replace") else (
+            "prepend" if kind == "system_prepend" else "append"
+        )
+        return SystemPromptSubstitution(at_step=step_id, system_text=text, mode=mode)
+    if kind == "message":
+        idx, msg = _parse_indexed(body)
+        return MessagePatchSubstitution(at_step=step_id, index=idx, new_message=msg)
+    if kind == "sampling":
+        params = _parse_kv_or_json(body)
+        return SamplingSubstitution(at_step=step_id, **params)
+    if kind == "tool_args":
+        return ToolArgumentsSubstitution(at_step=step_id, new_arguments=_read_json(body))
+    if kind == "inputs_patch":
+        ops = _read_json(body)
+        if not isinstance(ops, list):
+            raise ValueError("inputs_patch body must be a JSON array of ops")
+        return InputsPatchSubstitution(at_step=step_id, ops=ops)
+    if kind == "outputs_patch":
+        ops = _read_json(body)
+        if not isinstance(ops, list):
+            raise ValueError("outputs_patch body must be a JSON array of ops")
+        return OutputsPatchSubstitution(at_step=step_id, ops=ops)
+    if kind == "raise":
+        if ":" in body:
+            etype, msg = body.split(":", 1)
+        else:
+            etype, msg = body, ""
+        return RaiseSubstitution(
+            at_step=step_id, exception_type=etype.strip(), message=msg.strip()
+        )
     raise ValueError(
-        f"unknown substitution kind {kind!r}; "
-        f"expected one of prompt/model/tool_output/policy/router"
+        f"unknown substitution kind {kind!r}; expected one of "
+        f"prompt/model/tool_output/policy/router/system/system_prepend/"
+        f"system_append/message/sampling/tool_args/inputs_patch/"
+        f"outputs_patch/raise"
     )
+
+
+def _parse_indexed(body: str):
+    """Parse `:idx=N,inline:JSON` or `:idx=N,path=FILE` for message subs."""
+    if not body.startswith(":idx="):
+        raise ValueError(f"message body must start with ':idx=', got {body!r}")
+    rest = body[len(":idx=") :]
+    if "," not in rest:
+        raise ValueError(f"message body must be ':idx=N,inline:..' or ':idx=N,path=..', got {body!r}")
+    idx_str, payload = rest.split(",", 1)
+    try:
+        idx = int(idx_str)
+    except ValueError as e:
+        raise ValueError(f"message index must be int, got {idx_str!r}") from e
+    if payload.startswith("inline:"):
+        msg = json.loads(payload[len("inline:") :])
+    elif payload.startswith("path="):
+        with open(payload[len("path=") :], "r", encoding="utf-8") as f:
+            msg = json.load(f)
+    else:
+        raise ValueError(f"message payload must be 'inline:..' or 'path=..', got {payload!r}")
+    if not isinstance(msg, dict):
+        raise ValueError("message new_message must be a JSON object")
+    return idx, msg
+
+
+def _parse_kv_or_json(body: str) -> Dict[str, Any]:
+    """Parse `:kv:k=v,k=v` or `:inline:JSON` or `path` to a dict."""
+    if body.startswith(":inline:"):
+        d = json.loads(body[len(":inline:") :])
+        if not isinstance(d, dict):
+            raise ValueError("sampling :inline: body must be a JSON object")
+        return d
+    if body.startswith(":kv:"):
+        out: Dict[str, Any] = {}
+        for pair in body[len(":kv:") :].split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if "=" not in pair:
+                raise ValueError(f"sampling kv pair missing '=': {pair!r}")
+            k, v = pair.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if v == "null":
+                out[k] = None
+            else:
+                try:
+                    if "." in v or "e" in v or "E" in v:
+                        out[k] = float(v)
+                    else:
+                        out[k] = int(v)
+                except ValueError:
+                    out[k] = v
+        return out
+    # path fallback
+    with open(body, "r", encoding="utf-8") as f:
+        d = json.load(f)
+    if not isinstance(d, dict):
+        raise ValueError("sampling path body must be a JSON object")
+    return d
 
 
 # ------------------------------------------------------------- diffing

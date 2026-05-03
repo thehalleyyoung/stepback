@@ -1,92 +1,85 @@
-# Proposer 2 — Severity scoring + SARIF export
+# Proposer 2 — Power: a generic JSON-Patch substitution + 3 typed ones
 
-## Framing
+## Theme
+The current 5 substitutions are all "shaped" — each carries a
+custom field (`new_messages`, `new_model_id`, ...) that maps to a
+specific input key. Adding a new substitution per debugging
+question doesn't scale. This proposer favours **expressive power**:
+introduce one generic `InputsPatchSubstitution` that can mutate
+*any* path inside `inputs`, plus three high-frequency typed
+substitutions for ergonomics, plus one substitution that targets
+*outputs* instead of inputs.
 
-The Markdown report tells a human "here's what happened". For
-incident triage, CI gating, and bisect heuristics we want a single
-scalar **severity score** (0..100) plus a structured **SARIF v2.1.0**
-artifact so existing security/code-review tooling (GitHub code
-scanning, SonarQube, custom dashboards) can ingest stepback
-counterfactuals as findings.
+## New substitutions
 
-## Public surface
+1. **`InputsPatchSubstitution(at_step, ops)`** — `ops` is a list of
+   RFC 6902 JSON Patch operations (`{"op":"replace","path":"/messages
+   /0/content","value":"..."}`, `{"op":"add"}`, `{"op":"remove"}`,
+   `{"op":"test"}`). Implementation: a tiny ~50-LoC pure-Python
+   `_apply_patch(doc, ops)` (no `jsonpatch` dependency — keeps the
+   wheel lean). `test` ops short-circuit-raise `PatchTestFailed` so
+   you can pin assumptions: *"this step's temperature was 0.7"*.
+2. **`OutputsPatchSubstitution(at_step, ops)`** — same JSON Patch
+   shape, but applied to a deep-copy of the recorded outputs. Marks
+   step dirty (output diverges) without re-invoking the underlying
+   tool / LLM. Generalises `ToolOutputSubstitution`.
+3. **`SamplingSubstitution(at_step, temperature=None, top_p=None,
+   max_tokens=None, seed=None)`** — special-case typed sub for the
+   most common LLM debugging knob; equivalent to a 1-op
+   `InputsPatchSubstitution` but with strict field validation
+   (rejects `temperature=1.5`, `top_p=2.0`, etc.).
+4. **`RaiseSubstitution(at_step, exception_type, message)`** —
+   force an exception. Like `ToolOutputSubstitution`, this is an
+   *output-forcing* substitution; the replay engine catches and
+   stores `{"__error__": {...}}`.
 
-```python
-@dataclass
-class SeverityScore:
-    score: int                # 0..100, higher = worse
-    level: str                # "info" | "low" | "medium" | "high" | "critical"
-    components: dict[str, float]  # per-axis breakdown
-    reasons: list[str]        # human strings: "cost +$1.23"
+## Wiring
 
-def severity_score(
-    baseline: ReplayResult,
-    counterfactual: ReplayResult,
-    subs: SubstitutionSet,
-) -> SeverityScore: ...
+* `branch_io._TYPE_MAP` updated; `parse_substitution_spec` gains:
+  - `inputs_patch@step:N=:inline:[{"op":"replace",...}]`
+  - `inputs_patch@step:N=path/to/ops.json`
+  - `outputs_patch@step:N=...`
+  - `sampling@step:N=temperature=0.0,max_tokens=256` (kv-pair
+    grammar — easier to type than JSON for sampling)
+  - `raise@step:N=TimeoutError:request timed out`
+* `replay.py` gets ONE new branch: `OutputsPatchSubstitution` and
+  `RaiseSubstitution` join `ToolOutputSubstitution` as the only
+  sub kinds that override `cur_outputs` rather than mutating inputs.
+  Refactor: introduce `Substitution.is_output_forcing` predicate
+  (default False; True for those three classes) to make the dispatch
+  clean instead of `isinstance` chains.
 
-def render_sarif(
-    trace: Trace,
-    baseline: ReplayResult,
-    counterfactual: ReplayResult,
-    subs: SubstitutionSet,
-    *,
-    options: Optional[ReportOptions] = None,
-) -> dict: ...
+## JSON Patch dialect (subset, tested)
 
-def dump_sarif(...) -> str: ...
-```
-
-## Scoring rubric (deterministic, no LLM)
-
-Components, each clamped 0..1, then weighted sum × 100:
-
-| Axis | Signal | Weight |
-| --- | --- | --- |
-| `cost_delta` | `min(1.0, abs(b.total - a.total) / max(a.total, 0.01))` | 0.25 |
-| `dirty_fraction` | `b.dirty_count / len(b.steps)` | 0.25 |
-| `decision_flips` | count of llm_call steps where finish_reason or first tool_call.name differs / len | 0.30 |
-| `subtree_depth` | depth of dirty subtree / total step depth | 0.10 |
-| `nondeterminism` | fraction of dirty steps whose nondeterminism_hash changed | 0.10 |
-
-Level bands: `<10 info`, `<25 low`, `<50 medium`, `<75 high`, `>=75
-critical`. Stable + reproducible → CI-gateable.
-
-## SARIF mapping
-
-* `runs[0].tool.driver.name = "stepback"`,
-  `version = stepback.__version__`.
-* Each substitution → one `result` with `ruleId =
-  "stepback/" + sub.kind`.
-* `result.level` from severity bands; `result.message.text` is the
-  headline string.
-* `result.properties` carries `cost_delta_usd`, `dirty_count`,
-  `step_id_first_divergence`, `severity_score`.
-* `runs[0].artifacts[0]` references the trace path.
-* SARIF schema 2.1.0 URL pinned. Output validated against the
-  published JSON Schema in tests (skip if `jsonschema` not
-  installed).
-
-## CLI
-
-`stepback report ... --format sarif` and
-`stepback severity TRACE --branch B.json` printing JSON.
+* `op`: `add` | `replace` | `remove` | `test` | `copy` | `move`
+* `path`: `/foo/0/bar` (RFC 6901; `~1` for `/`, `~0` for `~`)
+* `value`: any JSON value (required for `add`/`replace`/`test`)
+* `from`: source path for `copy`/`move`
+* Errors: `PatchPathNotFound`, `PatchTestFailed`,
+  `PatchInvalidOp` — all subclasses of `PatchError(ValueError)`.
 
 ## Tests
 
-* `test_severity_score_zero_when_replays_identical`
-* `test_severity_score_increases_with_cost_delta`
-* `test_severity_components_sum_to_score`
-* `test_sarif_has_required_fields`
-* `test_sarif_round_trip_through_json_dumps_loads`
-* `test_severity_is_deterministic`
+* `tests/test_substitutions_patch.py`:
+  - 12 unit cases of `_apply_patch` covering every op + edge cases
+    (negative array index → reject; `path:""` = whole doc; `~`
+    escaping).
+  - Round-trip through `substitution_to_dict`/`from_dict`.
+  - CLI spec parsing for the new kinds.
+* `tests/test_e2e_inputs_patch.py`: replay a 5-step trace,
+  patch `inputs.messages.[0].content` at step:2, assert step:2
+  becomes dirty and the LLM is re-invoked.
+* `tests/test_e2e_raise_substitution.py`: force step:3 to raise
+  `TimeoutError`, assert downstream step:4 sees the error in its
+  context and is itself dirty.
 
-## Why this framing
+## Risks
 
-Pushes stepback into the CI lane. A regression test in CI can fail
-if `severity_score(...).level >= "high"` after a prompt edit. SARIF
-unlocks zero-effort dashboards. The scoring is GOFAI on purpose —
-deterministic, byte-identical for the same trace; no LLM cost on
-the hot path. (The runbook's GOFAI guidance still applies for
-*open-ended judgment* — we deliberately stay rule-based for
-reproducibility of the score in regulator replay.)
+* JSON Patch is more powerful than typical users want; CLI ergonomics
+  hurt (`:inline:[{"op":"replace","path":"/messages/0/content",
+  "value":"hi"}]` is a mouthful).
+* Output-forcing substitutions multiply the special-case dispatch in
+  `replay.py` — needs the `is_output_forcing` predicate refactor to
+  avoid `isinstance` chains.
+* No coverage of "what if this step's *step kind* itself were
+  different?" — out of scope.

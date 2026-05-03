@@ -1,24 +1,15 @@
-diff --git a/tests/test_e2e_replay.py b/tests/test_e2e_replay.py
-index e5983c5..935b398 100644
---- a/tests/test_e2e_replay.py
-+++ b/tests/test_e2e_replay.py
-@@ -88,7 +88,8 @@ def test_verify_trace_succeeds_on_untouched_file(tmp_path):
- def test_verify_trace_detects_tampering(tmp_path):
-     path, key = _record_fixture(tmp_path)
-     # Flip a byte deep inside one of the step frames.
--    raw = open(path, "rb").read()
-+    with open(path, "rb") as _f:
-+        raw = _f.read()
-     # Find the first occurrence of "Acme Bolts" inside the on-disk
-     # bytes and flip a character so the canonical-JSON of one frame
-     # no longer matches its HMAC.
-@@ -96,7 +97,8 @@ def test_verify_trace_detects_tampering(tmp_path):
-     i = raw.find(needle)
-     assert i > 0
-     tampered = raw[:i] + b"Acme Boltz" + raw[i + len(needle) :]
--    open(path, "wb").write(tampered)
-+    with open(path, "wb") as _f:
-+        _f.write(tampered)
-     with pytest.raises(TraceVerificationError):
-         verify_trace(path, key.hmac_key)
+--- a/tests/test_attestation.py
++++ b/tests/test_attestation.py
+@@ -147,7 +147,11 @@
+     out = str(tmp_path / "x.pack")
+     write_attestation_pack(pack, out, signing_key=signing)
  
+-    raw = json.loads(open(out).read())
++    _f = open(out)
++    try:
++        raw = json.loads(_f.read())
++    finally:
++        _f.close()
+     # Flip the policy_version_pin to a different value (not in the
+     # original body) without re-signing — must fail.
+     raw["policy_version_pin"] = "tampered-2030-01-01"

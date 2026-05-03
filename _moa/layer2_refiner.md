@@ -1,112 +1,121 @@
-# Layer 2 Refiner — chosen backbone + integrated ideas
+# Layer 2 Refiner — pick a backbone, integrate the rest
 
 ## Decision
 
-Adopt **Proposer 1's HTML renderer** as the structural backbone of
-this round (smallest blast radius, immediately useful for the
-README-stated regulator-replay use-case). Layer in:
+Take **Proposer 2's structure** as the backbone (one generic
+`InputsPatchSubstitution` + a small set of typed conveniences +
+the `is_output_forcing` predicate refactor in `replay.py`). It scales
+better than P1's "one dataclass per question" and avoids P3's
+second persistence format.
 
-* From **Proposer 2**: the deterministic `severity_score()` helper +
-  `SeverityScore` dataclass — but expose it as a *first-class symbol*
-  in `report.py` and surface its components as a new section in the
-  Markdown report ("Severity") and a coloured banner in the HTML
-  report. SARIF export is *deferred*: it's a 200+ LOC commitment
-  with a JSON-Schema dependency that pushes the round past one
-  coherent expansion (Constitution rule 2).
-* From **Proposer 3**: the `available_formats()` lookup function,
-  but *without* a full pluggable Protocol. Ship a single
-  `render_report(format=...)` dispatcher that delegates to the
-  three concrete renderers (`markdown`, `json`, `html`) we actually
-  have. Keeps surface area honest; a future round can promote it to
-  a registry once we have a 4th concrete consumer.
+Then layer in the most useful pieces from the others:
 
-## Concrete file plan (for L3 to deepen)
+* From **P1**: the high-frequency typed conveniences
+  `SystemPromptSubstitution` (with mode prepend/replace/append),
+  `MessagePatchSubstitution` (one message at index `i`), and
+  `ToolArgumentsSubstitution`. Keep them — they're the things users
+  would actually type. Drop `ToolSpecSubstitution`,
+  `RouterOptionsSubstitution`, `OutputPatchSubstitution` — all are
+  trivially expressible by `InputsPatchSubstitution` /
+  `OutputsPatchSubstitution`. Adopt P1's `RaiseSubstitution`.
+* From **P2**: `InputsPatchSubstitution`, `OutputsPatchSubstitution`,
+  `SamplingSubstitution` (with strict validation), `RaiseSubstitution`,
+  the `_apply_patch` mini-engine, the `is_output_forcing` predicate
+  refactor, and the JSON Patch dialect (subset).
+* From **P3**: `is_output_forcing` is essentially the same idea as
+  P3's `CompositeSubstitution` for cleaner dispatch — keep that
+  spirit. **Drop** scenarios + `.sbs` (second format = scope creep
+  beyond one coherent theme). **Drop** `AssertSubstitution` for now
+  (pre-step invariants are a different feature — better as a
+  separate round). **Keep** the `mode={"prepend","replace","append"}`
+  pattern for `SystemPromptSubstitution` (P1's idea, applied
+  cleanly).
 
-### `stepback/report.py`
+## Final substitution roster (8 new + 5 existing)
 
-1. New dataclass:
-   ```python
-   @dataclass(frozen=True)
-   class SeverityScore:
-       score: int
-       level: str
-       components: Dict[str, float]
-       reasons: List[str]
-       def to_dict(self) -> dict: ...
-   ```
-2. New function `severity_score(baseline, counterfactual, subs) ->
-   SeverityScore`. Implements P2's rubric:
-   * `cost_delta = min(1.0, abs(b.total - a.total) / max(a.total,
-     0.01))`
-   * `dirty_fraction = b.dirty_count / max(1, len(b.steps))`
-   * `decision_flips`: count llm_call steps where `finish_reason`
-     OR first `tool_calls[0].name` differs / max(1, llm_step_count)
-   * `subtree_depth`: dirty-subtree max depth / total step depth
-     (use `parent_step_id` chain)
-   * `nondeterminism`: fraction of dirty steps with changed
-     `nondeterminism_hash`
-   * Weights: 0.25 / 0.25 / 0.30 / 0.10 / 0.10. Score = round(sum
-     × 100). Bands: <10 info, <25 low, <50 medium, <75 high, ≥75
-     critical.
-   * Each non-zero axis appends one `reason` string.
-   * For single-replay (no counterfactual), `severity_score` returns
-     a degenerate `SeverityScore(score=0, level="info",
-     components={}, reasons=[])` so call sites don't need to branch.
-3. New function `render_html_report(trace, baseline, counterfactual,
-   subs, *, options=None) -> str` (P1).
-   * Reuse `_build_report_model` for the data.
-   * Sections: headline, severity banner, substitutions, cost,
-     dirty subtree, decision diffs, step timeline.
-   * Inline `<style>`. No JS, no remote resources.
-   * `html.escape(..., quote=True)` everywhere user content lands.
-4. New `render_report(trace, baseline, counterfactual, subs, *,
-   format="markdown", options=None) -> str` dispatcher.
-5. New `available_formats() -> list[str]` returning
-   `["markdown", "json", "html"]`.
-6. Extend `ReportOptions` with:
-   * `show_severity: bool = True`
-   * `html_inline_css: bool = True`
-   * `html_collapsed_step_table: bool = True`
-7. Wire `severity_score` into `_build_report_model` so the JSON
-   model exposes a `severity` key. Markdown renderer emits a
-   "Severity" subsection between "Headline" and "Substitutions"
-   when `show_severity` is True and a counterfactual exists.
+Existing: PromptSubstitution, ModelSubstitution, ToolOutputSubstitution,
+PolicySubstitution, RouterSubstitution.
 
-### `stepback/cli.py`
+New, all dataclasses with `at_step`:
 
-* Extend the `report` subcommand with `--format
-  {markdown,json,html}` (default `markdown`). When `-o` is given
-  and `--format` is omitted, infer from the file extension.
+1. `SystemPromptSubstitution(at_step, system_text, mode="replace")`
+2. `MessagePatchSubstitution(at_step, index, new_message)`
+3. `SamplingSubstitution(at_step, temperature=None, top_p=None,
+   max_tokens=None, seed=None)`
+4. `ToolArgumentsSubstitution(at_step, new_arguments)`
+5. `InputsPatchSubstitution(at_step, ops)`
+6. `OutputsPatchSubstitution(at_step, ops)` — output-forcing
+7. `RaiseSubstitution(at_step, exception_type, message="")` —
+   output-forcing
+8. (drop: keep at 7 — eight is a clean number for one round)
 
-### `tests/test_report.py`
+Output-forcing predicate: `Substitution.is_output_forcing`
+(default False; True for `ToolOutputSubstitution`,
+`OutputsPatchSubstitution`, `RaiseSubstitution`).
 
-(Adopt P1's + P2's test list; deepen in L3.)
+`replay.py` change: replace the `isinstance(sub, ToolOutputSubstitution)`
+branch with `if sub.is_output_forcing()`. Each output-forcing sub
+gets a `force_output(recorded_step) -> Any` method:
 
-* HTML renders for replay-only and counterfactual cases.
-* HTML is byte-deterministic across two calls.
-* HTML escapes `<script>` payloads in substitution text.
-* Severity score is 0/info when counterfactual is None.
-* Severity score increases monotonically with cost delta.
-* Severity components sum (× weights × 100, rounded) equals score.
-* `available_formats()` returns the expected list.
-* `render_report(format="json")` matches `dump_report_json` byte-
-  for-byte.
+* `ToolOutputSubstitution.force_output` → `{"result": fake_response}`
+* `OutputsPatchSubstitution.force_output` → apply ops to deep-copy
+  of `recorded_step["outputs"]`, return result
+* `RaiseSubstitution.force_output` → `{"__error__": {"type":...,
+  "message":...}}`
 
-## What L3 must add (~30% deeper, per advisory)
+## Five axes L3 should deepen
 
-1. Pin the Markdown report's new "Severity" section format so the
-   existing `test_report.py` golden assertions don't break — show
-   the table that L3 will produce.
-2. Spell out the HTML template literal precisely (header,
-   `<style>`, section anchors, table column order) so the
-   determinism test isn't a moving target.
-3. Decide what happens when `b.total_cost_usd == 0` and
-   `a.total_cost_usd == 0` — degenerate denominator. L3 must
-   pin: cost component is 0 in that case (no inflation).
-4. Pin the depth calculation rule for `subtree_depth` when the
-   dirty set is empty — must be 0, not divide-by-zero.
-5. CLI `--format` extension semantics + how it interacts with the
-   existing `--branch` / `--baseline-branch` flags.
+1. **`_apply_patch` semantics** — pin every op + every error path,
+   especially RFC 6901 escapes (`~0`, `~1`), `-` end-of-array
+   sentinel for `add`, missing key vs out-of-bounds index.
+2. **`SamplingSubstitution` validation** — exact ranges, what
+   counts as None vs explicit, key names in the LLM call inputs
+   (`temperature` / `top_p` / `max_tokens` / `seed`), and the case
+   where the recorded step didn't have those fields at all.
+3. **`SystemPromptSubstitution` modes** — what if there's no
+   system message in `messages`? `replace` adds one at index 0;
+   `prepend` adds; `append` adds at end. Pin these.
+4. **`MessagePatchSubstitution` negative indices** — `-1` =
+   last; raise on out-of-bounds (don't silently expand). Allow
+   `index=len(messages)` to mean append.
+5. **CLI spec parsing** — pick a small, learnable grammar for
+   the new verbs that matches the existing `KIND@step:N=BODY`
+   shape. Multi-arg subs use `:kv:k=v,k=v` or `:inline:JSON`.
 
-Deferred to a future round (so this stays one coherent expansion):
-SARIF, JUnit, CSV-steps, the renderer Protocol, Sphinx integration.
+## Output-forcing dispatch sketch
+
+```python
+class Substitution:
+    def is_output_forcing(self) -> bool: return False
+    def force_output(self, recorded_step: dict) -> Any:
+        raise NotImplementedError
+```
+
+In `replay.py`:
+```python
+tool_override: Any = sentinel
+for sub in subs.at(sid):
+    if sub.is_output_forcing():
+        tool_override = sub.force_output(rec)
+    else:
+        sub.apply(cur_inputs, rec)
+```
+
+This is the only `replay.py` change required (modulo cost handling
+for the `__error__` path, which is `0.0`).
+
+## Tests plan
+
+* `tests/test_substitutions_patch.py` — `_apply_patch` table:
+  add/replace/remove/test/copy/move × array+object × good+bad
+  paths; `~` escaping; `-` sentinel.
+* `tests/test_substitutions_new.py` — round-trip, `force_output`,
+  `apply` per new sub; sampling validation rejects
+  `temperature=-0.1`, `top_p=1.5`, `max_tokens=0`.
+* `tests/test_e2e_substitutions.py` — fixture trace; for each new
+  sub kind, run `replay()` and assert
+  `(cache_hits, dirty_count, total_cost_delta)` triple matches a
+  pinned expected value.
+* `tests/test_cli_new_subs.py` — every new spec verb parses to the
+  expected dataclass; `stepback replay --substitute system@step:0=
+  :inline:"You are concise"` runs end-to-end against a fixture trace.

@@ -31,6 +31,8 @@ import json
 import sys
 from typing import List, Optional
 
+from . import autorecord
+from .recorder import RecorderKey
 from .branch_io import (
     BranchTraceMismatch,
     diff_replays,
@@ -50,7 +52,120 @@ from .report import (
     render_report,
 )
 from .substitutions import SubstitutionSet
+from .trace_diff import diff_traces, render_trace_diff
 from .trace_reader import verify_trace
+from .attestation import (
+    AttestationVerificationError,
+    build_attestation_pack,
+    read_attestation_pack,
+    verify_attestation_pack,
+    write_attestation_pack,
+)
+
+
+def _cmd_record(args: argparse.Namespace) -> int:
+    """Run a Python script under an ambient stepback recorder.
+
+    Usage::
+
+        stepback record --output trace.sb -- python my_agent.py [SCRIPT_ARGS...]
+
+    The leading ``python`` / ``python3`` token is optional — if the first
+    token after ``--`` ends in ``.py`` we run it directly via
+    :func:`runpy.run_path`. The script runs *in this process* so that
+    autorecord patches against ``openai`` / ``anthropic`` / LangChain
+    take effect transparently. The script can also call
+    :func:`stepback.autorecord.current_recorder` to record explicitly.
+
+    Exit code is the script's: a non-zero exit propagates, but the trace
+    file is still flushed to disk so the partial run can be replayed and
+    bisected (the README §"Use-cases" §1 incident-investigation flow
+    depends on this).
+    """
+    import runpy
+
+    output = args.output
+    cmd = list(args.command or [])
+    # argparse.REMAINDER preserves a leading `--`; strip it.
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        print(
+            "stepback record: a python script must follow `--`. "
+            "Example: stepback record --output trace.sb -- python my_agent.py",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Strip a leading python/python3/sys.executable token if present.
+    head = cmd[0]
+    if head in ("python", "python3", sys.executable) or head.endswith(
+        ("/python", "/python3")
+    ):
+        cmd = cmd[1:]
+    if not cmd:
+        print(
+            "stepback record: no script path after `python` token.",
+            file=sys.stderr,
+        )
+        return 2
+
+    script = cmd[0]
+    if not script.endswith(".py") and "/" not in script and "\\" not in script:
+        # Allow `-m module.name` form.
+        if script == "-m" and len(cmd) >= 2:
+            module_name = cmd[1]
+            script_argv = cmd[1:]
+        else:
+            print(
+                f"stepback record: don't know how to run {script!r}; "
+                "expected a .py path or `-m module`.",
+                file=sys.stderr,
+            )
+            return 2
+        run_kind = "module"
+    elif script == "-m" and len(cmd) >= 2:
+        module_name = cmd[1]
+        script_argv = cmd[1:]
+        run_kind = "module"
+    else:
+        run_kind = "script"
+        script_argv = cmd
+
+    saved_argv = sys.argv[:]
+    sys.argv = list(script_argv)
+
+    rc = 0
+    try:
+        with autorecord.enable(output, key=RecorderKey.fresh()):
+            try:
+                if run_kind == "script":
+                    runpy.run_path(script, run_name="__main__")
+                else:
+                    runpy.run_module(module_name, run_name="__main__", alter_sys=True)
+            except SystemExit as se:
+                rc = int(se.code) if isinstance(se.code, int) else (0 if se.code is None else 1)
+            except BaseException as exc:  # noqa: BLE001
+                # Log via the recorder so the trace captures the failure.
+                try:
+                    autorecord.current_recorder().exception(
+                        type(exc).__name__, str(exc)
+                    )
+                except Exception:
+                    pass
+                print(
+                    f"stepback record: script raised {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
+                rc = 1
+    finally:
+        sys.argv = saved_argv
+
+    if rc == 0:
+        print(f"wrote {output}")
+    else:
+        print(f"wrote {output} (script exited with {rc})", file=sys.stderr)
+    return rc
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
@@ -325,9 +440,142 @@ def _cmd_bisect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_attest(args: argparse.Namespace) -> int:
+    """Build a regulator-replay attestation pack over one or more traces."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    hmac_key = bytes.fromhex(args.hmac_key_hex)
+    if args.signing_key_hex:
+        signing_key = Ed25519PrivateKey.from_private_bytes(
+            bytes.fromhex(args.signing_key_hex)
+        )
+    else:
+        signing_key = Ed25519PrivateKey.generate()
+
+    # Build a single shared substitution list (applied to every trace).
+    subs = SubstitutionSet()
+    for spec in args.substitute or []:
+        subs.add(parse_substitution_spec(spec))
+    if args.policy_file:
+        # Convenience: --policy-file FILE expands to a PolicySubstitution
+        # at step:0 that pins every trace to this policy file.
+        subs.add(parse_substitution_spec(f"policy@step:0={args.policy_file}"))
+
+    pack = build_attestation_pack(
+        list(args.traces),
+        hmac_key=hmac_key,
+        substitutions=subs if subs else None,
+        policy_version_pin=args.policy_version_pin,
+        attestor_signing_key=signing_key,
+    )
+    write_attestation_pack(pack, args.out, signing_key=signing_key)
+    summary = pack.summary
+    if args.json:
+        json.dump(
+            {
+                "out": args.out,
+                "attestor_public_key": pack.attestor_public_key,
+                "summary": summary,
+            },
+            sys.stdout,
+            indent=2,
+            sort_keys=True,
+        )
+        sys.stdout.write("\n")
+    else:
+        print(f"wrote attestation pack: {args.out}")
+        print(f"  attestor: {pack.attestor_public_key}")
+        print(f"  traces:        {summary['trace_count']}")
+        print(
+            f"  verified ok:   {summary['verified_ok']}"
+            f"  fail: {summary['verified_fail']}"
+        )
+        print(
+            f"  divergent:     {summary['divergent_traces']}"
+            f"  total $\u0394: {summary['total_cost_delta_usd']:.6f}"
+        )
+    # Non-zero exit if any trace failed verification, so this composes
+    # in shell pipelines.
+    return 0 if summary["verified_fail"] == 0 else 3
+
+
+def _cmd_verify_pack(args: argparse.Namespace) -> int:
+    try:
+        data = verify_attestation_pack(
+            args.pack, expected_public_key=args.expected_public_key
+        )
+    except AttestationVerificationError as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 2
+    summary = data.get("summary", {})
+    print(
+        f"OK  pack={args.pack}  attestor={data.get('attestor_public_key', '')[:32]}…"
+    )
+    print(
+        f"    traces={summary.get('trace_count', 0)}"
+        f"  verified_ok={summary.get('verified_ok', 0)}"
+        f"  divergent={summary.get('divergent_traces', 0)}"
+    )
+    return 0
+
+
+def _cmd_trace_diff(args: argparse.Namespace) -> int:
+    """Cross-trace structural diff (regression analysis)."""
+    hmac_a = bytes.fromhex(args.a_hmac_key_hex) if args.a_hmac_key_hex else None
+    hmac_b = bytes.fromhex(args.b_hmac_key_hex) if args.b_hmac_key_hex else None
+    d = diff_traces(args.a_trace, args.b_trace, hmac_key_a=hmac_a, hmac_key_b=hmac_b)
+
+    fmt = (args.format or "auto").lower()
+    if fmt == "auto":
+        fmt = _infer_format_from_path(args.output) or "markdown"
+    if fmt == "md":
+        fmt = "markdown"
+    if args.summary_only:
+        out_text = json.dumps(d.summary(), indent=2, sort_keys=True) + "\n"
+    else:
+        out_text = render_trace_diff(
+            d, format=fmt, max_rows=args.max_rows, truncate=args.truncate
+        )
+        if fmt == "json" and not out_text.endswith("\n"):
+            out_text += "\n"
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out_text)
+        print(f"wrote {args.output} ({len(out_text)} bytes)")
+    else:
+        sys.stdout.write(out_text)
+
+    if args.exit_nonzero_on_divergence and not d.is_identical:
+        return 3
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(prog="stepback", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_record = sub.add_parser(
+        "record",
+        help="run a Python agent script under an ambient stepback recorder",
+        description=(
+            "Run a Python agent script with stepback recording enabled "
+            "process-globally. openai/anthropic/langchain clients already "
+            "imported (or imported by the script) are auto-wrapped. The "
+            "script can also call stepback.autorecord.current_recorder() "
+            "to record explicit llm_call/tool_call/router steps."
+        ),
+    )
+    p_record.add_argument(
+        "--output", "-o", required=True,
+        help="output .sb trace path",
+    )
+    p_record.add_argument(
+        "command", nargs=argparse.REMAINDER,
+        help="`-- python my_agent.py [ARGS...]` (the leading `python` is "
+             "optional; bare `script.py [ARGS...]` also works)",
+    )
+    p_record.set_defaults(func=_cmd_record)
 
     p_inspect = sub.add_parser("inspect", help="print step timeline")
     p_inspect.add_argument("trace")
@@ -423,6 +671,79 @@ def main(argv: Optional[list] = None) -> int:
              "(.html→html, .json→json, .md→markdown), else 'markdown'.",
     )
     p_report.set_defaults(func=_cmd_report)
+
+    p_attest = sub.add_parser(
+        "attest",
+        help="build a regulator-replay attestation pack over one or more traces",
+    )
+    p_attest.add_argument("traces", nargs="+", help=".sb trace paths")
+    p_attest.add_argument("--hmac-key-hex", required=True)
+    p_attest.add_argument(
+        "--out", required=True, help="output .pack path"
+    )
+    p_attest.add_argument(
+        "--signing-key-hex",
+        help="32-byte Ed25519 attestor private key (hex). If omitted, "
+             "a fresh ephemeral key is generated and the public half is "
+             "written into the pack.",
+    )
+    p_attest.add_argument(
+        "--policy-version-pin",
+        help="opaque label recorded in the pack body (e.g. '2026-04-15')",
+    )
+    p_attest.add_argument(
+        "--policy-file",
+        help="convenience: applies policy@step:0=PATH to every trace",
+    )
+    p_attest.add_argument(
+        "--substitute", "-s", action="append",
+        help="extra substitution spec applied to every trace (repeatable)",
+    )
+    p_attest.add_argument("--json", action="store_true")
+    p_attest.set_defaults(func=_cmd_attest)
+
+    p_verify_pack = sub.add_parser(
+        "verify-pack",
+        help="verify the signature on an attestation pack",
+    )
+    p_verify_pack.add_argument("pack")
+    p_verify_pack.add_argument(
+        "--expected-public-key",
+        help="pin the attestor key (e.g. 'ed25519:abcd...'); fails "
+             "verification on mismatch",
+    )
+    p_verify_pack.set_defaults(func=_cmd_verify_pack)
+
+    p_trace_diff = sub.add_parser(
+        "trace-diff",
+        help="structurally diff two recorded .sb traces (regression analysis)",
+    )
+    p_trace_diff.add_argument("a_trace", help="baseline .sb trace (A)")
+    p_trace_diff.add_argument("b_trace", help="comparison .sb trace (B)")
+    p_trace_diff.add_argument(
+        "--a-hmac-key-hex",
+        help="optional HMAC key for verifying trace A before diffing",
+    )
+    p_trace_diff.add_argument(
+        "--b-hmac-key-hex",
+        help="optional HMAC key for verifying trace B before diffing",
+    )
+    p_trace_diff.add_argument(
+        "--format", choices=["md", "markdown", "json", "auto"], default="auto"
+    )
+    p_trace_diff.add_argument("-o", "--output")
+    p_trace_diff.add_argument("--max-rows", type=int, default=200)
+    p_trace_diff.add_argument("--truncate", type=int, default=80)
+    p_trace_diff.add_argument(
+        "--summary-only", action="store_true",
+        help="emit just the JSON summary (no per-step detail)",
+    )
+    p_trace_diff.add_argument(
+        "--exit-nonzero-on-divergence", action="store_true",
+        help="exit code 3 if the two traces are not structurally identical "
+             "(useful in CI: detect a regression vs. a golden trace)",
+    )
+    p_trace_diff.set_defaults(func=_cmd_trace_diff)
 
     args = p.parse_args(argv)
     return args.func(args)

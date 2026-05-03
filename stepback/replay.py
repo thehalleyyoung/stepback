@@ -331,8 +331,8 @@ class Trace:
             # Apply substitutions targeting this step.
             tool_override: Any = sentinel
             for sub in subs.at(sid):
-                if isinstance(sub, ToolOutputSubstitution):
-                    tool_override = {"result": sub.fake_response}
+                if sub.is_output_forcing():
+                    tool_override = sub.force_output(rec)
                 else:
                     sub.apply(cur_inputs, rec)
 

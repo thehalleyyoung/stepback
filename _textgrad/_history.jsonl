@@ -6,3 +6,6 @@
 {"step":5,"loss":0.0,"gradient_summary":"resume: 132/132 passing, loss=0; stop condition met (loss<=0)"}
 {"step":6,"loss":0.0,"gradient_summary":"resume: 132/132 passing, loss=0; stop condition met (loss<=0); no descent"}
 {"step":7,"loss":0.0,"gradient_summary":"resume: 132/132 passing, loss=0; stop condition met (loss<=0); no descent"}
+{"step":8,"loss":0.0,"gradient_summary":"resume: 204/204 passing, loss=0; stop condition met"}
+{"step":9,"loss":0.0,"gradient_summary":"resume: 204/204 passing, loss=0; stop condition met (loss<=0); no descent"}
+{"step":10,"loss":0.0,"gradient_summary":"resume: 204/204 passing, loss=0; stop condition met (loss<=0); no descent"}

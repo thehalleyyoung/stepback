@@ -1,5 +1,5 @@
 {
   "patch_index": 0,
   "score": 1.0,
-  "reason": "Stage 3 ran the harness against each candidate. patch_0 (with-statement wrappers) and patch_1 (pathlib.Path API) both pass the full 132/132 default suite AND the strict 132/132 `pytest -W error` suite, fully eliminating the 5 ResourceWarning regressions introduced in commit 23d548d. patch_2 only repaired tests/test_e2e_replay.py and still leaks 4 file handles under -W error. Tie-break between patch_0 and patch_1 went to patch_0 because it is more surgical: 86 diff lines vs 102, and it requires no new `from pathlib import Path` imports, so the per-file change footprint stays inside the leaking call sites only."
+  "reason": "All three candidates eliminate the PytestUnraisableExceptionWarning (ResourceWarning: unclosed file) at tests/test_attestation.py:150 and keep the full suite green (204/204 under `pytest -x -q -W error::ResourceWarning`). Tie-broken by minimal-diff + idiomaticity: patch_0 uses the standard `with open(out) as f:` context manager (1 line removed, 2 added, 0 new imports). patch_1 also works but adds a `pathlib` import for a single use. patch_2 works but uses a verbose 4-line try/finally with a `_f` sentinel that lints poorly. patch_0 is the smallest, most idiomatic, no-new-dependency fix."
 }
