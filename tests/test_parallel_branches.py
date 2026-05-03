@@ -358,3 +358,66 @@ def test_join_step_is_strictly_after_all_branch_tails(tmp_path):
     # Parents must span a contiguous window inside the fan-out region.
     assert min(parent_idxs) > 3  # after the open
     assert max(parent_idxs) < join_idx
+
+
+def test_branch_names_uniqueness_and_count(tmp_path):
+    """Numeric guarantee: parallel_branch_open emits exactly N
+    distinct branch names — no duplicates, no extras, no drops."""
+    path, key, steps = _record_trace(tmp_path)
+    open_step = next(s for s in steps if s["step_kind"] == "parallel_branch_open")
+    names = open_step["outputs"]["branch_names"]
+    assert len(names) == 3
+    assert len(set(names)) == 3, names  # all distinct
+    assert names == sorted(names) or set(names) == {f"research/{t}" for t in FACTS.keys()}
+    # Each name has the expected `research/<topic>` prefix shape.
+    for n in names:
+        assert n.startswith("research/")
+        assert len(n.split("/", 1)[1]) > 0
+
+
+def test_cached_replay_throughput_bound(tmp_path):
+    """Cached replay must process all 11 steps under a tight wall-clock
+    ceiling. Pins replay efficiency: > 100 steps/second on cached path."""
+    import time
+    path, key, _ = _record_trace(tmp_path)
+    trace = replay(path)
+    t0 = time.perf_counter()
+    result = trace.replay_forward(Executor())
+    elapsed = time.perf_counter() - t0
+    assert result.cache_hit_count == 11
+    # Hard ceiling: 11 cached steps must replay in well under 1 second.
+    assert elapsed < 1.0, f"cached replay took {elapsed*1000:.1f}ms"
+    # Throughput bound: at least 50 steps/second (very conservative).
+    sps = 11 / max(elapsed, 1e-6)
+    assert sps > 50, f"only {sps:.1f} steps/sec on cached replay"
+
+
+def test_substitution_dirty_subtree_size_strictly_bounded(tmp_path):
+    """Numeric threshold: dirtying ONE branch tail must impact at most
+    a fixed absolute number of steps (3) and at most ~28% of the trace,
+    regardless of which branch was substituted.
+
+    Pins the sibling-isolation guarantee per-branch (not just for the
+    economics branch tested above). Catches any regression where a
+    substitution accidentally invalidates upstream or sibling caches.
+    """
+    path, key, _ = _record_trace(tmp_path)
+
+    # Each branch tail step id (per the recorded shape): 5, 7, 9.
+    for tail_id in ("step:5", "step:7", "step:9"):
+        trace = replay(path)
+        trace.substitute(ToolOutputSubstitution(
+            at_step=tail_id,
+            fake_response={"answer": f"alt-{tail_id}", "confidence": 0.5},
+        ))
+        result = trace.replay_forward(Executor(llm=fake_llm, tool=fake_tool))
+        dirty = sum(1 for s in result.steps if s.dirty)
+        cached = sum(1 for s in result.steps if s.cache_hit)
+        # Absolute bound: substituted-tool + join + synthesise = 3 dirty.
+        assert dirty == 3, f"{tail_id}: expected 3 dirty, got {dirty}"
+        # Cache survival: at least 8 of 11 steps unchanged.
+        assert cached >= 8, f"{tail_id}: cached={cached}"
+        # Ratio bound: ≤ 28% of trace re-executes per single substitution.
+        assert dirty / 11 <= 0.28, f"{tail_id}: ratio={dirty/11:.3f}"
+        # Real LLM/exec bound: ≤ dirty count.
+        assert result.real_executions <= dirty

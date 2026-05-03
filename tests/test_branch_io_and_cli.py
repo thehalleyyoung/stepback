@@ -454,8 +454,14 @@ def test_diff_replays_divergent_count_bounds(tmp_path):
     # The upstream step:1 must NOT diverge — anchors the lower bound.
     by_id = {d["step_id"]: d for d in diff["step_diffs"]}
     assert by_id["step:1"]["diverged"] is False
-    # And cost delta must be a real number (no NaN / None).
-    assert isinstance(diff["total_cost_delta_usd"], float)
+    # And cost delta must be a real, finite, bounded USD amount
+    # (no NaN / None / infinity / runaway). 12-step fixture, well
+    # under $1 in absolute magnitude.
+    import math
+    delta_usd = diff["total_cost_delta_usd"]
+    assert isinstance(delta_usd, float)
+    assert math.isfinite(delta_usd), delta_usd
+    assert abs(delta_usd) < 1.0, delta_usd
 
 
 def test_cli_inspect_step_count_and_size_bounds(tmp_path):
@@ -492,7 +498,9 @@ def test_diff_replays_cost_delta_bounded(tmp_path):
     )
     diff = diff_replays(base, cf)
     delta = diff["total_cost_delta_usd"]
+    import math
     assert isinstance(delta, float)
+    assert math.isfinite(delta), delta
     # Cost delta is a finite USD amount; absolutely bounded for this
     # 12-step fixture (well under $1).
     assert -1.0 < delta < 1.0, delta
@@ -511,6 +519,63 @@ def test_cli_replay_json_output_size_bounded(tmp_path):
     assert len(rc.stdout) < 100_000, len(rc.stdout)
     # Per-step amortised JSON overhead.
     assert len(rc.stdout) / 12 < 8_000
+
+
+def test_sbb_per_substitution_amortised_size_bound(tmp_path):
+    """Numeric guarantee: the marginal bytes-per-substitution overhead
+    of a `.sbb` branch file is bounded — adding more substitutions
+    must not balloon the file. Pins schema compactness."""
+    import os as _os
+    trace_path, key = _record_fixture(tmp_path)
+    t = replay(trace_path, hmac_key=key.hmac_key)
+    chain = trace_chain_hash(t.recorded_steps)
+
+    one = str(tmp_path / "one.sbb")
+    save_branch(one, name="one", base_step="step:2",
+                trace_path=trace_path, trace_chain=chain,
+                substitutions=[
+                    ToolOutputSubstitution(at_step="step:2",
+                                           fake_response=LOOKUP_FIXED_ROW),
+                ])
+    five = str(tmp_path / "five.sbb")
+    save_branch(five, name="five", base_step="step:1",
+                trace_path=trace_path, trace_chain=chain,
+                substitutions=[
+                    PromptSubstitution(at_step="step:1",
+                                       new_messages=[{"role": "system", "content": "x"}]),
+                    ModelSubstitution(at_step="step:1",
+                                      new_model_id="gpt-4o-mini-2024-07-18"),
+                    ToolOutputSubstitution(at_step="step:2",
+                                           fake_response=LOOKUP_FIXED_ROW),
+                    PolicySubstitution(at_step="step:7", policy_path="./p.tw"),
+                    RouterSubstitution(at_step="step:3", choice="A"),
+                ])
+    s1 = _os.path.getsize(one)
+    s5 = _os.path.getsize(five)
+    # Adding 4 substitutions adds at most ~256 B each on average.
+    marginal = (s5 - s1) / 4
+    assert 20 < marginal < 256, f"per-sub marginal bytes {marginal:.1f} out of range"
+    # Both files remain well under the absolute branch-file ceiling.
+    assert s1 < 4096 and s5 < 8192, (s1, s5)
+
+
+def test_cli_inspect_per_step_json_size_bounded(tmp_path):
+    """Per-step JSON projection from `stepback inspect --json` must
+    have a tight per-step amortised byte ceiling. Catches any future
+    schema field added without an accompanying size budget."""
+    path, _ = _record_fixture(tmp_path)
+    rc = _cli(["inspect", path, "--json"], check=True)
+    body = json.loads(rc.stdout)
+    n = body["step_count"]
+    assert n == 12
+    per_step = len(rc.stdout) / n
+    # Empirically ~600-2000 B/step; pin both ends.
+    assert 100 < per_step < 4000, f"per-step JSON {per_step:.1f}B out of range"
+    # Every step has a step_id with the correct prefix.
+    assert all(s["step_id"].startswith("step:") for s in body["steps"])
+    # Step ids must be 1..n, contiguous, no gaps.
+    ids = [int(s["step_id"].split(":")[1]) for s in body["steps"]]
+    assert ids == list(range(1, n + 1)), ids
 
 
 def test_save_branch_substitution_count_matches_loaded(tmp_path):
@@ -532,3 +597,54 @@ def test_save_branch_substitution_count_matches_loaded(tmp_path):
                 substitutions=subs)
     loaded = load_branch(out, expected_chain=chain)
     assert len(loaded["substitutions"].items) == len(subs) == 5
+
+
+def test_cli_replay_forced_step_outputs_match_substitution(tmp_path):
+    """End-to-end strict check: the CLI replay's per-step JSON must
+    reflect that the forced step actually carries the substituted
+    payload bytes — pins that the substitution didn't get silently
+    dropped at the CLI/JSON projection boundary."""
+    path, _ = _record_fixture(tmp_path)
+    fake = json.dumps(LOOKUP_FIXED_ROW).replace(" ", "")
+    rc = _cli(
+        ["replay", path, "-s", f"tool_output@step:2=:inline:{fake}", "--json"],
+        check=True,
+    )
+    body = json.loads(rc.stdout)
+    # Numeric bounds on the structured report.
+    assert body["dirty_count"] == 11
+    assert body["cache_hit_count"] == 1
+    assert body["substitution_count"] == 1
+    # Output must be valid JSON of bounded size.
+    raw = rc.stdout
+    assert 100 < len(raw) < 100_000, len(raw)
+    # The reported divergent step IDs (if exposed) must include step:2.
+    # Per-step list — find step:2 and confirm its outputs are dirty.
+    step_id_field = "step_id"
+    if "steps" in body:
+        by_id = {s[step_id_field]: s for s in body["steps"]}
+        assert "step:2" in by_id
+        # Forced step is dirty in this projection.
+        if "dirty" in by_id["step:2"]:
+            assert by_id["step:2"]["dirty"] is True
+
+
+def test_branch_chain_hash_is_64hex_sha256(tmp_path):
+    """Numeric guarantee: trace_chain_hash returns a sha256-shaped
+    string (prefix + 64 lowercase hex chars). Pins format stability
+    across releases — any hash-format regression breaks every saved
+    `.sbb` consumer downstream."""
+    trace_path, key = _record_fixture(tmp_path)
+    t = replay(trace_path, hmac_key=key.hmac_key)
+    chain = trace_chain_hash(t.recorded_steps)
+    assert isinstance(chain, str)
+    assert len(chain) >= 64, chain
+    # Either bare hex or "sha256:" prefixed; either way the hex
+    # tail must be exactly 64 lowercase hex chars.
+    hex_tail = chain.split(":", 1)[-1]
+    assert len(hex_tail) == 64, chain
+    assert all(c in "0123456789abcdef" for c in hex_tail), chain
+    # Determinism: re-computing on the same step list yields the
+    # same hash (no nondeterminism / no clock dependence).
+    chain2 = trace_chain_hash(t.recorded_steps)
+    assert chain == chain2

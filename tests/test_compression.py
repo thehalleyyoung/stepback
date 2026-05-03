@@ -377,3 +377,29 @@ def test_compression_off_per_step_cost_is_higher(tmp_path):
     # Compressed must not be more than 2x the uncompressed on small
     # fixtures (caps blob-index overhead).
     assert sz_c < 2 * sz_u, f"sz_c={sz_c} > 2*sz_u={sz_u}: bad index overhead"
+
+
+def test_compression_dedup_scales_sublinearly(tmp_path):
+    """Numeric guarantee on dedup quality: when comparing compressed
+    vs uncompressed at the SAME step count, the dedup ratio must
+    improve (get tighter) at larger scale because the recurring
+    800B system prompt amortises across more frames."""
+    p20_dir = tmp_path / "p20"; p20_dir.mkdir()
+    p60_dir = tmp_path / "p60"; p60_dir.mkdir()
+    p20_c, _, _ = _record_chat_history(p20_dir, n_steps=20, compression=True)
+    p20_u, _, _ = _record_chat_history(p20_dir, n_steps=20, compression=False)
+    p60_c, _, _ = _record_chat_history(p60_dir, n_steps=60, compression=True)
+    p60_u, _, _ = _record_chat_history(p60_dir, n_steps=60, compression=False)
+    ratio20 = os.path.getsize(p20_c) / os.path.getsize(p20_u)
+    ratio60 = os.path.getsize(p60_c) / os.path.getsize(p60_u)
+    # Compressed/uncompressed ratio must be < 1 at both scales.
+    assert ratio20 < 1.0, ratio20
+    assert ratio60 < 1.0, ratio60
+    # Larger-scale dedup must be at least as good as smaller-scale
+    # (the recurring system prompt amortises better with more frames).
+    assert ratio60 <= ratio20 + 0.05, (
+        f"dedup ratio regressed at scale: 20-step={ratio20:.3f} "
+        f"60-step={ratio60:.3f}"
+    )
+    # And at 60 steps, the win must be at least 50%.
+    assert ratio60 < 0.50, f"60-step compression ratio {ratio60:.3f} > 0.50"

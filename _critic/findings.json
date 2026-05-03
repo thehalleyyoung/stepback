@@ -1,72 +1,61 @@
 [
   {
-    "rule_number": 0,
-    "rule_title": "Required artifact missing — CONSTITUTION.md",
+    "rule_number": 1,
+    "rule_title": "Scope expansion is virtuous (one coherent thematic improvement)",
     "severity": "advisory",
-    "message": "The brief instructs the critic to read CONSTITUTION.md (must exist), but no CONSTITUTION.md is present at the repo root, in meta/, or in .kitchensink/. Critique was therefore performed against the rule excerpts embedded in the brief itself (Kitchensink Principle rules 1, 2, 3, 3a, 3b, 5, 6) plus the runbook fragments. A repo-local copy or symlink should be added so future critic runs have a stable artifact to cite verbatim.",
+    "message": "Round delivers a coherent expansion of the report renderer (HTML output format, severity scoring rubric, CLI auto-format inference, paired tests). ~514 added lines in stepback/report.py + 216 lines in tests/test_report.py + CLI wiring. Single theme, no unrelated bundling — compliant.",
     "evidence": [
-      "ls CONSTITUTION.md -> No such file or directory",
-      ".kitchensink/ contains only dossier.md",
-      "meta/ contains only run_obligations.md"
+      "stepback/report.py | 515 ++++++++++++++++++++-",
+      "tests/test_report.py | 216 +++++++++",
+      "stepback/cli.py adds --format html/markdown/auto with _infer_format_from_path"
     ]
   },
   {
     "rule_number": 3,
-    "rule_title": "Tests come with features — Rule 3a end-to-end fixture testing",
-    "severity": "warning",
-    "message": "Commit 23d548d (kitchensink r0023 test_forge) is a test-forge round and adds many strict numeric-threshold assertions, but every new e2e test still drives the pipeline through the in-process `_record_fixture(tmp_path)` helper which calls `fake_llm` / `fake_tool` synthetic stubs. There is no committed, real recorded-trace JSON fixture under tests/fixtures/ for this record/replay library — the canonical end-goal artifact for stepback. Rule 3a calls for at least one e2e test using a REAL fixture per round; for stepback that is a captured trace JSONL from an actual LLM/tool session (or at minimum a checked-in golden trace produced once and replayed). The new test_e2e_replay tests still synthesize the trace at test-time from fake_llm rather than loading a recorded artifact.",
-    "evidence": [
-      "ls tests/fixtures/ → __init__.py, agent.py, parallel_agent.py (no .jsonl/.json/.sbb golden traces)",
-      "tests/test_e2e_replay.py new tests all start with `path, key = _record_fixture(tmp_path)` (synthesized in-test, not a committed fixture)",
-      "tests/fixtures/agent.py defines fake_llm/fake_tool stubs rather than a recorded session"
-    ]
-  },
-  {
-    "rule_number": 3,
-    "rule_title": "Rule 3b — TEST-FORGE round must catch real defects, not introduce flake",
-    "severity": "warning",
-    "message": "test_e2e_replay.py::test_replay_speedup_vs_record_is_measurable asserts `replay_time < record_time * 2.0 + 0.05`. Wall-clock comparisons on tiny in-process traces are notoriously flaky on shared CI runners — record_time and replay_time can both be sub-millisecond, and a 50ms slack is small relative to GC/scheduler jitter. Per Rule 3b, mutation-killing strictness is the goal, but a flaky timing assertion is an anti-test in disguise: it will eventually fail unrelated to any real regression and erode trust. Prefer asserting `result.real_executions == 0` (already present and sufficient) and drop the wall-clock inequality, OR widen the tolerance and mark the test with a stable repeat budget.",
-    "evidence": [
-      "tests/test_e2e_replay.py: 'assert replay_time < record_time * 2.0 + 0.05'",
-      "Same test already asserts result.real_executions == 0 and result.cache_hit_count == 12 — those are the deterministic invariants that prove the cache-hit path; the timing assertion adds flake without adding mutation-kill power."
-    ]
-  },
-  {
-    "rule_number": 3,
-    "rule_title": "Rule 3 — vacuous-style assertions slipped into new strict tests",
+    "rule_title": "Tests come with features",
     "severity": "advisory",
-    "message": "Two of the new strict-threshold tests still contain `assert found is not None` (test_e2e_replay.py:210, 357) immediately followed by stronger structural assertions. Per Rule 3b's anti-test guidance ('vacuous `assert x is not None` is an anti-test'), the not-None line is redundant — the subsequent `.step_id == \"step:12\"` access would itself raise on None. Removing or replacing with a typed assertion would reduce noise. Severity: advisory because the surrounding assertions are strong; the not-None lines are merely dead-weight, not actively wrong.",
+    "message": "Feature additions in stepback/report.py are accompanied by 216 net new lines in tests/test_report.py covering the new HTML renderer and severity rubric. Compliant.",
     "evidence": [
-      "tests/test_e2e_replay.py:210 'assert found is not None'",
-      "tests/test_e2e_replay.py:357 'assert found is not None'"
-    ]
-  },
-  {
-    "rule_number": 0,
-    "rule_title": "Repo hygiene — committed __pycache__ churn (carry-over, not introduced this round)",
-    "severity": "warning",
-    "message": "The commit's name-status shows ~14 .pyc files under stepback/__pycache__/ and tests/__pycache__/ being modified (Bin churn for both cpython-311 and cpython-314 variants). The current commit did not ADD them — they were checked in by an earlier round (544be11) — but every round now produces meaningless byte-identical-or-near-identical Bin diffs that bloat reviewability. There is still no .gitignore. Recommend a one-line follow-up commit to `git rm -r --cached **/__pycache__ .DS_Store` plus add a standard Python .gitignore. Not fatal because no constitution rule is broken by this commit alone, but it actively undermines the auditability the constitutional/critic round depends on.",
-    "evidence": [
-      "git diff HEAD~1 HEAD --stat lists 'stepback/__pycache__/recorder.cpython-311.pyc | Bin 13929 -> 13929 bytes' (identical bytes!) and 7 similar entries",
-      "no .gitignore at repo root"
+      "tests/test_report.py | 216 +++++++++"
     ]
   },
   {
     "rule_number": 5,
     "rule_title": "kitchensink/dsl.py, runner.py, state.py are sacred",
     "severity": "advisory",
-    "message": "No violation observed — the diff touches only tests/* and meta/dossier/audit/critic markdown+json artifacts; kitchensink/ is not modified. Recorded for completeness.",
+    "message": "No sacred files touched; the diff is confined to stepback/cli.py, stepback/report.py, tests, and orchestrator state directories.",
     "evidence": [
-      "git diff HEAD~1 HEAD --name-only shows no kitchensink/ paths"
+      "git diff --stat shows no changes under kitchensink/"
     ]
   },
   {
     "rule_number": 6,
-    "rule_title": "OPENAI_API_KEY boundary / agent CLI for reasoning",
+    "rule_title": "Agent CLI is the reasoner; OPENAI_API_KEY restricted to images.generate/edit + Whisper",
     "severity": "advisory",
-    "message": "Not applicable to this diff — only tests and meta files changed; no new reasoning calls were added in this round. Noted so future rounds adding cost-accounting tests don't accidentally short-circuit through a direct OpenAI SDK call instead of the agent CLI.",
+    "message": "The new severity_score function is a deterministic numeric rubric (cost_delta, dirty_fraction, decision_flips, subtree_depth with fixed weights summed to a 0–100 band) — this is the 'numeric metrics / code wins' category from the use-the-agent-liberally runbook, not a reasoning task that needs the agent CLI. No direct OpenAI calls introduced. HTML rendering uses html.escape (stdlib). Compliant.",
     "evidence": [
-      "grep -n 'openai\\|chat.completions\\|anthropic' on the new test files returns nothing reasoning-related"
+      "stepback/report.py: _SEVERITY_WEIGHTS = ((\"cost_delta\", 0.30), (\"dirty_fraction\", 0.30), (\"decision_flips\", 0.30), (\"subtree_depth\", 0.10))",
+      "import html as _html (stdlib escape only)"
+    ]
+  },
+  {
+    "rule_number": 1,
+    "rule_title": "Hygiene — committed build artifacts inflate the diff",
+    "severity": "warning",
+    "message": "20 *.pyc files under stepback/__pycache__/ and tests/__pycache__/ are tracked and updated each commit (e.g. report.cpython-311.pyc 37546→66135). They should be in .gitignore; checking them in obscures real diffs and risks stale-bytecode bugs across Python versions. Not a CONSTITUTION numbered rule, but worth fixing next round.",
+    "evidence": [
+      "stepback/__pycache__/report.cpython-311.pyc | Bin 37546 -> 66135 bytes",
+      "tests/__pycache__/test_report.cpython-314-pytest-8.4.2.pyc | Bin 56677 -> 91084 bytes"
+    ]
+  },
+  {
+    "rule_number": 3,
+    "rule_title": "Rule 3a — end-to-end fixture testing is mandatory",
+    "severity": "advisory",
+    "message": "tests/test_report.py exercises the full render_report / render_html_report / severity_score path against the existing recorded-trace fixture (tests/fixtures/agent.run_recorded_agent), which is the repo's real end-goal artifact. No mocks introduced for the new HTML/severity surface. Round satisfies 3a via the existing 12-step agent fixture.",
+    "evidence": [
+      "tests/test_report.py imports run_recorded_agent and asserts on rendered HTML / severity bands",
+      "GROUNDING.md row 11: 108 tests pass"
     ]
   }
 ]

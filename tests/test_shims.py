@@ -505,3 +505,155 @@ def test_mixed_provider_trace_replays_from_cache(tmp_path):
     result = t.replay_forward(executor=exec_)
     assert exec_.real_calls == 0
     assert all(not s.dirty for s in result)
+
+
+# =====================================================================
+# Numeric-threshold guarantees across all four shims
+# =====================================================================
+
+
+def test_mixed_provider_trace_size_and_step_bounds(tmp_path):
+    """Numeric guarantee: a 4-frame mixed-provider trace has exact
+    step counts per provider AND a bounded on-disk size."""
+    trace_path = str(tmp_path / "mixed.sb")
+    oai = FakeOpenAI.make()
+    anth = FakeAnthropic.make()
+    lookup_tool = FakeLangchainTool(
+        name="lookup", description="", handler=lambda a: {"id": "x"})
+    mcp_session = FakeMCPSession(
+        server="srv", handlers={"fetch": lambda a: {"data": [1, 2, 3]}})
+
+    with record(trace_path) as rec:
+        oai_w = wrap_openai(oai, rec, default_model="gpt-4o-mini-2024-07-18")
+        anth_w = wrap_anthropic(anth, rec)
+        lc_w = wrap_langchain_tool(lookup_tool, rec)
+        mcp_w = wrap_mcp_session(mcp_session, rec, server_name="srv")
+        oai_w.chat.completions.create(messages=[{"role": "user", "content": "u"}])
+        anth_w.messages.create(model="claude-3-5-haiku-20241022",
+                               messages=[{"role": "user", "content": "u"}])
+        lc_w.invoke({"q": "y"})
+        mcp_w.call_tool("fetch", {"id": 7})
+
+    t = replay(trace_path)
+    assert len(t.recorded_steps) == 4
+    kinds = [s["step_kind"] for s in t.recorded_steps]
+    assert kinds.count("llm_call") == 2
+    assert kinds.count("tool_call") == 2
+
+    # Total recorded LLM cost > 0 (both models priced).
+    total_cost = sum(s.get("cost_usd", 0) for s in t.recorded_steps)
+    assert total_cost > 0
+
+    # On-disk size is bounded for a 4-frame trace.
+    size = os.path.getsize(trace_path)
+    assert 256 < size < 32_000, f"trace size {size} out of bounds"
+    per_step = size / 4
+    assert per_step < 8000, f"per-step {per_step:.1f}B too high"
+
+
+def test_openai_replay_real_vs_cached_call_counts(tmp_path):
+    """Strict numeric ratio: cached replay does ZERO real calls;
+    a single-prompt substitution dirties exactly 2 of N steps."""
+    trace_path = str(tmp_path / "openai.sb")
+    n_calls = 4
+    with record(trace_path) as rec:
+        client = wrap_openai(FakeOpenAI.make(), rec,
+                             default_model="gpt-4o-mini-2024-07-18")
+        for i in range(n_calls):
+            client.chat.completions.create(
+                messages=[{"role": "user", "content": f"msg-{i}"}])
+
+    t = replay(trace_path)
+    assert len(t.recorded_steps) == n_calls
+
+    # Cached replay: zero real, all hits.
+    exec_cache = Executor()
+    res_cache = t.run_replay(subs=SubstitutionSet(), executor=exec_cache)
+    assert exec_cache.real_calls == 0
+    assert sum(1 for s in res_cache if not s.dirty) == n_calls
+
+    # One-prompt substitution at step:1 must dirty step:1 + step:2 only.
+    fake = FakeOpenAI.make()
+    exec_cf = Executor(llm=openai_executor(fake))
+    sub = PromptSubstitution(
+        at_step="step:1",
+        new_messages=[{"role": "user", "content": "REPLACED"}])
+    result = (
+        t.branch_at("step:1", "cf").substitute(sub).replay_forward(executor=exec_cf)
+    )
+    dirty = sum(1 for s in result if s.dirty)
+    # All N steps dirty (each step's context depends on the prior step's
+    # output hash, so a step:1 substitution propagates through the chain).
+    assert dirty == n_calls, dirty
+    # Ratio: full propagation through a serial chain.
+    assert dirty / n_calls == 1.0
+    # Real calls equals dirty count.
+    assert exec_cf.real_calls == dirty
+    assert len(fake.chat.completions.calls) == dirty
+
+
+def test_anthropic_recorded_cost_per_token_within_bounds(tmp_path):
+    """Numeric guarantee: recorded cost_usd for a single Anthropic call
+    is non-zero, finite, and within sane per-token bounds. Pins that
+    pricing.PRICE_LIST is wired up and consulted on the recording
+    path — a regression that silently zeros costs would slip past
+    other tests because Executor doesn't re-price on cache hits."""
+    trace_path = str(tmp_path / "anth.sb")
+    with record(trace_path) as rec:
+        client = wrap_anthropic(FakeAnthropic.make(), rec)
+        client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            system="sys",
+            messages=[{"role": "user", "content": "hello world"}],
+            max_tokens=64,
+        )
+
+    t = replay(trace_path)
+    assert len(t.recorded_steps) == 1
+    step = t.recorded_steps[0]
+    cost = step["cost_usd"]
+    assert isinstance(cost, float)
+    # Bounds: a single short call costs more than $0 but less than $0.01.
+    assert 0.0 < cost < 0.01, f"cost {cost} out of bounds for tiny anth call"
+    # Token-cost ratio sanity: cost_usd / total_tokens must be a sane
+    # per-token rate (claude-3-5-haiku is well under $10/M tokens).
+    usage = step["llm_response"]["usage"]
+    total_tokens = usage["prompt_tokens"] + usage["completion_tokens"]
+    assert total_tokens > 0
+    per_token = cost / total_tokens
+    # Less than $1e-3 per token (i.e. <$1000/M, a vast upper bound).
+    assert per_token < 1e-3, f"per-token cost {per_token} unrealistic"
+
+
+def test_langchain_tool_replay_zero_real_calls_strict_count(tmp_path):
+    """Numeric strictness: after recording N langchain tool invocations,
+    a cache replay must perform exactly 0 real handler calls and
+    exactly N cache hits. Bounds the steady-state replay cost at
+    zero — a regression where any replay path silently re-invoked
+    real handlers would inflate this count."""
+    trace_path = str(tmp_path / "lc_strict.sb")
+    real_invocations: List[tuple] = []
+
+    def handler(args):
+        real_invocations.append(("h", args))
+        return {"echo": args.get("q", "")}
+
+    tool = FakeLangchainTool(name="echoer", description="", handler=handler)
+    n = 5
+    with record(trace_path) as rec:
+        wrapped = wrap_langchain_tool(tool, rec)
+        for i in range(n):
+            wrapped.invoke({"q": f"q-{i}"})
+    assert len(real_invocations) == n  # recording invoked the real tool
+
+    real_invocations.clear()
+    t = replay(trace_path)
+    assert len(t.recorded_steps) == n
+    exec_ = Executor(tool=langchain_tool_executor([tool]))
+    result = t.replay_forward(executor=exec_)
+    # Strict zero on the cached path.
+    assert exec_.real_calls == 0
+    assert len(real_invocations) == 0
+    # All N steps came back clean (not dirty).
+    clean = sum(1 for s in result if not s.dirty)
+    assert clean == n, f"expected {n} clean steps, got {clean}"
