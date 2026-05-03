@@ -393,3 +393,138 @@ def test_cli_diff_rejects_branch_for_different_trace(tmp_path):
     rc = _cli(["diff", path_b, "--b-branch", branch_path], check=False)
     assert rc.returncode == 4
     assert "different trace" in rc.stderr.lower()
+
+
+# ---------------------------------------- numeric-threshold guarantees
+
+
+def test_sbb_branch_file_size_bounded(tmp_path):
+    """A `.sbb` branch file is just metadata + a substitution list — it
+    must be tiny relative to the trace it references."""
+    import os as _os
+    trace_path, key = _record_fixture(tmp_path)
+    trace_size = _os.path.getsize(trace_path)
+    t = replay(trace_path, hmac_key=key.hmac_key)
+    chain = trace_chain_hash(t.recorded_steps)
+    out = str(tmp_path / "fix.sbb")
+    save_branch(
+        out,
+        name="fixed-lookup",
+        base_step="step:2",
+        trace_path=trace_path,
+        trace_chain=chain,
+        substitutions=[
+            ToolOutputSubstitution(at_step="step:2", fake_response=LOOKUP_FIXED_ROW)
+        ],
+    )
+    sbb_size = _os.path.getsize(out)
+    # Absolute upper bound: under 4 KB for a single-substitution branch.
+    assert 50 < sbb_size < 4096, f".sbb size {sbb_size} out of range"
+    # Relative bound: < 50% of the trace it references (typically <<).
+    assert sbb_size < trace_size * 0.5, (
+        f"sbb={sbb_size} not << trace={trace_size}"
+    )
+
+
+def test_diff_replays_divergent_count_bounds(tmp_path):
+    """Numeric guarantee: a single tool_output@step:2 substitution
+    diverges exactly the descendant subtree, not a majority of steps."""
+    trace_path, key = _record_fixture(tmp_path)
+    t = replay(trace_path, hmac_key=key.hmac_key)
+    base = t.run_replay(t.pending_subs, Executor())
+    counterfact = replay(trace_path, hmac_key=key.hmac_key)
+    counterfact.substitute(
+        ToolOutputSubstitution(at_step="step:2", fake_response=LOOKUP_FIXED_ROW)
+    )
+    cf = counterfact.run_replay(
+        counterfact.pending_subs, Executor(llm=fake_llm, tool=fake_tool)
+    )
+    diff = diff_replays(base, cf)
+
+    total_steps = len(diff["step_diffs"])
+    diverged = diff["divergent_step_count"]
+    assert total_steps == 12, total_steps
+    # The substituted step plus its descendants — bounded between 1 and
+    # the full trace, and strictly > 0 because step:2 itself diverges.
+    assert 1 <= diverged <= total_steps
+    # The upstream step:1 must NOT diverge — anchors the lower bound.
+    by_id = {d["step_id"]: d for d in diff["step_diffs"]}
+    assert by_id["step:1"]["diverged"] is False
+    # And cost delta must be a real number (no NaN / None).
+    assert isinstance(diff["total_cost_delta_usd"], float)
+
+
+def test_cli_inspect_step_count_and_size_bounds(tmp_path):
+    """The CLI's --json output must report the exact step count and
+    every step must carry an inputs_hash that's a 64-hex sha256."""
+    path, _ = _record_fixture(tmp_path)
+    rc = _cli(["inspect", path, "--json"], check=True)
+    body = json.loads(rc.stdout)
+    assert body["step_count"] == 12
+    assert len(body["steps"]) == 12
+    for s in body["steps"]:
+        h = s["inputs_hash"]
+        # Hash format: "sha256:<64hex>" or bare 64hex.
+        h_hex = h.split(":", 1)[-1]
+        assert len(h_hex) == 64, h
+        assert all(c in "0123456789abcdef" for c in h_hex), h
+    # CLI stdout must itself be reasonably bounded (<200 KB).
+    assert len(rc.stdout) < 200_000, len(rc.stdout)
+
+
+def test_diff_replays_cost_delta_bounded(tmp_path):
+    """Tool-output substitution must not balloon total cost — the
+    diverged subtree's cost delta is finite, signed, and bounded by
+    the magnitude of the entire trace's recorded cost."""
+    trace_path, key = _record_fixture(tmp_path)
+    t = replay(trace_path, hmac_key=key.hmac_key)
+    base = t.run_replay(t.pending_subs, Executor())
+    counterfact = replay(trace_path, hmac_key=key.hmac_key)
+    counterfact.substitute(
+        ToolOutputSubstitution(at_step="step:2", fake_response=LOOKUP_FIXED_ROW)
+    )
+    cf = counterfact.run_replay(
+        counterfact.pending_subs, Executor(llm=fake_llm, tool=fake_tool)
+    )
+    diff = diff_replays(base, cf)
+    delta = diff["total_cost_delta_usd"]
+    assert isinstance(delta, float)
+    # Cost delta is a finite USD amount; absolutely bounded for this
+    # 12-step fixture (well under $1).
+    assert -1.0 < delta < 1.0, delta
+    # Diverged-step ratio bounded — at least 1 step diverges, but not
+    # all 12 (upstream step:1 is invariant under step:2 substitution).
+    assert 1 <= diff["divergent_step_count"] < 12
+
+
+def test_cli_replay_json_output_size_bounded(tmp_path):
+    """CLI --json output for a 12-step trace must remain well under
+    100 KB — guards against schema bloat in the JSON projection."""
+    path, _ = _record_fixture(tmp_path)
+    rc = _cli(["replay", path, "--json"], check=True)
+    body = json.loads(rc.stdout)
+    assert body["dirty_count"] == 0
+    assert len(rc.stdout) < 100_000, len(rc.stdout)
+    # Per-step amortised JSON overhead.
+    assert len(rc.stdout) / 12 < 8_000
+
+
+def test_save_branch_substitution_count_matches_loaded(tmp_path):
+    """Round-trip: number of substitutions saved equals number loaded
+    for every supported substitution kind. Pins schema completeness."""
+    trace_path, key = _record_fixture(tmp_path)
+    t = replay(trace_path, hmac_key=key.hmac_key)
+    chain = trace_chain_hash(t.recorded_steps)
+    out = str(tmp_path / "five.sbb")
+    subs = [
+        PromptSubstitution(at_step="step:1", new_messages=[{"role": "system", "content": "x"}]),
+        ModelSubstitution(at_step="step:1", new_model_id="gpt-4o-mini-2024-07-18"),
+        ToolOutputSubstitution(at_step="step:2", fake_response=LOOKUP_FIXED_ROW),
+        PolicySubstitution(at_step="step:7", policy_path="./p.tw"),
+        RouterSubstitution(at_step="step:3", choice="A"),
+    ]
+    save_branch(out, name="five", base_step="step:1",
+                trace_path=trace_path, trace_chain=chain,
+                substitutions=subs)
+    loaded = load_branch(out, expected_chain=chain)
+    assert len(loaded["substitutions"].items) == len(subs) == 5

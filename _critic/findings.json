@@ -1,37 +1,60 @@
 [
   {
-    "rule_number": 0,
-    "rule_title": "Repo hygiene — committed build artifacts and OS metadata",
+    "rule_number": 2,
+    "rule_title": "One coherent thematic improvement per round",
     "severity": "warning",
-    "message": "Commit 544be11 added .DS_Store (8196 bytes) and ~30 .pyc files under __pycache__/, stepback/__pycache__/, and tests/__pycache__/ directly to the tree. The repo has no .gitignore. These should be ignored, not committed; they balloon the diff and create cross-Python-version churn (both 3.11 and 3.14 .pyc are present).",
+    "message": "The single commit 9ca82ff bundles at least four distinct themes — pricing/cost accounting (stepback/pricing.py +562), shim instrumentation (stepback/shims.py +654 new), parallel branch fan-out/join (tests/fixtures/parallel_agent.py + tests/test_parallel_branches.py), and trace compression (tests/test_compression.py). Each ships its own test file, indicating these are independent features rather than one coherent expansion. Rule 2 forbids bundling unrelated improvements even though each individually may be virtuous.",
     "evidence": [
-      ".DS_Store                                                             | Bin 0 -> 8196 bytes",
-      "__pycache__/conftest.cpython-311-pytest-9.0.3.pyc                     | Bin 0 -> 592 bytes",
-      "stepback/__pycache__/cli.cpython-314.pyc                              | Bin 0 -> 21220 bytes",
-      "tests/__pycache__/test_e2e_replay.cpython-314-pytest-8.4.2.pyc        | Bin 0 -> 41615 bytes",
-      "(no .gitignore present in repo root)"
-    ]
-  },
-  {
-    "rule_number": 0,
-    "rule_title": "Required artifact missing — CONSTITUTION.md",
-    "severity": "advisory",
-    "message": "The brief instructs the critic to read CONSTITUTION.md (must exist), but no CONSTITUTION.md is present at the repo root, in meta/, or in .kitchensink/. Critique was performed against the rule excerpts embedded in the brief itself (Kitchensink Principle rules 1, 2, 3, 3a, 3b, 5, 6). A repo-local copy or symlink should be added so future critic runs have a stable artifact to cite.",
-    "evidence": [
-      "ls CONSTITUTION.md -> No such file or directory",
-      ".kitchensink/ contains only dossier.md",
-      "meta/ contains only run_obligations.md"
+      "git diff HEAD~1 HEAD --stat shows: stepback/pricing.py +562, stepback/shims.py +654 (new), tests/test_pricing.py +325, tests/test_shims.py +507, tests/test_parallel_branches.py +206, tests/test_compression.py +315",
+      "Four new top-level test files (test_pricing, test_shims, test_parallel_branches, test_compression) each cover an independent subsystem"
     ]
   },
   {
     "rule_number": 3,
-    "rule_title": "Tests come with features — agent fixture is a deterministic fake, not a real LLM",
+    "rule_title": "Tests come with features (and Rule 3a: end-to-end fixture testing)",
     "severity": "advisory",
-    "message": "tests/fixtures/agent.py defines fake_llm() that hashes messages with sha256 and emits a stable canned reply. For a record/replay library this is defensible (the *point* is replay determinism, and a real LLM would defeat the test contract), so this is logged as advisory rather than a violation of rule 3a's 'real fixture' clause. Consider adding one opt-in integration test (gated on STEPBACK_LIVE=1) that exercises wrap_openai against a real provider so the recorder/replay round-trip is validated end-to-end at least once.",
+    "message": "Tests were added with the features (good), but tests/fixtures/ contains only synthetic Python-authored agents (parallel_agent.py, agent.py) — no real recorded trace fixture from an actual LLM/tool session is committed. Rule 3a calls for at least one e2e test using a REAL fixture per round; for a record/replay library this would be a recorded trace JSON from an actual agent run. Synthetic fake_llm fixtures don't exercise the real end-goal pipeline.",
     "evidence": [
-      "tests/fixtures/agent.py:30  def fake_llm(model: str, messages: List[dict]) -> dict:",
-      "tests/fixtures/agent.py:36      blob = '\\n'.join(f\"{m['role']}:{m['content']}\" for m in messages)",
-      "tests/fixtures/agent.py:37      digest = hashlib.sha256(blob.encode()).hexdigest()[:12]"
+      "tests/fixtures/parallel_agent.py defines a `fake_llm` helper rather than loading a recorded trace",
+      "ls tests/fixtures/ → __init__.py, agent.py, parallel_agent.py (no .json/.jsonl trace fixtures)"
+    ]
+  },
+  {
+    "rule_number": 5,
+    "rule_title": "kitchensink/dsl.py, runner.py, state.py are sacred",
+    "severity": "advisory",
+    "message": "No violation observed — the diff touches only stepback/* and tests/*; kitchensink/ is not modified. Noted for completeness.",
+    "evidence": ["git diff HEAD~1 HEAD --stat shows no kitchensink/ paths"]
+  },
+  {
+    "rule_number": 0,
+    "rule_title": "Repository hygiene / artifact discipline",
+    "severity": "warning",
+    "message": "The commit checks in binary build artifacts that should never be tracked: .DS_Store (modified, +2KB) and 18 __pycache__/*.pyc files (both cpython-311 and cpython-314 variants for every module and test). There is no .gitignore in the repo. This bloats diffs, creates merge churn between developer machines, and violates standard Python project hygiene. While not an explicit numbered constitution rule, it undermines the auditability the constitutional/critic round depends on (real source diff signal vs. byte-level pyc churn).",
+    "evidence": [
+      "git diff HEAD~1 HEAD --stat: '.DS_Store | Bin 8196 -> 10244 bytes'",
+      "git diff HEAD~1 HEAD --stat lists 14 stepback/__pycache__/*.pyc + 8 tests/__pycache__/*.pyc + 2 tests/fixtures/__pycache__/*.pyc entries",
+      "`cat .gitignore` returns no output (file absent)"
+    ]
+  },
+  {
+    "rule_number": 6,
+    "rule_title": "OPENAI_API_KEY boundary / agent CLI for reasoning (runbook fc7a0f)",
+    "severity": "advisory",
+    "message": "Could not verify either way from the diff alone, but the new pricing.py (+562 LOC) and shims.py (+654 LOC) appear to implement provider-side cost/token logic. If they include any direct OpenAI SDK reasoning calls (chat.completions, etc.) that should route through the agent CLI per CONSTITUTION rule 6, that would be a violation. Reviewer should grep the new modules for `openai.` / `chat.completions` / `anthropic.` to confirm they only intercept calls rather than originate reasoning.",
+    "evidence": [
+      "stepback/pricing.py grew from ~30 LOC to 562 LOC in a single commit",
+      "stepback/shims.py is brand-new at 654 LOC"
+    ]
+  },
+  {
+    "rule_number": -1,
+    "rule_title": "Meta: CONSTITUTION.md absent from repo",
+    "severity": "warning",
+    "message": "The brief instructs the critic to 'Read CONSTITUTION.md (must exist)', but no CONSTITUTION.md exists at the repo root or any subdirectory accessible from the working tree. Findings above are graded against the kitchensink principle text embedded in the brief plus retrieved runbooks (9a193f, fc7a0f). A canonical CONSTITUTION.md should be committed so future critic rounds have a stable reference.",
+    "evidence": [
+      "`ls CONSTITUTION.md` → No such file or directory",
+      "`find . -maxdepth 3 -iname CONSTITUTION*` returns nothing"
     ]
   }
 ]

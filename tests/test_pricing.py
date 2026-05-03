@@ -323,3 +323,88 @@ def test_aggregate_costs_skips_records_without_recognisable_fields():
     # the others have no model/usage/cost_usd).
     assert s.n_steps == 3
     assert s.total_usd == pytest.approx(1.0, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# 24+  Additional numeric-threshold guarantees
+# ---------------------------------------------------------------------------
+
+
+def test_cached_token_savings_ratio_bounded():
+    """Cached-token discount must be at least 4x for gpt-4.1.
+
+    Pins the OpenAI-published 4x cached-prompt discount as a strict
+    numeric bound — any pricing-table regression (cached rate creeping
+    up toward the full rate) trips here.
+    """
+    full = compute_cost("gpt-4.1-2025-04-14",
+                        {"prompt_tokens": 10000, "completion_tokens": 0})
+    cached = compute_cost(
+        "gpt-4.1-2025-04-14",
+        {"prompt_tokens": 10000, "completion_tokens": 0,
+         "prompt_tokens_details": {"cached_tokens": 10000}},
+    )
+    assert full > 0
+    assert cached > 0
+    ratio = full / cached
+    assert ratio >= 3.9, f"cached discount only {ratio:.2f}x (expected ≥4x)"
+    assert ratio <= 5.0, f"cached discount {ratio:.2f}x suspiciously high"
+
+
+def test_aggregate_costs_top5_is_strictly_descending():
+    """most_expensive must be sorted desc with a strict numeric ordering."""
+    steps = [_step(f"s{i}", "llm_call", "fake-llm", float(i)) for i in range(20)]
+    s = aggregate_costs(steps)
+    costs = [c for _, c in s.most_expensive]
+    assert len(costs) == 5
+    for a, b in zip(costs, costs[1:]):
+        assert a > b, costs
+    # Top is the largest input value (19.0).
+    assert costs[0] == 19.0
+    # Bottom of top-5 is 15.0.
+    assert costs[-1] == 15.0
+
+
+def test_diff_costs_total_equals_sum_of_per_model():
+    """Numeric invariant: __total__ in diff_costs equals sum of
+    per-model deltas. Catches double-counting / drop bugs."""
+    a = [_step("s1", "llm_call", "gpt-4o-2024-11-20", 0.10),
+         _step("s2", "llm_call", "claude-3-5-sonnet-20241022", 0.05)]
+    b = [_step("s1", "llm_call", "gpt-4o-2024-11-20", 0.40),
+         _step("s2", "llm_call", "claude-3-5-sonnet-20241022", 0.02),
+         _step("s3", "llm_call", "fake-llm", 0.001)]
+    d = diff_costs(a, b)
+    per_model_sum = sum(v for k, v in d.items() if k != "__total__")
+    assert d["__total__"] == pytest.approx(per_model_sum, abs=1e-9)
+    # Hand-computed: (0.40-0.10) + (0.02-0.05) + (0.001-0) = 0.271
+    assert d["__total__"] == pytest.approx(0.271, abs=1e-9)
+
+
+def test_check_budget_fraction_bounds_are_consistent():
+    """fraction_used = spent / budget; remaining = budget - spent.
+    All three numeric fields must be internally consistent."""
+    steps = [_step("s1", "llm_call", "fake-llm", 0.30),
+             _step("s2", "llm_call", "fake-llm", 0.20)]
+    bc = check_budget(steps, 1.0)
+    assert bc.spent_usd == pytest.approx(0.50, abs=1e-9)
+    assert bc.budget_usd == pytest.approx(1.0, abs=1e-9)
+    assert bc.remaining_usd == pytest.approx(0.50, abs=1e-9)
+    assert bc.fraction_used == pytest.approx(0.50, abs=1e-9)
+    assert not bc.over_budget
+    # Internal invariant.
+    assert bc.spent_usd + bc.remaining_usd == pytest.approx(bc.budget_usd, abs=1e-9)
+
+
+def test_pricing_catalog_completeness_bounds():
+    """The pricing catalog must cover a reasonable number of models —
+    a regression dropping major model families would trip here."""
+    assert len(RATE_TABLE) >= 10, f"only {len(RATE_TABLE)} models in catalog"
+    assert len(PRICE_LIST) >= 10
+    assert len(ALIASES) >= 1
+    # All canonical IDs reachable via aliases must exist in RATE_TABLE.
+    for alias, canonical in ALIASES.items():
+        assert canonical in RATE_TABLE, f"alias {alias} -> missing {canonical}"
+    # Every rate table entry has non-negative input/output rates.
+    for model_id, rates in RATE_TABLE.items():
+        assert rates.input_per_1k >= 0, model_id
+        assert rates.output_per_1k >= 0, model_id

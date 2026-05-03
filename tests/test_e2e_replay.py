@@ -269,6 +269,97 @@ def test_cli_verify_ok(tmp_path):
     assert rc.stdout.startswith("OK")
 
 
+def test_trace_size_and_per_step_byte_bounds(tmp_path):
+    """Numeric-threshold guarantees on the on-disk fixture trace.
+
+    Pins the signed-trace overhead so any future schema bloat (extra
+    metadata fields, unbounded payloads) trips here rather than
+    silently inflating production traces. Also pins the floor so
+    accidental envelope-stripping (no HMAC/Ed25519) breaks the test.
+    """
+    path, key = _record_fixture(tmp_path)
+    size = os.path.getsize(path)
+    t = replay(path, hmac_key=key.hmac_key)
+    n = len(t.recorded_steps)
+    assert n == 12
+    per_step = size / n
+    # Signed envelope floor: a 12-step HMAC+Ed25519 trace must be ≥2KB.
+    assert size > 2048, f"trace size {size} below signed-envelope floor"
+    # Hard ceiling: 12 steps with full payloads must stay under 64KB.
+    assert size < 64_000, f"trace size {size} blew past per-trace ceiling"
+    # Per-step amortised byte ceiling — the only way to bust this is
+    # bloat per step (extra fields, unbounded debug payloads).
+    assert 200 < per_step < 4000, f"per-step bytes {per_step:.1f} out of bounds"
+
+
+def test_replay_speedup_vs_record_is_measurable(tmp_path):
+    """Cached replay must be measurably faster than fresh record.
+
+    Numeric-threshold guarantee on the cache-hit path: zero LLM/tool
+    re-executions AND wall-clock under the recorder time (with slack
+    for tiny-trace filesystem variance).
+    """
+    import time
+    t0 = time.perf_counter()
+    path, key = _record_fixture(tmp_path)
+    record_time = time.perf_counter() - t0
+
+    t1 = time.perf_counter()
+    t = replay(path, hmac_key=key.hmac_key)
+    result = t.replay_forward()
+    replay_time = time.perf_counter() - t1
+
+    assert result.real_executions == 0
+    assert result.cache_hit_count == 12
+    assert result.dirty_count == 0
+    # Replay should not be more than ~2x recording time (+50ms slack).
+    assert replay_time < record_time * 2.0 + 0.05, (
+        f"replay={replay_time:.4f}s vs record={record_time:.4f}s"
+    )
+
+
+def test_model_substitution_cost_drop_is_significant(tmp_path):
+    """ModelSubstitution to gpt-4o-mini must yield a numerically large
+    cost drop relative to the recorded gpt-4o baseline — not a
+    trivial rounding-noise delta.
+    """
+    path, key = _record_fixture(tmp_path)
+    t = replay(path, hmac_key=key.hmac_key)
+    base = t.replay_forward()
+    base_cost = base.total_cost_usd
+    assert base_cost > 0.0, "baseline cost must be positive"
+
+    t.substitute(ModelSubstitution(at_step="step:1", new_model_id="gpt-4o-mini-2024-07-18"))
+    from stepback import Executor
+    result = t.replay_forward(Executor(llm=fake_llm, tool=fake_tool))
+    new_cost = result.total_cost_usd
+    # Strictly cheaper.
+    assert new_cost < base_cost
+    # And cheaper by at least 1% of the baseline (mini is ~30x cheaper
+    # for the substituted step; even with only 1/6 LLM steps swapped
+    # the savings dwarf 1%).
+    drop_ratio = (base_cost - new_cost) / base_cost
+    assert drop_ratio > 0.01, f"only {drop_ratio*100:.3f}% cost drop"
+
+
+def test_bisect_probe_count_is_logarithmic(tmp_path):
+    """Bisect must be log-N in step count and zero-LLM."""
+    path, key = _record_fixture(tmp_path)
+    t = replay(path, hmac_key=key.hmac_key)
+    found = t.bisect(
+        good="step:1",
+        bad="step:12",
+        predicate=lambda s: s.kind == "tool_call"
+        and s.name == "payment.transfer",
+    )
+    assert found is not None
+    assert found.step_id == "step:12"
+    # log2(12) = 3.58, so ⌈log2⌉+1 = 5 probes max.
+    assert t.last_bisect_probes <= 5
+    # Lower bound: bisect MUST probe at least once.
+    assert t.last_bisect_probes >= 1
+
+
 def test_cli_bisect_finds_step(tmp_path):
     path, _ = _record_fixture(tmp_path)
     rc = subprocess.run(

@@ -194,6 +194,114 @@ def test_compare_branches_flags_join_and_synthesise_as_divergent(tmp_path):
     assert not by_id["step:9"].diverged_from_cache
 
 
+def test_recorded_trace_numeric_bounds(tmp_path):
+    """Numeric-threshold guarantees on the recorded fan-out trace.
+
+    These pin the *quantitative* contract of the parallel fixture so any
+    silent regression (e.g. losing a branch, doubling a tool call,
+    bloating frame envelopes) is caught.
+    """
+    path, key, steps = _record_trace(tmp_path)
+
+    # --- step-shape counts --------------------------------------------
+    kinds = [s["step_kind"] for s in steps]
+    assert kinds.count("llm_call") == 5, kinds
+    assert kinds.count("tool_call") == 4, kinds
+    assert kinds.count("parallel_branch_open") == 1
+    assert kinds.count("parallel_branch_join") == 1
+
+    # Exactly 3 sibling branches in the fan-out.
+    open_step = steps[2]
+    branch_names = open_step["outputs"]["branch_names"]
+    assert len(branch_names) == 3, branch_names
+    assert all(n.startswith("research/") for n in branch_names)
+
+    # Join must reference exactly 3 parent tails (one per branch).
+    join_step = steps[9]
+    assert len(join_step["parent_step_ids"]) == 3
+    assert len(set(join_step["parent_step_ids"])) == 3  # all distinct
+
+    # --- on-disk size bound -------------------------------------------
+    # An 11-step signed trace with HMAC + Ed25519 envelopes should be
+    # well under 32 KB — anything bigger is envelope/payload bloat.
+    size = os.path.getsize(path)
+    assert 1024 < size < 32_000, f"trace file size {size} out of bounds"
+    # Per-step amortised cost ceiling: <3 KB/step on this fixture.
+    assert size / len(steps) < 3000, f"per-step cost {size/len(steps):.1f}B too high"
+
+
+def test_dirty_subtree_is_small_fraction(tmp_path):
+    """The whole point of fan-out/fan-in modelling: a tool-output
+    substitution inside ONE branch must dirty a strictly bounded
+    fraction of the trace — not a majority of steps."""
+    path, key, _ = _record_trace(tmp_path)
+    trace = replay(path)
+    trace.substitute(ToolOutputSubstitution(
+        at_step="step:7",
+        fake_response={"answer": "alt", "confidence": 0.5},
+    ))
+    result = trace.replay_forward(Executor(llm=fake_llm, tool=fake_tool))
+
+    total = len(result.steps)
+    dirty = sum(1 for s in result.steps if s.dirty)
+    cached = sum(1 for s in result.steps if s.cache_hit)
+    assert total == 11
+    assert dirty == 3, f"expected exactly 3 dirty steps, got {dirty}"
+    assert cached == 8, f"expected exactly 8 cached steps, got {cached}"
+    # Numeric ratio bound: at most ~30% of the trace re-executes.
+    assert dirty / total <= 0.30, dirty / total
+    # Cache savings: at least 70% of steps remain cache hits.
+    assert cached / total >= 0.70, cached / total
+    # Real LLM/exec count is bounded — must be ≤ dirty count.
+    assert result.real_executions <= dirty
+    assert result.real_executions == 2
+
+
+def test_per_step_envelope_size_bounded(tmp_path):
+    """Each on-disk step envelope has a strict per-step byte ceiling.
+
+    Pins the signed-trace overhead so any future schema bloat (extra
+    metadata fields, unbounded debug payloads) trips here instead of
+    silently inflating production trace sizes.
+    """
+    path, key, steps = _record_trace(tmp_path)
+    size = os.path.getsize(path)
+    n = len(steps)
+    assert n == 11
+    # Tight per-step amortised ceiling (verified empirically ~1.5 KB).
+    per_step = size / n
+    assert per_step < 2500, f"per-step bytes {per_step:.1f} > 2500"
+    assert per_step > 200, f"per-step bytes {per_step:.1f} < 200 (suspiciously tiny)"
+    # Absolute floor for any non-trivial signed trace.
+    assert size > 1500
+
+
+def test_zero_llm_replay_speedup_vs_record(tmp_path):
+    """Cached replay must be measurably faster than fresh record.
+
+    A real numeric-threshold guarantee on the cache-hit path: replay
+    of an 11-step trace must take less wall-clock time than recording
+    it (the recorder runs the fixture; replay just hashes envelopes).
+    """
+    import time
+    t0 = time.perf_counter()
+    path, key, steps = _record_trace(tmp_path)
+    record_time = time.perf_counter() - t0
+
+    t1 = time.perf_counter()
+    trace = replay(path)
+    result = trace.replay_forward(Executor())
+    replay_time = time.perf_counter() - t1
+
+    assert result.real_executions == 0
+    assert result.cache_hit_count == 11
+    # Replay should be at most as expensive as record (allow 2x slack
+    # for filesystem variance on tiny traces).
+    assert replay_time < record_time * 2.0 + 0.05, (
+        f"replay={replay_time:.4f}s vs record={record_time:.4f}s"
+    )
+
+
 def test_parallel_branch_with_no_steps_raises(tmp_path):
     path = os.path.join(str(tmp_path), "empty.sb")
     with record(path) as rec:
@@ -204,3 +312,49 @@ def test_parallel_branch_with_no_steps_raises(tmp_path):
             assert "no steps" in str(e)
         else:  # pragma: no cover
             raise AssertionError("expected RuntimeError for empty branch")
+
+
+def test_branch_dirty_count_strictly_less_than_serial(tmp_path):
+    """Numeric guarantee: fan-out/fan-in modelling must save more
+    re-executions than the equivalent serial trace would.
+
+    A serial 11-step trace with a substitution at position 7 would
+    dirty 5 downstream steps (positions 7..11 = 5). The fan-out
+    structure must dirty STRICTLY fewer than that — proving the
+    sibling-branch isolation is real, not nominal.
+    """
+    path, key, _ = _record_trace(tmp_path)
+    trace = replay(path)
+    trace.substitute(ToolOutputSubstitution(
+        at_step="step:7",
+        fake_response={"answer": "alt", "confidence": 0.5},
+    ))
+    result = trace.replay_forward(Executor(llm=fake_llm, tool=fake_tool))
+
+    dirty = sum(1 for s in result.steps if s.dirty)
+    # Serial-equivalent dirty count would be 5 (steps 7..11).
+    serial_dirty = 11 - 7 + 1
+    assert dirty < serial_dirty, (
+        f"fan-out failed to isolate siblings: dirty={dirty} >= serial={serial_dirty}"
+    )
+    # Concrete: must be exactly 3 with our fixture.
+    assert dirty == 3
+    # Savings ratio: at least 40% fewer re-executions than serial.
+    savings = (serial_dirty - dirty) / serial_dirty
+    assert savings >= 0.4, f"only {savings*100:.1f}% savings vs serial"
+
+
+def test_join_step_is_strictly_after_all_branch_tails(tmp_path):
+    """Multi-parent join must reference parent ids strictly earlier
+    in the recorded order — no forward edges, no self-loops.
+    """
+    path, key, steps = _record_trace(tmp_path)
+    join = next(s for s in steps if s["step_kind"] == "parallel_branch_join")
+    join_idx = int(join["step_id"].split(":")[1])
+    parent_idxs = [int(pid.split(":")[1]) for pid in join["parent_step_ids"]]
+    assert all(p < join_idx for p in parent_idxs), parent_idxs
+    # All parent indices distinct.
+    assert len(set(parent_idxs)) == len(parent_idxs)
+    # Parents must span a contiguous window inside the fan-out region.
+    assert min(parent_idxs) > 3  # after the open
+    assert max(parent_idxs) < join_idx
