@@ -32,7 +32,7 @@ from stepback.substitutions import (
     RouterSubstitution,
     ToolOutputSubstitution,
 )
-from tests.fixtures.agent import (
+from stepback.testing import (
     LOOKUP_FIXED_ROW,
     fake_llm,
     fake_tool,

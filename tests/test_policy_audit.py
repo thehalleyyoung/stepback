@@ -37,7 +37,7 @@ from stepback.substitutions import (
     PolicySubstitution,
     RaiseSubstitution,
 )
-from tests.fixtures.agent import run_recorded_agent
+from stepback.testing import run_recorded_agent
 
 
 # ----------------------------------------------------------- helpers

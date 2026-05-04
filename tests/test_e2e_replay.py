@@ -33,7 +33,7 @@ from stepback.substitutions import (
     ModelSubstitution,
 )
 from stepback.trace_reader import TraceVerificationError, verify_trace
-from tests.fixtures.agent import (
+from stepback.testing import (
     LOOKUP_FIXED_ROW,
     fake_llm,
     fake_tool,

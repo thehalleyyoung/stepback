@@ -28,7 +28,7 @@ from stepback.redact import (
     _luhn_ok,
 )
 from stepback.trace_reader import verify_trace
-from tests.fixtures.agent import run_recorded_agent
+from stepback.testing import run_recorded_agent
 
 
 # ---------------------------------------------------------------- detectors

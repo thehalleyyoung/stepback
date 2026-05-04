@@ -113,25 +113,119 @@ ordering is intentionally not implied. "Owner" left blank.
     Buildx caching, image inspection, and smoke-output artifact upload.
     Existing 17/17 `tests/test_proxy.py` still green.
 
-15. Document pipx, venv, cargo, npm, Go, JVM, .NET, WASM, and proxy install
-    paths, with stable vs. experimental labels.
+15. **Complete.** Document pipx, venv, cargo, npm, Go, JVM, .NET, WASM, and proxy install
+    paths, with stable vs. experimental labels. Added `docs/INSTALL.md`
+    as the canonical install reference: per-path quick-reference table,
+    full sections for each binding (pipx, venv/pip including the `[dev]`
+    / `[shims]` / `[bench]` extras, the Rust `stepback-core` workspace
+    and `cargo install --path crates/sb-verify`, the PyO3
+    `stepback-core` wheel via maturin, `@stepback/core` for Node ≥
+    18.17, `stepback-go` for Go ≥ 1.21, the JDK 17 `bindings/jvm`
+    Gradle build, the .NET 8 `Stepback.Sb` build, the WASM bundles
+    produced by `scripts/build_wasm.sh`, and the `sb proxy`
+    distroless/debug container images), a cross-binding writer-x-reader
+    compatibility matrix, a "choosing an install path" decision
+    guide, and a Versioning section that separates package SemVer
+    from SB-Trace wire-format SemVer. Each path is labelled
+    **Stable** / **Experimental** / **Preview** with the criteria for
+    each badge made explicit. Linked from `README.md` immediately
+    after the Install section.
 
 ## § Public API surface & SemVer
 
-16. Add explicit `__all__` in `stepback/__init__.py` and snapshot it in
+16. **Complete.** Add explicit `__all__` in `stepback/__init__.py` and snapshot it in
     `tests/test_public_api.py`.
 
-17. Mark internal helpers with leading underscores or promote them deliberately;
+17. **Complete.** Mark internal helpers with leading underscores or promote them deliberately;
     resolve raw leaks like `Trace.last_bisect_probes`.
 
-18. Introduce typed `RecordedStep`, `TraceHeader`, `Receipt`, and `StepKind`
-    dataclasses with a back-compat dict view.
+18. **Complete.** Introduce typed `RecordedStep`, `TraceHeader`, `Receipt`, and `StepKind`
+    dataclasses with a back-compat dict view. Added `stepback/step_types.py`
+    with a `_DictBackedView` mixin (subclasses `collections.abc.MutableMapping`
+    over the underlying dict — same identity, no copy) and four typed views:
+    `StepKind` (a `str`-subclass `Enum` of every recorder-emitted kind, with a
+    `coerce()` helper that round-trips known values and passes unknown ones
+    through unchanged for forward-compat); `RecordedStep` (typed
+    properties for `step_id`, `step_kind`, `name`, `parent_step_id`,
+    `parent_step_ids`, `inputs`, `outputs`, `inputs_hash`, `outputs_hash`,
+    `nondeterminism`, `nondeterminism_hash`, `wallclock_ns`, `cost_usd`,
+    `llm_request`, `llm_response`); `TraceHeader` (mirrors every field
+    `TraceWriter.open` writes); `Receipt` (the `{body, prev_hmac, hmac, sig}`
+    wrapper, with derived `prev_hmac_bytes`, `hmac_bytes`, `signature_scheme`,
+    `signature_hex`, `signature_bytes`, `frame_kind` accessors). Wrappers
+    expose attribute setters that write through, the full mapping protocol
+    (`step["foo"]`, `"foo" in step`, `step.get(...)`, `step.setdefault(...)`,
+    `len`, `iter`, `update`, `del`), `from_dict`/`to_dict` with identity
+    preservation, equality vs. plain dicts and other views, and a debug
+    `repr` that surfaces well-known fields plus an `+extras=[...]` list.
+    Promoted `RecordedStep`, `TraceHeader`, `Receipt`, `StepKind` through
+    `stepback/__init__.py` and `stepback.__all__`; updated
+    `tests/test_public_api.py::EXPECTED_PUBLIC_API` accordingly. Added
+    `tests/test_step_types.py` (16 tests) covering enum coercion (known
+    + unknown values), typed read/write through to the underlying dict,
+    full mapping back-compat, identity preservation, equality with plain
+    dicts, unhashability, default construction, real-recorder integration
+    via `record(...)` (verifies `step_kind`/`parent_step_id` link the
+    chain correctly and hashes are populated), `TraceHeader` decoding
+    of an actual on-disk header frame, and `Receipt` parsing of the
+    HMAC-chain and Ed25519 signature envelope from a freshly written
+    `.sb` file (including verifying frame N+1's `prev_hmac` chains
+    to frame N's `hmac`). All 798 existing tests + 25 new tests pass.
 
-19. Document which `Trace` methods mutate and which return fresh traces;
+19. **Complete.** Document which `Trace` methods mutate and which return fresh traces;
     cover `step_back`, `branch_at`, `substitute`, `sweep`, and `minimize`.
+    Added `docs/trace-mutation.md` as the canonical reference: a
+    per-method quick-reference table covering every public method on
+    `Trace` (`goto`, `step_back`, `step_forward`, `current_step`,
+    `substitute`, `reset_substitutions`, `branch_at`, `compare_branches`,
+    `replay_forward`, `run_replay`, `bisect`, `minimize`), every public
+    method on `Branch` (`substitute`, `replay_forward`), and the
+    top-level corpus helpers (`sweep_traces`, `minimize_substitutions`,
+    `ddmin_substitutions`, `find_all_minimal`, `attribute_substitutions`),
+    each labelled mutates-receiver vs. returns-fresh and tied to the
+    concrete field that is (or is not) modified — `cursor`,
+    `pending_subs`, `_last_bisect_probes`, `Branch.substitutions`,
+    `Branch.result`. Includes idiomatic-usage examples for the fluent
+    chain, branch isolation, and read-only minimisation/sweep, plus a
+    note that `replay_forward` deep-copies inputs before building
+    `StepView` so consumers can't accidentally write back into
+    `Trace.recorded_steps`. Added concise mutation notes to the
+    docstrings of the actual methods in `stepback/replay.py`
+    (`goto`, `step_back`, `step_forward`, `current_step`,
+    `substitute`, `reset_substitutions`, `branch_at`,
+    `replay_forward`, `bisect`, `minimize`, `Branch.substitute`,
+    `Branch.replay_forward`) so the contract is visible from
+    `help(Trace.step_back)`. Extended `sweep_traces` docstring with
+    an explicit "does not mutate input traces" clause. Linked the new
+    doc from `README.md` immediately after the 60-second tour.
+    Pinned the contract with a new `tests/test_trace_mutation_contract.py`
+    (17 tests) covering: every mutating method returns `self` and
+    actually mutates the documented field; every non-mutating method
+    leaves `cursor` and `pending_subs` untouched; `branch_at` produces
+    independent `Branch` instances whose substitutions don't leak
+    into the parent or siblings; `Branch.replay_forward` overwrites
+    its `result` cache; `bisect` updates `last_bisect_probes` only;
+    `minimize` and `sweep_traces` are read-only over their inputs;
+    and the documented fluent chain
+    (`step_back(...).substitute(...).reset_substitutions()`) really
+    does return the same `Trace` object throughout. All 815 tests
+    + 1 skipped (full suite) pass.
 
-20. Create `stepback.testing` with public deterministic fixture agents so users
-    stop importing from `tests.fixtures.*`.
+20. **Complete.** Create `stepback.testing` with public deterministic fixture agents so users
+    stop importing from `tests.fixtures.*`. Added a new `stepback/testing/`
+    package (semver-covered) exposing `run_recorded_agent`, `run_parallel_agent`,
+    `fake_llm`, `fake_tool`, `CUSTOMER_DB`, `LOOKUP_BUG_ROW`, `LOOKUP_FIXED_ROW`,
+    `FACTS`, plus the `parallel_*` aliases, with full module-level docstring.
+    Moved the agents out of `tests/fixtures/` (which now contains thin
+    re-export shims so the old import path keeps working for one
+    deprecation window). Migrated all 22 in-tree call sites
+    (`from tests.fixtures.agent import …` → `from stepback.testing import …`).
+    Wired `testing` into `stepback/__init__.py`, `__all__`, and the public-API
+    snapshot test. Added `tests/test_public_testing_module.py` (6 tests) that
+    drives the canonical 12-step + 11-step parallel fixtures end-to-end through
+    the public path, asserts the back-compat shim re-exports the same
+    callables, and verifies the public path imports without the `tests`
+    package on `sys.path`. Full suite: 821 passed, 1 skipped.
 
 21. Add a Python deprecation policy: one minor release with
     `DeprecationWarning`, release notes, and replacement API before removal.

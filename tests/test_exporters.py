@@ -59,7 +59,7 @@ from stepback.exporters import (
 )
 from stepback.recorder import RecorderKey
 from stepback.trace_reader import verify_trace
-from tests.fixtures.agent import run_recorded_agent
+from stepback.testing import run_recorded_agent
 
 
 # ---------------------------------------------------------- helpers

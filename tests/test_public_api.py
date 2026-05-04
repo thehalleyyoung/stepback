@@ -24,9 +24,14 @@ EXPECTED_PUBLIC_API = frozenset({
     # --- core record/replay ------------------------------------------
     "record",
     "autorecord",
+    "testing",
     "replay",
     "Recorder",
     "RecorderKey",
+    "RecordedStep",
+    "Receipt",
+    "StepKind",
+    "TraceHeader",
     "Trace",
     "Branch",
     "BranchDiff",
@@ -203,4 +208,32 @@ def test_every_public_symbol_has_a_docstring() -> None:
     assert not undocumented, (
         f"Public symbols missing docstrings: {undocumented}. "
         "Add a one-line docstring to the underlying definition."
+    )
+
+
+def test_trace_last_bisect_probes_is_public_read_only() -> None:
+    """``Trace.last_bisect_probes`` is a deliberately-public read-only metric.
+
+    Step 17 promoted this from a raw dataclass field to a documented
+    property backed by ``_last_bisect_probes``. The contract:
+
+    * read access via attribute syntax keeps working
+    * the property has a non-empty docstring
+    * the storage attribute is underscore-prefixed (i.e. internal)
+    * fresh traces start at zero
+    """
+    prop = inspect.getattr_static(stepback.Trace, "last_bisect_probes")
+    assert isinstance(prop, property), (
+        "Trace.last_bisect_probes must be a property, not a raw dataclass "
+        "field; see Step 17 in docs/100_STEPS.md."
+    )
+    assert prop.fget is not None and prop.fget.__doc__, (
+        "Trace.last_bisect_probes property must carry a docstring."
+    )
+    # The internal storage slot is the underscore-prefixed twin.
+    assert "_last_bisect_probes" in stepback.Trace.__dataclass_fields__, (
+        "Trace must store bisect probe count in _last_bisect_probes."
+    )
+    assert "last_bisect_probes" not in stepback.Trace.__dataclass_fields__, (
+        "Trace.last_bisect_probes must not be a raw dataclass field anymore."
     )

@@ -29,7 +29,7 @@ from stepback.substitutions import (
     SystemPromptSubstitution,
     ToolOutputSubstitution,
 )
-from tests.fixtures.agent import LOOKUP_FIXED_ROW, run_recorded_agent
+from stepback.testing import LOOKUP_FIXED_ROW, run_recorded_agent
 
 
 # ----------------------------------------------------- corpus fixtures
@@ -127,7 +127,7 @@ def test_sweep_with_executor_reexecutes_dirty(corpus):
     re-execute (real_executions > 0) — without an executor everything
     falls back to the recorded outputs and real_executions stays 0."""
     from stepback.replay import Executor
-    from tests.fixtures.agent import fake_llm, fake_tool
+    from stepback.testing import fake_llm, fake_tool
 
     sub = ToolOutputSubstitution(
         at_step="step:2", fake_response={"result": LOOKUP_FIXED_ROW},

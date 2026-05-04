@@ -19,7 +19,7 @@ from stepback.substitutions import (
     SystemPromptSubstitution,
     ToolArgumentsSubstitution,
 )
-from tests.fixtures.agent import fake_llm, fake_tool, run_recorded_agent
+from stepback.testing import fake_llm, fake_tool, run_recorded_agent
 
 
 def _record(tmp_path) -> str:

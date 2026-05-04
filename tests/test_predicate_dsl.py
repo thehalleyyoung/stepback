@@ -22,7 +22,7 @@ from stepback.predicates import (
     compile_predicate,
     parse_predicate,
 )
-from tests.fixtures.agent import fake_llm, fake_tool, run_recorded_agent  # noqa: F401
+from stepback.testing import fake_llm, fake_tool, run_recorded_agent  # noqa: F401
 
 
 # ----------------------------------------------------------- shim types

@@ -47,7 +47,7 @@ from stepback.trace_writer import (
     DEFAULT_BLOB_THRESHOLD,
     TraceWriter,
 )
-from tests.fixtures.agent import (
+from stepback.testing import (
     LOOKUP_FIXED_ROW,
     fake_llm,
     fake_tool,

@@ -23,7 +23,7 @@ from stepback import (
     replay,
     write_trace_html,
 )
-from tests.fixtures.agent import run_recorded_agent
+from stepback.testing import run_recorded_agent
 
 
 # ----------------------------------------------------------- helpers

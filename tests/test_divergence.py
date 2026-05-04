@@ -27,7 +27,7 @@ from stepback.divergence import (
 from stepback.recorder import RecorderKey
 from stepback.replay import Executor
 
-from tests.fixtures.agent import (
+from stepback.testing import (
     fake_llm,
     fake_tool,
     run_recorded_agent,

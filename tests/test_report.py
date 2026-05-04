@@ -38,7 +38,7 @@ from stepback.substitutions import (
     SubstitutionSet,
     ToolOutputSubstitution,
 )
-from tests.fixtures.agent import LOOKUP_FIXED_ROW, run_recorded_agent
+from stepback.testing import LOOKUP_FIXED_ROW, run_recorded_agent
 
 
 # ----------------------------------------------------------- helpers

@@ -29,7 +29,7 @@ from stepback.substitutions import (
     SubstitutionSet,
     ToolOutputSubstitution,
 )
-from tests.fixtures.agent import LOOKUP_FIXED_ROW, fake_llm, fake_tool, run_recorded_agent
+from stepback.testing import LOOKUP_FIXED_ROW, fake_llm, fake_tool, run_recorded_agent
 
 
 def _record(tmp_path):

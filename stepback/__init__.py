@@ -23,7 +23,9 @@ Every name in :data:`__all__` is required to carry a docstring; that
 invariant is also enforced by the public-API test suite.
 """
 from .recorder import record, Recorder, RecorderKey
+from .step_types import RecordedStep, Receipt, StepKind, TraceHeader
 from . import autorecord
+from . import testing
 from .replay import replay, Trace, Branch, BranchDiff, ReplayResult, Executor
 from .minimize import (
     BinaryHalvingStrategy,
@@ -177,9 +179,14 @@ from .shims import (
 __all__ = [
     "record",
     "autorecord",
+    "testing",
     "replay",
     "Recorder",
     "RecorderKey",
+    "RecordedStep",
+    "Receipt",
+    "StepKind",
+    "TraceHeader",
     "Trace",
     "Branch",
     "BranchDiff",

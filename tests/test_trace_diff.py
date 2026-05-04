@@ -20,7 +20,7 @@ from stepback.trace_diff import (
     STATUS_OUTPUTS_DIFFER,
     CrossTraceDiff,
 )
-from tests.fixtures.agent import fake_llm, fake_tool
+from stepback.testing import fake_llm, fake_tool
 
 
 # ----------------------------------------------------------- helpers
