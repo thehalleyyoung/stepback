@@ -1,0 +1,12 @@
+{
+  "baseline_p50_us": 2.083,
+  "baseline_p99_us": 2.209,
+  "baseline_us_per_step": 2.095795,
+  "n_steps": 1000,
+  "overhead_pct": 2194.2058264286343,
+  "overhead_us_per_step": 45.986056,
+  "recorded_p50_us": 44.458,
+  "recorded_p99_us": 115.708,
+  "recorded_us_per_step": 48.081851,
+  "trace_bytes": 869143
+}

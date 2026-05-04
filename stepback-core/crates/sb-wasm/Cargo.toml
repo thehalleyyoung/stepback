@@ -1,0 +1,44 @@
+[package]
+name = "sb-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebAssembly bindings: in-browser SB-Trace `.sb` verifier and summarizer."
+
+# Build a `cdylib` so wasm-pack / wasm-bindgen can emit a JS module,
+# and an `rlib` so the integration tests can link the library
+# normally on the host target.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sb-format = { workspace = true }
+sb-canonical = { workspace = true }
+sb-verify = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+
+# wasm-bindgen is only needed when targeting wasm; it compiles fine on
+# the host and is a no-op when nothing in this crate uses it. Keeping
+# it unconditional avoids a `cfg`-spaghetti at every call site.
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+js-sys = "0.3"
+
+# Bring `console.error` panic messages into the browser DevTools.
+# Optional so the host build doesn't pull it in.
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = []
+# Wire `console_error_panic_hook` into `init_panic_hook` for nicer
+# DevTools tracebacks. Off by default so library consumers (and the
+# host-target tests) don't drag the dependency in.
+panic_hook = ["console_error_panic_hook"]

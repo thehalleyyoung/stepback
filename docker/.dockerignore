@@ -1,0 +1,26 @@
+# Build context hygiene for docker/Dockerfile.{distroless,debug}.
+# These Dockerfiles are built from the repository root, so this file is a
+# pointer; the canonical .dockerignore lives at the repo root and mirrors
+# the same rules. Keep this list in sync if you split the contexts.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.git/
+.github/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+bench-results/
+.benchmarks/
+copilot_autopilot_*.log
+docker/
+tests/
+scripts/
+bindings/
+stepback-core/
+wasm/

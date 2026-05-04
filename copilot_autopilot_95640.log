@@ -1,0 +1,133 @@
+✗ Read 100_STEPS.md
+  │ docs/100_STEPS.md
+  └ Path does not exist
+
+● List directory .
+  └ 20 files found
+
+● Read README.md
+  └ 352 lines read
+
+● Read 100_STEPS.md
+  └ L1:120 (120 lines read)
+
+● Find completed tasks (shell)
+  │ grep -n "Complete"
+  │ /Users/halleyyoung/projects/kitchensink/repos/stepback/100_STEPS.md | head
+  │ -30
+  └ 2 lines...
+
+● Read pyproject.toml
+  └ 22 lines read
+
+● Read __init__.py
+  │ stepback/__init__.py
+  └ L1:30 (30 lines read)
+
+I'll tackle steps 1-10 (Packaging & install). They're all small, tightly related pyproject changes.
+
+● Check version usage (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && grep -n
+  │ "version" stepback/__init__.py | head -5; echo "---"; ls stepback/ | head
+  │ -30
+  └ 30 lines...
+
+● Read README.md
+  └ L103:122 (19 lines read)
+
+● Read __init__.py
+  │ stepback/__init__.py
+  └ L285:295 (8 lines read)
+
+Now I'll make all changes:
+
+● Edit pyproject.toml +51 -2
+
+● Create py.typed +1
+  └ stepback/py.typed
+
+● Edit README.md +18 -2
+
+● Create MANIFEST.in +9
+
+Now let's build wheel/sdist and verify the install + entry point works:
+
+● Build wheel and sdist (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && python3 -m pip
+  │ install --quiet --break-system-packages build 2>&1 | tail -5 && rm -rf dist/
+  │ && python3 -m build 2>&1 | tail -20
+  └ 21 lines...
+
+● Verify wheel/sdist contents (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && unzip -l
+  │ dist/stepback-0.1.0-py3-none-any.whl | grep -E "py.typed|LICENSE|METADATA"
+  │ && echo "--- sdist ---" && tar tzf dist/stepback-0.1.0.tar.gz | grep -E
+  │ "LICENSE|CITATION|README|MANIFEST|py.typed|CHANGELOG"
+  └ 10 lines...
+
+✗ Smoke-test wheel install (shell)
+  │ cd /tmp && rm -rf sb_smoke && python3 -m venv sb_smoke && sb_smoke/bin/pip
+  │ install --quiet /Users/halleyyoung/projects/kitchensink/repos/stepback/di
+  │ st/stepback-0.1.0-py3-none-any.whl 2>&1 | tail -5 && echo "---help---" &&
+  │ sb_smoke/bin/stepback --help 2>&1 | head -20 && echo "---version---" &&
+  │ sb_smoke/bin/python -c "import stepback; print(stepback.__version__)" && …
+  └ Permission denied and could not request permission from user
+
+● Smoke-test wheel install (shell)
+  │ mkdir -p /Users/halleyyoung/projects/kitchensink/repos/stepback/.tmp_smoke
+  │ && cd /Users/halleyyoung/projects/kitchensink/repos/stepback/.tmp_smoke
+  │ && rm -rf venv && python3 -m venv venv && venv/bin/pip install --quiet
+  │ /Users/halleyyoung/projects/kitchensink/repos/stepback/dist/stepback-0.1.0
+  │ -py3-none-any.whl 2>&1 | tail -5 && echo "---help---" && venv/bin/stepback…
+  └ 37 lines...
+
+Wheel installs cleanly, `stepback --help` works, version matches. Now let me run pytest to ensure nothing broke:
+
+● Run test suite (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && python3 -m
+  │ pytest -q -x 2>&1 | tail -20
+  └ 11 lines...
+
+All 616 tests pass. Let me clean up and add a smoke-test script for step 8, then mark steps complete.
+
+● Cleanup (shell)
+  │ rm -rf /Users/halleyyoung/projects/kitchensink/repos/stepback/.tmp_smoke
+  │ /Users/halleyyoung/projects/kitchensink/repos/stepback/dist
+  │ /Users/halleyyoung/projects/kitchensink/repos/stepback/build
+  │ /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback.egg-info &&
+  │ ls /Users/halleyyoung/projects/kitchensink/repos/stepback/scripts/
+  └ 2 lines...
+
+● Create smoke_install.sh +48
+  └ scripts/smoke_install.sh
+
+● Run smoke script (shell)
+  │ chmod +x /Users/halleyyoung/projects/kitchensink/repos/stepback/scripts/smok
+  │ e_install.sh && bash /Users/halleyyoung/projects/kitchensink/repos/stepback/
+  │ scripts/smoke_install.sh 2>&1 | tail -15
+  └ 16 lines...
+
+● Edit smoke_install.sh +5 -2
+  └ scripts/smoke_install.sh
+
+● Re-run smoke script (shell)
+  │ bash /Users/halleyyoung/projects/kitchensink/repos/stepback/scripts/smoke_in
+  │ stall.sh 2>&1 | tail -20
+  └ 21 lines...
+
+Smoke test passes end-to-end. Cleanup and mark steps complete:
+
+● Read 100_STEPS.md
+  └ L60:90 (30 lines read)
+
+● Final cleanup (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && rm -rf dist
+  │ build stepback.egg-info
+  └ 1 line...
+
+● Edit 100_STEPS.md +11 -10
+
+
+Changes   +143 -16
+Requests  15 Premium (3m 4s)
+Tokens    ↑ 954.6k • ↓ 10.0k • 912.7k (cached)

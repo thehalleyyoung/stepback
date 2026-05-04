@@ -495,6 +495,12 @@ class WrappedLangchainTool:
 
 
 def wrap_langchain_tool(tool: Any, recorder: Recorder) -> WrappedLangchainTool:
+    """Wrap a single LangChain ``BaseTool``-shaped object so its invocations record.
+
+    The returned :class:`WrappedLangchainTool` exposes the same ``invoke`` /
+    ``run`` surface as the underlying tool but every call appends a typed
+    ``tool_call`` frame to the recorder's ``.sb`` trace.
+    """
     if not hasattr(tool, "name"):
         raise TypeError(
             "wrap_langchain_tool: object lacks .name; "
@@ -515,6 +521,7 @@ def wrap_langchain_tool(tool: Any, recorder: Recorder) -> WrappedLangchainTool:
 def wrap_langchain_tools(
     tools: Iterable[Any], recorder: Recorder,
 ) -> List[WrappedLangchainTool]:
+    """Wrap an iterable of LangChain tools, returning a list of recording wrappers."""
     return [wrap_langchain_tool(t, recorder) for t in tools]
 
 
@@ -553,6 +560,12 @@ class WrappedMCPSession:
 
 def wrap_mcp_session(session: Any, recorder: Recorder, *,
                      server_name: str = "mcp") -> WrappedMCPSession:
+    """Wrap an MCP ``ClientSession`` so its ``call_tool`` invocations record.
+
+    Tool names are namespaced on the timeline as ``{server_name}:{tool}`` to
+    keep cross-server traces legible. All other session methods pass through
+    unmodified.
+    """
     if not hasattr(session, "call_tool"):
         raise TypeError(
             "wrap_mcp_session: object lacks .call_tool; "
@@ -660,7 +673,7 @@ def _bedrock_to_openai_shape(d: Mapping[str, Any]) -> dict:
     content_text = "".join(
         b.get("text", "") for b in blocks if isinstance(b, Mapping) and "text" in b
     ) or None
-    tool_calls = []
+    tool_calls: list[dict[str, Any]] = []
     for b in blocks:
         if not isinstance(b, Mapping):
             continue
@@ -674,7 +687,7 @@ def _bedrock_to_openai_shape(d: Mapping[str, Any]) -> dict:
                     "arguments": tu.get("input", {}),
                 },
             })
-    tool_calls = tool_calls or None
+    tool_calls_out: Optional[list[dict[str, Any]]] = tool_calls or None
 
     stop_map = {
         "end_turn": "stop",
@@ -705,7 +718,7 @@ def _bedrock_to_openai_shape(d: Mapping[str, Any]) -> dict:
             "message": {
                 "role": out_msg.get("role", "assistant"),
                 "content": content_text,
-                "tool_calls": tool_calls,
+                "tool_calls": tool_calls_out,
             },
         }],
         "usage": canonical_usage,
@@ -1177,7 +1190,7 @@ def _gemini_to_openai_shape(d: Mapping[str, Any]) -> dict:
     finish_reason = _GEMINI_FINISH_MAP.get(finish_raw, finish_raw or None)
 
     usage = d.get("usage_metadata") or {}
-    canonical_usage = {
+    canonical_usage: dict[str, Any] = {
         "prompt_tokens": int(usage.get("prompt_token_count", 0)),
         "completion_tokens": int(usage.get("candidates_token_count", 0)),
         "total_tokens": int(

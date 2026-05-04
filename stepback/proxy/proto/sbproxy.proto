@@ -1,0 +1,96 @@
+// stepback-proxy gRPC service. Canonical IDL for the gRPC transport.
+//
+// The Python gRPC server (stepback.proxy.grpc_server) is gated on an
+// optional `grpcio` install. The HTTP transport in stepback.proxy.server
+// is the always-available transport.
+syntax = "proto3";
+
+package stepback.proxy.v1;
+
+option go_package = "github.com/stepback-dev/stepback-go/proxy/v1;proxyv1";
+
+service StepbackProxy {
+  // Open a new .sb trace and return a handle plus freshly-minted keys.
+  rpc StartTrace(StartTraceRequest) returns (StartTraceResponse);
+
+  // Append one step frame to an open trace.
+  rpc RecordStep(RecordStepRequest) returns (RecordStepResponse);
+
+  // Flush + close an open trace. After this call, trace_id is forgotten.
+  rpc EndTrace(EndTraceRequest) returns (EndTraceResponse);
+
+  // Verify HMAC chain + Ed25519 signatures of a closed .sb file.
+  rpc VerifyTrace(VerifyTraceRequest) returns (VerifyTraceResponse);
+}
+
+message StartTraceRequest {
+  // Optional caller-suggested filename (path separators stripped).
+  string filename = 1;
+  // Whether to enable inline gzip + dedup compression. Default true.
+  bool compression = 2;
+  // Pinned price-list version recorded in the header.
+  string price_list_version = 3;
+  // Optional compression tuning. 0 = use proxy default.
+  uint32 blob_threshold = 4;
+  uint32 blob_min_reuse = 5;
+}
+
+message StartTraceResponse {
+  string trace_id = 1;
+  string path = 2;
+  // Per-trace HMAC key (raw 32 bytes). Returned exactly once.
+  bytes hmac_key = 3;
+  // Per-trace Ed25519 signing key (raw 32 bytes). Returned exactly once.
+  bytes signing_key = 4;
+  // Public verifying key (raw 32 bytes). Re-derivable from signing_key.
+  bytes public_key = 5;
+  string hmac_key_id = 6;
+  uint32 format_version = 7;
+  string recorder_version = 8;
+  string proxy_version = 9;
+}
+
+// One step frame. The proxy is the authority for HMAC-chaining frames but
+// not for canonicalising the LLM/tool I/O — callers compute inputs_hash
+// and outputs_hash themselves so the hashes match what the producing SDK
+// considered the request/response. The full step body travels as
+// canonical-JSON in `step_json` to avoid lossy proto<->JSON round-trips.
+message RecordStepRequest {
+  string trace_id = 1;
+  // Canonical-JSON-encoded step dict.
+  bytes step_json = 2;
+}
+
+message RecordStepResponse {
+  string trace_id = 1;
+  uint64 step_count = 2;
+}
+
+message EndTraceRequest {
+  string trace_id = 1;
+}
+
+message EndTraceResponse {
+  string trace_id = 1;
+  string path = 2;
+  uint64 step_count = 3;
+}
+
+message VerifyTraceRequest {
+  // Exactly one of `path` or `trace_id` must be set.
+  string path = 1;
+  string trace_id = 2;
+  bytes hmac_key = 3;
+}
+
+message VerifyTraceResponse {
+  bool ok = 1;
+  uint64 step_count = 2;
+  string public_key_hex = 3;
+  uint32 format_version = 4;
+  string recorder_version = 5;
+  string canonicalisation_version = 6;
+  string hmac_key_id = 7;
+  // On failure (ok=false), human-readable reason.
+  string error = 8;
+}

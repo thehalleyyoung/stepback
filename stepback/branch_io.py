@@ -32,7 +32,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from .replay import ReplayResult
 
 from .canonical import hash_obj
 from .substitutions import (
@@ -106,6 +109,8 @@ def substitution_to_dict(sub: Substitution) -> Dict[str, Any]:
 
 def substitution_from_dict(d: Dict[str, Any]) -> Substitution:
     type_name = d.get("type")
+    if not isinstance(type_name, str):
+        raise ValueError(f"substitution dict missing 'type' string: {d!r}")
     cls = _TYPE_MAP.get(type_name)
     if cls is None:
         raise ValueError(f"unknown substitution type {type_name!r}")
@@ -332,7 +337,7 @@ def _parse_kv_or_json(body: str) -> Dict[str, Any]:
 # ------------------------------------------------------------- diffing
 
 
-def diff_replays(a, b) -> Dict[str, Any]:
+def diff_replays(a: "ReplayResult", b: "ReplayResult") -> Dict[str, Any]:
     """Step-by-step diff of two :py:class:`ReplayResult` objects.
 
     Returns a JSON-serialisable dict shaped like::
@@ -361,7 +366,9 @@ def diff_replays(a, b) -> Dict[str, Any]:
     for sid in ids:
         sa = a_by.get(sid)
         sb = b_by.get(sid)
-        kind = (sa or sb).kind
+        present = sa or sb
+        assert present is not None
+        kind = present.kind
         ah = hash_obj(sa.outputs) if sa else None
         bh = hash_obj(sb.outputs) if sb else None
         same = ah == bh
@@ -397,6 +404,6 @@ def _jsonify(v: Any) -> Any:
         return [_jsonify(x) for x in v]
     if isinstance(v, dict):
         return {str(k): _jsonify(x) for k, x in v.items()}
-    if is_dataclass(v):
+    if is_dataclass(v) and not isinstance(v, type):
         return _jsonify(asdict(v))
     return v

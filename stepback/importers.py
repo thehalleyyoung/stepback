@@ -53,6 +53,7 @@ from .trace_writer import TraceWriter
 __all__ = [
     "ImportError",
     "ImportReport",
+    "TraceImportError",
     "import_openai_chat_log",
     "import_langsmith_jsonl",
     "import_openinference_spans",
@@ -62,6 +63,9 @@ __all__ = [
 
 class ImportError(ValueError):
     """Raised when a foreign trace cannot be parsed into stepback steps."""
+
+
+TraceImportError = ImportError
 
 
 @dataclass

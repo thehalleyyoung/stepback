@@ -15,6 +15,12 @@ HMAC-chained frames to an append-only `.sb` file.
 `replay(path)` returns a `Trace` with reversible step navigation
 (`step_back`, `goto`), typed `substitute(...)`, `replay_forward(...)`,
 `bisect(...)`, `branch_at(...)`, and `compare_branches(...)`.
+
+The exhaustive public surface — every symbol that is part of the
+v0.1 semver contract — is enumerated in :data:`__all__` at the bottom
+of this module and snapshot-tested in ``tests/test_public_api.py``.
+Every name in :data:`__all__` is required to carry a docstring; that
+invariant is also enforced by the public-API test suite.
 """
 from .recorder import record, Recorder, RecorderKey
 from . import autorecord
@@ -97,6 +103,30 @@ from .divergence import (
     VOLATILE_KEYS as DIVERGENCE_VOLATILE_KEYS,
     compare_outputs,
     detect_divergences,
+)
+from .exporters import (
+    ExportError,
+    ExportReport,
+    TraceExportError,
+    available_export_formats,
+    export_langsmith_jsonl,
+    export_openai_chat_log,
+    export_openinference_spans,
+    export_trace,
+    export_trace_file,
+)
+from .html_view import (
+    TraceViewSummary,
+    render_trace_html,
+    write_trace_html,
+)
+from .importers import (
+    ImportReport,
+    TraceImportError,
+    import_langsmith_jsonl,
+    import_openai_chat_log,
+    import_openinference_spans,
+    import_trace,
 )
 from .report import (
     ReportOptions,
@@ -245,6 +275,24 @@ __all__ = [
     "DIVERGENCE_VOLATILE_KEYS",
     "compare_outputs",
     "detect_divergences",
+    "ExportError",
+    "ExportReport",
+    "TraceExportError",
+    "available_export_formats",
+    "export_langsmith_jsonl",
+    "export_openai_chat_log",
+    "export_openinference_spans",
+    "export_trace",
+    "export_trace_file",
+    "ImportReport",
+    "TraceImportError",
+    "import_langsmith_jsonl",
+    "import_openai_chat_log",
+    "import_openinference_spans",
+    "import_trace",
+    "TraceViewSummary",
+    "render_trace_html",
+    "write_trace_html",
 ]
 
 __version__ = "0.1.0"

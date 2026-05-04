@@ -1,0 +1,5 @@
+# Build artifacts — reproducible from stepback-core/crates/sb-wasm
+pkg/
+pkg-bundler/
+pkg-nodejs/
+node_modules/

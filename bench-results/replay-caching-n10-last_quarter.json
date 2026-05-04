@@ -1,0 +1,33 @@
+{
+  "cost_reduction_factor": 5.2631578947368425,
+  "dirty_set_sizes": [
+    1,
+    1,
+    2,
+    1,
+    1,
+    2,
+    1,
+    1,
+    3,
+    1,
+    3,
+    2,
+    3,
+    3,
+    1,
+    1,
+    3,
+    2,
+    3,
+    3
+  ],
+  "mean_dirty_set": 1.9,
+  "median_dirty_set": 2.0,
+  "n_steps": 10,
+  "n_substitutions": 1,
+  "n_trials": 20,
+  "p95_dirty_set": 3.0,
+  "strategy": "last_quarter",
+  "wall_time_ms": 107.310083
+}

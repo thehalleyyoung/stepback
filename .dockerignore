@@ -1,0 +1,28 @@
+# Build context hygiene for `docker build -f docker/Dockerfile.* .` from
+# the repository root. The proxy image only needs the Python source tree
+# and packaging metadata; everything else inflates the build context and
+# can leak local state (logs, caches, native bindings) into layers.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.git/
+.github/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+bench-results/
+.benchmarks/
+copilot_autopilot_*.log
+docker/
+tests/
+scripts/
+bindings/
+stepback-core/
+wasm/
+GROUNDING.md
+100_STEPS.md

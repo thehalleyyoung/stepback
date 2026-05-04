@@ -1,0 +1,72 @@
+{
+  "canonicalisation_version": "1",
+  "corrupt": [
+    {
+      "expected": "reject",
+      "expected_error_kind": "Parse",
+      "name": "truncated_body.sb",
+      "note": "last frame body chopped in half \u2014 readers must reject UnexpectedEof",
+      "sha256": "ea085c1c264957695ae072856fd4afdd96c51b93bbb096ebd1398a26e71db2f4",
+      "size_bytes": 2723
+    },
+    {
+      "expected": "reject",
+      "expected_error_kind": "BadHexOrHmacMismatch",
+      "name": "flipped_hmac.sb",
+      "note": "one nibble of frame[1].hmac flipped \u2014 HMAC or chain check must fail",
+      "sha256": "cdf2dbee067dc5c101345eca3b5313c149007994d213ee3fe071b68adb4678e2",
+      "size_bytes": 2902
+    },
+    {
+      "expected": "reject",
+      "expected_error_kind": "SignatureMismatch",
+      "name": "flipped_sig.sb",
+      "note": "one nibble of frame[1].sig flipped \u2014 Ed25519 verify must fail",
+      "sha256": "0c1d72b2a64c4b64256aeff2fbf07efffb9443df2dbef6da7ada7d0862518c60",
+      "size_bytes": 2902
+    },
+    {
+      "expected": "reject",
+      "expected_error_kind": "BrokenChainOrHmacMismatch",
+      "name": "broken_chain.sb",
+      "note": "frame[1].prev_hmac mutated \u2014 verifier must reject (the HMAC over body+prev no longer matches either)",
+      "sha256": "902d30e344f4722221d544e4d209229d7e2679b2abbe0b83878f82ed537c701b",
+      "size_bytes": 2902
+    },
+    {
+      "expected": "reject",
+      "expected_error_kind": "UnsupportedFormatVersionOrHmacMismatch",
+      "name": "bad_format_version.sb",
+      "note": "header.format_version forged to 9 (length-preserving). Either the version check or the HMAC check must reject it.",
+      "sha256": "eb1d45ec1aff88e4df1a2b351016fb63c86e7614f9f32cc2a7f69a20d26de70d",
+      "size_bytes": 2902
+    }
+  ],
+  "format_version": 1,
+  "good": [
+    {
+      "expected": "ok",
+      "expected_frame_count_min": 2,
+      "name": "header_only.sb",
+      "sha256": "9042bd18f4a784bbb50653869aa33ecc45cce748c500fc5b4b3095cbbac5b800",
+      "size_bytes": 1035
+    },
+    {
+      "expected": "ok",
+      "expected_frame_count_min": 5,
+      "name": "multi_step.sb",
+      "sha256": "e901f02b6a0006b02574645c1adfd5de3244b071505953d3ee9a73955b67a98a",
+      "size_bytes": 2902
+    },
+    {
+      "expected": "ok",
+      "expected_frame_count_min": 5,
+      "name": "with_blobs.sb",
+      "sha256": "259133fd1cd7e49c2bd7c617ae4ed8849b566355a313e05d207c849a64e23606",
+      "size_bytes": 3661
+    }
+  ],
+  "hmac_key_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "price_list_version": "test-2026-01-01",
+  "public_key_hex": "ff57575dc7af8bfc4d0837cc1ce2017b686a88145dc5579a958e3462fe9a908e"
+}

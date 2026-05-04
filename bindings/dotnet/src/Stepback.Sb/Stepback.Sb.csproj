@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Stepback.Sb</RootNamespace>
+    <AssemblyName>Stepback.Sb</AssemblyName>
+    <Version>0.1.0</Version>
+    <Authors>stepback contributors</Authors>
+    <Description>Read-only .NET reader and verifier for SB-Trace .sb v1 traces.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/stepback-dev/stepback</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/stepback-dev/stepback</RepositoryUrl>
+    <PackageTags>sb-trace;stepback;agent;observability;replay</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- BouncyCastle is a pure-managed crypto provider. The .NET BCL
+         does not ship Ed25519 in any current stable release, so we
+         pull it in for verification only. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+</Project>

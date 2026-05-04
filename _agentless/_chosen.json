@@ -1,5 +1,0 @@
-{
-  "patch_index": 2,
-  "score": 1.0,
-  "reason": "All three candidate patches keep tests/test_predicates.py and the full 449-test suite green. patch_2 is preferred because it is strictly additive: it preserves the existing all_of/any_of/not_ implementations (and their short-circuit guarantees verified by test_all_of_short_circuits_false / test_any_of_short_circuits_true) while adding a new xor_ combinator that closes an obvious API gap in stepback/predicates.py. patch_0 only adds a Predicate type alias (cosmetic) and patch_1 rewrites the loops as all()/any() generator expressions (equivalent behaviour, no surface-area gain). Final score: 449/449 tests passing + new public combinator => 1.0."
-}

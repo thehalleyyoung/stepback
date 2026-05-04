@@ -1,0 +1,23 @@
+[package]
+name = "sb-verify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HMAC-chain and Ed25519 signature verifier for SB-Trace .sb files."
+
+[dependencies]
+sb-format = { workspace = true }
+sb-canonical = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }

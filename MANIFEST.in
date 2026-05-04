@@ -1,0 +1,10 @@
+include LICENSE
+include README.md
+include CITATION.cff
+include CHANGELOG.md
+include pyproject.toml
+recursive-include stepback py.typed
+recursive-include stepback/_resources *
+recursive-include stepback/conformance *
+recursive-exclude tests *
+recursive-exclude bench-results *

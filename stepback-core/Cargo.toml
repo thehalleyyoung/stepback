@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sb-format",
+    "crates/sb-canonical",
+    "crates/sb-dirty",
+    "crates/sb-replay",
+    "crates/sb-verify",
+    "crates/sb-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+license = "Apache-2.0"
+repository = "https://github.com/stepback-dev/stepback"
+homepage = "https://github.com/stepback-dev/stepback"
+authors = ["stepback contributors"]
+description = "Rust core for the SB-Trace .sb format and dirty-set replay engine."
+
+[workspace.dependencies]
+sb-format = { path = "crates/sb-format", version = "0.1.0" }
+sb-canonical = { path = "crates/sb-canonical", version = "0.1.0" }
+sb-dirty = { path = "crates/sb-dirty", version = "0.1.0" }
+sb-replay = { path = "crates/sb-replay", version = "0.1.0" }
+sb-verify = { path = "crates/sb-verify", version = "0.1.0" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hmac = "0.12"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+hex = "0.4"
+thiserror = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

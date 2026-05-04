@@ -44,7 +44,7 @@ import os
 import struct
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, BinaryIO, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -79,7 +79,8 @@ def _walk_candidates(value, threshold: int, counts: dict, raws: dict) -> None:
     raws.setdefault(digest, raw)
 
 
-def _apply_intern(value, threshold: int, intern_set: set):
+def _apply_intern(value: Any, threshold: int, intern_set: set) -> Any:
+    node: Any
     if isinstance(value, dict):
         if BLOB_REF_KEY in value and len(value) == 1:
             return value
@@ -103,7 +104,7 @@ class TraceWriter:
     path: str
     hmac_key: bytes
     signing_key: Ed25519PrivateKey
-    f: object = None
+    f: Optional[BinaryIO] = None
     prev_hmac: bytes = ZERO_HMAC
     compression: bool = True
     blob_threshold: int = DEFAULT_BLOB_THRESHOLD
@@ -165,6 +166,7 @@ class TraceWriter:
             "sig": "ed25519:" + sig.hex(),
         }
         wrapper_bytes = canonical_json(wrapper)
+        assert self.f is not None
         self.f.write(struct.pack(">I", len(wrapper_bytes)))
         self.f.write(wrapper_bytes)
         self.f.flush()

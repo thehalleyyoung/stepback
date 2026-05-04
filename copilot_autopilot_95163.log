@@ -1,0 +1,6 @@
+error: Invalid command format.
+
+Did you mean: copilot -i "autopilot --allow-all-tools -p Begin, starting from #1, the earliest incomplete one (or more than one) of the 152 tasks necessary according to docs/100_STEPS.md to fundamentally improve the game described in README.md.  Do it in as comprehensive a way as possible, for as long as possible.  If, when you're done, you honestly think the task has been sufficiently completed, mark it as *Complete* in the numbered list inside 100_STEPS.md - but note that it's okay if you decide that you weren't able to finish the entire directive in one turn, in which case you should not mark anything as complete..  Note you can use the OPENAI_API_KEY found in source ~/.bashrc, but across this whole turn, you can't use more than $0.30 of OPENAI money."?
+
+For non-interactive mode, use the -p or --prompt option.
+Try 'copilot --help' for more information.

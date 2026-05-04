@@ -3,6 +3,16 @@
 `read_frames` returns the list of wrappers exactly as written;
 `verify_trace` walks the chain and verifies every HMAC link and every
 Ed25519 signature, raising `TraceVerificationError` on tamper.
+
+The default verification engine is the pure-Python implementation in
+this module. An experimental Rust engine is available via the
+``stepback_core`` extension package (built from
+``bindings/python/stepback_core``). Opt in by passing ``engine="rust"``
+or by setting the ``STEPBACK_VERIFY_ENGINE=rust`` environment variable.
+The Rust engine performs the cryptographic chain + signature checks
+through ``sb-verify``; semantic frame decoding (steps, blobs, tail)
+still happens in Python so callers see the same :class:`Trace_` shape
+regardless of engine.
 """
 from __future__ import annotations
 
@@ -11,9 +21,10 @@ import gzip
 import hashlib
 import hmac
 import json
+import os
 import struct
 from dataclasses import dataclass, field
-from typing import Iterable, Optional
+from typing import Iterable, Literal, Optional
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -22,6 +33,10 @@ from .canonical import canonical_json
 
 ZERO_HMAC = b"\x00" * 32
 BLOB_REF_KEY = "$blob"
+
+VerifyEngine = Literal["python", "rust", "auto"]
+_VERIFY_ENGINE_ENV = "STEPBACK_VERIFY_ENGINE"
+_VALID_ENGINES = ("python", "rust", "auto")
 
 
 class TraceVerificationError(Exception):
@@ -104,7 +119,154 @@ def read_frames(path: str) -> list:
     return out
 
 
-def verify_trace(path: str, hmac_key: bytes) -> Trace_:
+def verify_trace(
+    path: str,
+    hmac_key: bytes,
+    *,
+    engine: VerifyEngine = "auto",
+) -> Trace_:
+    """Verify ``path`` and return the parsed header/steps/tail.
+
+    Parameters
+    ----------
+    path:
+        Filesystem path to the ``.sb`` file.
+    hmac_key:
+        HMAC key bytes pinned by the writer (32 bytes for the
+        reference recorder; any length the spec allows is accepted).
+    engine:
+        Which verification engine to use:
+
+        * ``"python"`` (default historical behaviour) — pure-Python
+          HMAC chain + Ed25519 signature verification, always
+          available.
+        * ``"rust"`` — route the cryptographic check through the
+          ``sb-verify`` Rust crate via the experimental
+          ``stepback_core`` PyO3 binding. Raises :class:`RuntimeError`
+          if the binding is not installed. The Python decoder still
+          materialises blobs and gzip-compressed step bodies so the
+          returned :class:`Trace_` is identical regardless of engine.
+        * ``"auto"`` — honour the ``STEPBACK_VERIFY_ENGINE``
+          environment variable when set to one of the engine names
+          above; otherwise fall back to ``"python"``. Unknown values
+          raise :class:`ValueError`.
+
+    The Rust engine is gated and *experimental*: the wire-format
+    contract is identical, but the Python error taxonomy and the
+    eventual Rust error taxonomy may diverge in non-OK cases. Pin the
+    engine explicitly in production audit pipelines.
+    """
+    resolved = _resolve_engine(engine)
+    if resolved == "rust":
+        return _verify_trace_rust(path, hmac_key)
+    return _verify_trace_python(path, hmac_key)
+
+
+def _resolve_engine(engine: VerifyEngine) -> str:
+    if engine not in _VALID_ENGINES:
+        raise ValueError(
+            f"engine must be one of {_VALID_ENGINES!r}, got {engine!r}"
+        )
+    if engine != "auto":
+        return engine
+    env = os.environ.get(_VERIFY_ENGINE_ENV, "").strip().lower()
+    if env in ("", "python"):
+        return "python"
+    if env == "rust":
+        return "rust"
+    if env == "auto":
+        # ``auto`` in env means: try rust if importable, else python.
+        try:
+            import stepback_core  # noqa: F401
+        except ImportError:
+            return "python"
+        return "rust"
+    raise ValueError(
+        f"{_VERIFY_ENGINE_ENV} must be one of "
+        f"{_VALID_ENGINES!r}, got {env!r}"
+    )
+
+
+def _verify_trace_rust(path: str, hmac_key: bytes) -> Trace_:
+    """Rust-backed crypto verification + Python semantic decoding.
+
+    The Rust crate (``sb_verify::verify_bytes``) walks the HMAC chain
+    and verifies every Ed25519 signature in one pass. On success we
+    re-read the frame bodies in Python *without* re-running the crypto
+    checks: the Rust pass already proved the bytes are intact, and the
+    decoder only cares about the semantic shape (header, step bodies,
+    blob frames, tail).
+    """
+    try:
+        import stepback_core
+    except ImportError as exc:  # pragma: no cover - exercised in tests
+        raise RuntimeError(
+            "engine='rust' requested but the stepback_core extension is "
+            "not installed. Build it with `maturin develop --release` "
+            "from bindings/python/stepback_core/, or install the "
+            "`stepback-core` wheel."
+        ) from exc
+
+    try:
+        stepback_core.verify_path(path, hmac_key)
+    except stepback_core.VerifyError as exc:
+        # Surface a TraceVerificationError so existing callers'
+        # except-clauses keep working when they flip the engine.
+        kind = getattr(exc, "kind", "Unknown")
+        idx = getattr(exc, "frame_index", -1)
+        raise TraceVerificationError(
+            f"Rust verifier rejected trace ({kind} at frame {idx}): {exc}"
+        ) from exc
+
+    return _decode_trace_unverified(path)
+
+
+def _decode_trace_unverified(path: str) -> Trace_:
+    """Parse an `.sb` we have *already* crypto-verified.
+
+    Mirrors the body of :func:`_verify_trace_python` but skips HMAC
+    recomputation and signature verification. Only safe to call when
+    a stronger verifier (e.g. ``sb-verify``) has just succeeded on
+    the same bytes.
+    """
+    frames = read_frames(path)
+    if not frames:
+        raise TraceVerificationError("empty trace")
+    header: Optional[dict] = None
+    steps: list = []
+    tail: Optional[dict] = None
+    blobs: dict = {}
+    for wrapper in frames:
+        body = wrapper["body"]
+        kind = body.get("type")
+        if kind == "header":
+            header = body
+        elif kind == "step":
+            step = _decode_gz_step(body)
+            if _has_blob_ref(step):
+                if not blobs:
+                    raise TraceVerificationError(
+                        "step frame references a blob but no blob "
+                        "frames seen yet"
+                    )
+                step = _materialise(step, blobs)
+            steps.append(step)
+        elif kind == "blob":
+            blobs[body["id"]] = _decode_blob(body)
+        elif kind == "tail":
+            tail = body
+    if header is None:
+        raise TraceVerificationError("no header frame in trace")
+    return Trace_(
+        header=header,
+        steps=steps,
+        tail=tail,
+        public_key_hex=header["public_key"],
+        blobs=blobs,
+    )
+
+
+def _verify_trace_python(path: str, hmac_key: bytes) -> Trace_:
     """Verify ``path`` and return the parsed header/steps/tail."""
     frames = read_frames(path)
     if not frames:
@@ -162,5 +324,5 @@ def verify_trace(path: str, hmac_key: bytes) -> Trace_:
     )
 
 
-def iter_steps(path: str, hmac_key: bytes) -> Iterable[dict]:
-    yield from verify_trace(path, hmac_key).steps
+def iter_steps(path: str, hmac_key: bytes, *, engine: VerifyEngine = "auto") -> Iterable[dict]:
+    yield from verify_trace(path, hmac_key, engine=engine).steps

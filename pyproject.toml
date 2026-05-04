@@ -4,14 +4,89 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stepback"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Time-travel debugger for AI agents — record, branch, substitute, replay."
+readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
 dependencies = ["cryptography>=42"]
+keywords = [
+    "llm",
+    "agents",
+    "debugging",
+    "replay",
+    "evaluation",
+    "counterfactual",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/stepback-dev/stepback"
+Source = "https://github.com/stepback-dev/stepback"
+Issues = "https://github.com/stepback-dev/stepback/issues"
+Changelog = "https://github.com/stepback-dev/stepback/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/stepback-dev/stepback#readme"
+
+[project.optional-dependencies]
+bench = [
+    "pytest-benchmark>=4",
+    "pyyaml>=6",
+]
+dev = ["pytest>=7"]
+shims = [
+    "openai>=1.40,<2",
+    "anthropic>=0.34,<1",
+    "boto3>=1.34",
+    "google-genai>=0.5",
+]
+proxy-grpc = [
+    "grpcio>=1.60",
+]
 
 [project.scripts]
 stepback = "stepback.cli:main"
 
+[tool.setuptools.dynamic]
+version = {attr = "stepback.__version__"}
+
 [tool.setuptools.packages.find]
 include = ["stepback*"]
 exclude = ["tests*"]
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.setuptools.package-data]
+stepback = ["py.typed"]
+"stepback._resources" = ["LICENSE", "CITATION.cff", "README.md"]
+"stepback.conformance" = ["fixtures/README.md", "fixtures/**/*.sb", "fixtures/**/*.json", "fixtures/**/*.md"]
+"stepback.proxy" = ["proto/*.proto"]
+
+[tool.mypy]
+# Type-coverage baseline for downstream users importing
+# `from stepback import ...`. Step 10 of 100_STEPS.md guarantees that
+# `python -m mypy -p stepback --ignore-missing-imports` is clean so that
+# pyright/mypy users get coverage out of the box once they `pip install
+# stepback`.
+python_version = "3.10"
+ignore_missing_imports = true
+files = ["stepback"]
+warn_unused_ignores = false

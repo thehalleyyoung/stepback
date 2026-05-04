@@ -1,0 +1,33 @@
+{
+  "cost_reduction_factor": 2.218524681087077,
+  "dirty_set_sizes": [
+    69,
+    59,
+    184,
+    107,
+    25,
+    34,
+    69,
+    101,
+    42,
+    74,
+    8,
+    129,
+    36,
+    155,
+    107,
+    152,
+    165,
+    114,
+    23,
+    150
+  ],
+  "mean_dirty_set": 90.15,
+  "median_dirty_set": 87.5,
+  "n_steps": 200,
+  "n_substitutions": 1,
+  "n_trials": 20,
+  "p95_dirty_set": 184.0,
+  "strategy": "random_step",
+  "wall_time_ms": 1151.295375
+}

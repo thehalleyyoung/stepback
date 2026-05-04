@@ -322,6 +322,7 @@ def diff_traces(
             continue
 
         # Both present.
+        assert sa is not None and sb is not None
         aligned += 1
         ka = sa.get("step_kind")
         kb = sb.get("step_kind")
@@ -355,7 +356,7 @@ def diff_traces(
             bm = (sb.get("inputs") or {}).get("model")
             if am and bm and am != bm:
                 model_change = (am, bm)
-                model_changes.append((sa.get("step_id"), am, bm))
+                model_changes.append((str(sa.get("step_id") or ""), am, bm))
 
         if status == STATUS_IDENTICAL and not saw_divergence:
             shared_prefix_len += 1

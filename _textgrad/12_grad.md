@@ -1,1 +1,0 @@
-Loss is already 0 (359/359 pytest pass). The artifact (the test suite) has no failing assertion to provide a gradient signal under L = number_of_failures. The minimal change to reduce L further is none — descent has converged. Recording a no-op step to satisfy the audit trail.

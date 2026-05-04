@@ -1,0 +1,45 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+.eggs/
+*.orig
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Test / coverage caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.benchmarks/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Agent / scratch workspaces (NOT committed; design notes live in GROUNDING.md)
+_agentless/
+_audit/
+_critic/
+_moa/
+_r2e/
+_textgrad/
+meta/
+.kitchensink/
+_meta/
+
+# Rust build artefacts (Cargo workspaces under stepback-core/, bindings/)
+**/target/

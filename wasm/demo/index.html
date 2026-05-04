@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>stepback — in-browser .sb verifier</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { color-scheme: light dark; }
+  html, body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+               margin: 0; padding: 0; line-height: 1.45; }
+  main { max-width: 880px; margin: 32px auto; padding: 0 20px; }
+  h1   { margin-bottom: 4px; }
+  .lede { color: #666; margin-top: 0; }
+  .panel { border: 1px solid #ccc; border-radius: 6px; padding: 16px; margin: 16px 0; }
+  .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  label.file { display: inline-block; padding: 6px 12px; border: 1px solid #888;
+               border-radius: 4px; cursor: pointer; }
+  label.file input { display: none; }
+  input[type=text] { padding: 6px 10px; min-width: 320px; font-family: monospace; }
+  button { padding: 6px 14px; cursor: pointer; }
+  pre   { background: #f5f5f5; color: #111; padding: 12px; overflow-x: auto;
+          border-radius: 4px; font-size: 13px; }
+  .ok   { color: #167200; font-weight: 600; }
+  .err  { color: #c00; font-weight: 600; }
+  .small { font-size: 12px; color: #666; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border-bottom: 1px solid #ddd; padding: 6px 8px; text-align: left;
+           font-family: monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>stepback — in-browser <code>.sb</code> verifier</h1>
+  <p class="lede">
+    Drop a <code>.sb</code> trace file below to verify the HMAC chain and
+    Ed25519 signature, or to summarize structure (frame counts, step kinds,
+    cost, wallclock). All parsing and crypto runs locally in WebAssembly —
+    nothing about your trace is sent to any server.
+  </p>
+
+  <div class="panel">
+    <div class="controls">
+      <label class="file">
+        <input id="file" type="file" accept=".sb,application/octet-stream" />
+        Choose <code>.sb</code> file…
+      </label>
+      <span id="fileinfo" class="small"></span>
+    </div>
+    <p class="small" id="status">No file loaded.</p>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-top:0">Summarize</h3>
+    <p class="small">
+      Reads frames and reports header, frame counts, step-kind histogram,
+      total cost, total wallclock. No HMAC key required.
+    </p>
+    <button id="run-summary" disabled>Summarize</button>
+    <pre id="summary-out">(no result yet)</pre>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-top:0">Verify</h3>
+    <p class="small">
+      Walks the HMAC-SHA256 chain and per-frame Ed25519 signatures
+      against the public key pinned in the header. Supply the HMAC key
+      in hex; the signing key is read from the trace itself.
+    </p>
+    <div class="controls">
+      <input id="hmac-key" type="text" placeholder="hmac key (hex)" />
+      <button id="run-verify" disabled>Verify</button>
+    </div>
+    <pre id="verify-out">(no result yet)</pre>
+  </div>
+
+  <p class="small">
+    Module version: <code id="version">…</code> &middot;
+    Source: <a href="https://github.com/stepback-dev/stepback">stepback-dev/stepback</a>,
+    crate <code>stepback-core/crates/sb-wasm</code>.
+  </p>
+</main>
+
+<script type="module">
+  // The build script (`scripts/build_wasm.sh`) emits a `web`-target
+  // wasm-bindgen bundle into `wasm/pkg/`. The default export is the
+  // initialiser; named exports are the JS shims for `version`,
+  // `init_panic_hook`, `summarize`, and `verify`.
+  import init, {
+    version, init_panic_hook, summarize, verify,
+  } from "../pkg/stepback_wasm.js";
+
+  let buf = null;
+
+  const $ = (id) => document.getElementById(id);
+  const setStatus = (msg, cls) => {
+    const el = $("status");
+    el.textContent = msg;
+    el.className = "small" + (cls ? " " + cls : "");
+  };
+
+  function hexToBytes(hex) {
+    const clean = hex.replace(/\s+/g, "").toLowerCase();
+    if (!/^[0-9a-f]*$/.test(clean) || clean.length % 2 !== 0) {
+      throw new Error("HMAC key must be an even-length hex string");
+    }
+    const out = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = parseInt(clean.slice(2 * i, 2 * i + 2), 16);
+    }
+    return out;
+  }
+
+  async function boot() {
+    await init();
+    init_panic_hook();
+    $("version").textContent = version();
+  }
+
+  $("file").addEventListener("change", async (ev) => {
+    const f = ev.target.files[0];
+    if (!f) return;
+    const ab = await f.arrayBuffer();
+    buf = new Uint8Array(ab);
+    $("fileinfo").textContent = `${f.name} (${buf.length} bytes)`;
+    $("run-summary").disabled = false;
+    $("run-verify").disabled = false;
+    setStatus("file loaded — nothing has been uploaded; all work is local.", "ok");
+  });
+
+  $("run-summary").addEventListener("click", () => {
+    if (!buf) return;
+    const result = summarize(buf);
+    $("summary-out").textContent = JSON.stringify(result, null, 2);
+  });
+
+  $("run-verify").addEventListener("click", () => {
+    if (!buf) return;
+    let key;
+    try {
+      key = hexToBytes($("hmac-key").value);
+    } catch (e) {
+      $("verify-out").textContent = "input error: " + e.message;
+      return;
+    }
+    const result = verify(buf, key);
+    $("verify-out").textContent = JSON.stringify(result, null, 2);
+  });
+
+  boot().catch((e) => {
+    setStatus("failed to initialise WASM module: " + e.message, "err");
+  });
+</script>
+</body>
+</html>

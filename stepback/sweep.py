@@ -168,7 +168,7 @@ def _coerce_subs(subs: Iterable[Any]) -> List[Substitution]:
         elif isinstance(s, Substitution):
             out.append(s)
         elif isinstance(s, SubstitutionSet):
-            out.extend(s)
+            out.extend(s.items)
         else:
             raise TypeError(
                 f"sweep substitution must be Substitution|str spec|SubstitutionSet, "

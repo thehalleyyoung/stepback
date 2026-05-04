@@ -54,7 +54,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from .canonical import canonical_json
 from .recorder import RecorderKey
@@ -63,6 +63,7 @@ from .trace_reader import verify_trace
 
 __all__ = [
     "ExportError",
+    "TraceExportError",
     "ExportReport",
     "export_openai_chat_log",
     "export_langsmith_jsonl",
@@ -75,6 +76,9 @@ __all__ = [
 
 class ExportError(ValueError):
     """Raised when a stepback trace cannot be rendered into the target format."""
+
+
+TraceExportError = ExportError
 
 
 @dataclass
@@ -528,7 +532,7 @@ def export_openinference_spans(
 # --------------------------------------------------------- dispatcher
 
 
-_FORMAT_DISPATCH = {
+_FORMAT_DISPATCH: Dict[str, Callable[..., Any]] = {
     "openai_chat_log": export_openai_chat_log,
     "openai": export_openai_chat_log,
     "langsmith": export_langsmith_jsonl,

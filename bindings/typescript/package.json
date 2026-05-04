@@ -1,0 +1,60 @@
+{
+  "name": "@stepback/core",
+  "version": "0.1.0",
+  "description": "TypeScript reader/verifier for SB-Trace `.sb` v1 traces. Reads Python-written traces with no native dependencies (Node built-in crypto only).",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stepback-dev/stepback.git",
+    "directory": "bindings/typescript"
+  },
+  "homepage": "https://github.com/stepback-dev/stepback/tree/main/bindings/typescript#readme",
+  "bugs": {
+    "url": "https://github.com/stepback-dev/stepback/issues"
+  },
+  "keywords": [
+    "stepback",
+    "sb-trace",
+    "agent",
+    "llm",
+    "trace",
+    "verifier",
+    "ed25519",
+    "hmac"
+  ],
+  "type": "module",
+  "main": "./dist/cjs/index.cjs",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:types": "tsc -p tsconfig.types.json",
+    "clean": "rm -rf dist",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

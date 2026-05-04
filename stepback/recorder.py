@@ -15,7 +15,7 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Iterator, List, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -145,7 +145,7 @@ class Recorder:
     ) -> dict:
         sid = self._new_id()
         result = executor(name, arguments)
-        inputs = {"kind": "tool_call", "name": name, "arguments": arguments}
+        inputs: dict[str, Any] = {"kind": "tool_call", "name": name, "arguments": arguments}
         if context_from_parent and self._parent is not None:
             inputs["context"] = self._parent_outputs_hash()
         step = {
@@ -162,7 +162,7 @@ class Recorder:
     # ----------------------------------------------------------- router
     def router(self, name: str, choice: str, options: List[str]) -> dict:
         sid = self._new_id()
-        inputs = {"kind": "router", "name": name, "options": options}
+        inputs: dict[str, Any] = {"kind": "router", "name": name, "options": options}
         if self._parent is not None:
             inputs["context"] = self._parent_outputs_hash()
         step = {
@@ -298,7 +298,7 @@ class Recorder:
 
 
 @contextmanager
-def record(path: str, *, key: Optional[RecorderKey] = None):
+def record(path: str, *, key: Optional[RecorderKey] = None) -> Iterator["Recorder"]:
     """Open ``path`` for writing as a `.sb` trace and yield a `Recorder`.
 
     Usage::

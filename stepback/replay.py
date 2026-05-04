@@ -263,7 +263,9 @@ class Trace:
         for sid in sorted(ids, key=lambda x: int(x.split(":")[-1])):
             sa = a_by.get(sid)
             sb = b_by.get(sid)
-            kind = (sa or sb).kind
+            present = sa or sb
+            assert present is not None
+            kind = present.kind
             ao = sa.outputs if sa else None
             bo = sb.outputs if sb else None
             same = ao == bo
@@ -500,7 +502,7 @@ def replay(path: str, *, hmac_key: Optional[bytes] = None) -> Trace:
         frames = read_frames(path)
         header = next(f["body"] for f in frames if f["body"].get("type") == "header")
         blobs: dict = {}
-        steps: list = []
+        steps = []
         for f in frames:
             body = f["body"]
             t = body.get("type")

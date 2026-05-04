@@ -193,7 +193,9 @@ def _render_step_table(
     for sid in ids[:max_rows]:
         sa = a_by.get(sid)
         sb = b_by.get(sid)
-        kind = (sa or sb).kind
+        present = sa or sb
+        assert present is not None
+        kind = present.kind
         ah = hash_obj(sa.outputs) if sa else None
         bh = hash_obj(sb.outputs) if sb else None
         diverged = ah != bh
@@ -228,10 +230,12 @@ def _decision_diff_rows(
         bo = sb.outputs if sb else None
         if ao == bo:
             continue
+        present = sa or sb
+        assert present is not None
         rows.append(
             {
                 "step_id": sid,
-                "kind": (sa or sb).kind,
+                "kind": present.kind,
                 "a": ao,
                 "b": bo,
                 "cost_delta_usd": round(
@@ -461,7 +465,7 @@ def _build_report_model(
             "dirty": counterfactual.dirty_count,
             "real_executions": counterfactual.real_executions,
         }
-        cost["delta_total_cost_usd"] = _round8(
+        cost["delta_total_cost_usd"] = _round8(  # type: ignore[assignment]
             counterfactual.total_cost_usd - baseline.total_cost_usd
         )
 
@@ -481,11 +485,13 @@ def _build_report_model(
         for sid in ids:
             sa = a_by.get(sid)
             sb = b_by.get(sid)
+            present = sa or sb
+            assert present is not None
             ah = hash_obj(sa.outputs) if sa else None
             bh = hash_obj(sb.outputs) if sb else None
             row = {
                 "step_id": sid,
-                "kind": (sa or sb).kind,
+                "kind": present.kind,
                 "a": _step_view_to_row(sa) if sa else None,
                 "b": _step_view_to_row(sb) if sb else None,
                 "diverged": ah != bh,

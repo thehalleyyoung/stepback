@@ -1,0 +1,138 @@
+✗ Read 100_STEPS.md
+  │ docs/100_STEPS.md
+  └ Path does not exist
+
+● List directory .
+  └ 27 files found
+
+● Read README.md
+  └ 342 lines read
+
+● Read 100_STEPS.md
+  └ 1 line read
+
+● Read 100_STEPS.md
+  └ L1:80 (79 lines read)
+
+● Read 100_STEPS.md
+  └ L75:130 (55 lines read)
+
+● Check Rust toolchain (shell)
+  │ which cargo rustc && cargo --version
+  └ 4 lines...
+
+● Read canonical.py
+  │ stepback/canonical.py
+  └ L1:60 (57 lines read)
+
+● Read trace_writer.py
+  │ stepback/trace_writer.py
+  └ L1:80 (79 lines read)
+
+● Create directory structure (shell)
+  │ mkdir -p /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-cor
+  │ e/crates/{sb-format,sb-canonical,sb-dirty,sb-replay,sb-verify}/src
+  └ 1 line...
+
+● Create Cargo.toml +39
+  └ stepback-core/Cargo.toml
+
+● Create README.md +59
+  └ stepback-core/README.md
+
+Now create each crate. Starting with `sb-canonical` since others depend on it conceptually.
+
+● Create Cargo.toml +15
+  └ stepback-core/crates/sb-format/Cargo.toml
+
+● Create Cargo.toml +15
+  └ stepback-core/crates/sb-canonical/Cargo.toml
+
+● Create Cargo.toml +19
+  └ stepback-core/crates/sb-verify/Cargo.toml
+
+● Create lib.rs +248
+  └ stepback-core/crates/sb-verify/src/lib.rs
+
+● Create lib.rs +224
+  └ stepback-core/crates/sb-canonical/src/lib.rs
+
+● Create lib.rs +265
+  └ stepback-core/crates/sb-dirty/src/lib.rs
+
+● Create Cargo.toml +16
+  └ stepback-core/crates/sb-dirty/Cargo.toml
+
+● Create Cargo.toml +16
+  └ stepback-core/crates/sb-replay/Cargo.toml
+
+● Create lib.rs +201
+  └ stepback-core/crates/sb-replay/src/lib.rs
+
+● Create lib.rs +278
+  └ stepback-core/crates/sb-format/src/lib.rs
+
+Now build & test the workspace.
+
+● Build workspace (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-core &&
+  │ cargo build --workspace 2>&1 | tail -50
+  └ 51 lines...
+
+● Edit lib.rs +1
+  └ stepback-core/crates/sb-canonical/src/lib.rs
+
+● Rebuild (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-core &&
+  │ cargo build --workspace 2>&1 | tail -40
+  └ 7 lines...
+
+● Run tests (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-core &&
+  │ cargo test --workspace 2>&1 | tail -60
+  └ 61 lines...
+
+● Edit lib.rs +6 -2
+  └ stepback-core/crates/sb-format/src/lib.rs
+
+● Edit lib.rs -11
+  └ stepback-core/crates/sb-verify/src/lib.rs
+
+● Edit lib.rs +11
+  └ stepback-core/crates/sb-verify/src/lib.rs
+
+Also fix the dirty-set ASCII art docblock and replay docblock if any.
+
+● Re-run tests (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-core &&
+  │ cargo test --workspace 2>&1 | tail -30
+  └ 30 lines...
+
+● Test summary (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-core &&
+  │ cargo test --workspace 2>&1 | grep "test result"
+  └ 11 lines...
+
+All 22 tests pass across 5 crates. Add a `.gitignore` and ensure the existing Python tests still pass.
+
+● Create .gitignore +3
+  └ stepback-core/.gitignore
+
+● Quick Python sanity check (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && python -m
+  │ pytest -q --no-header 2>&1 | tail -5
+  └ 2 lines...
+
+● Python tests (shell)
+  │ cd /Users/halleyyoung/projects/kitchensink/repos/stepback && python3 -m
+  │ pytest -q --no-header 2>&1 | tail -5
+  └ 6 lines...
+
+Python tests stay green (752 passed). Now mark step 5 complete.
+
+● Edit 100_STEPS.md +1 -1
+
+
+Changes   +1417 -14
+Requests  15 Premium (5m 55s)
+Tokens    ↑ 1.5m • ↓ 28.2k • 1.4m (cached)

@@ -1,0 +1,110 @@
+name: docker
+
+# Builds the two `sb proxy` container images on every PR that touches them
+# and runs scripts/smoke_proxy_docker.sh against the locally-built distroless
+# image. Pushes to main additionally upload the resulting .sb artifact for
+# manual inspection. Image registry publishing is intentionally left out
+# (Step 14 only requires that we *can* publish — the credentials wiring is
+# its own follow-up).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - "stepback/proxy/**"
+      - "stepback/cli.py"
+      - "stepback/trace_writer.py"
+      - "stepback/trace_reader.py"
+      - "pyproject.toml"
+      - ".github/workflows/docker.yml"
+      - "scripts/smoke_proxy_docker.sh"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - "stepback/proxy/**"
+      - "stepback/cli.py"
+      - "stepback/trace_writer.py"
+      - "stepback/trace_reader.py"
+      - "pyproject.toml"
+      - ".github/workflows/docker.yml"
+      - "scripts/smoke_proxy_docker.sh"
+  workflow_dispatch:
+
+# Keep concurrent CI cheap on chatty PRs.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    name: build · ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [distroless, debug]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python (host-side smoke verification)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install host-side dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Editable so the smoke script's host-side verify_trace import resolves.
+          pip install -e .
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.variant }}
+          tags: stepback/proxy:${{ matrix.variant }}
+          load: true
+          cache-from: type=gha,scope=docker-${{ matrix.variant }}
+          cache-to:   type=gha,scope=docker-${{ matrix.variant }},mode=max
+
+      - name: Smoke-test (record + verify into mounted dir)
+        env:
+          SB_PROXY_IMAGE: stepback/proxy:${{ matrix.variant }}
+          SB_PROXY_SKIP_BUILD: "1"
+          SB_PROXY_KEEP: "1"     # keep the trace dir so we can upload it
+        run: |
+          # Capture the trace dir line printed on cleanup so we can upload it.
+          set -o pipefail
+          ./scripts/smoke_proxy_docker.sh ${{ matrix.variant }} 2>&1 \
+            | tee /tmp/smoke.log
+          trace_dir=$(grep -oE 'trace_dir=[^ ]+' /tmp/smoke.log | head -n1 | cut -d= -f2 || true)
+          if [[ -n "$trace_dir" && -d "$trace_dir" ]]; then
+            mkdir -p smoke-output
+            cp -a "$trace_dir"/. smoke-output/
+          fi
+
+      - name: Upload smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.variant }}
+          path: |
+            smoke-output/**
+            /tmp/smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Inspect image (size, layers, labels)
+        run: |
+          docker image inspect stepback/proxy:${{ matrix.variant }} \
+            --format '{{json .Config.Labels}}' | python -m json.tool
+          docker image inspect stepback/proxy:${{ matrix.variant }} \
+            --format 'size={{.Size}} bytes  layers={{len .RootFS.Layers}}'

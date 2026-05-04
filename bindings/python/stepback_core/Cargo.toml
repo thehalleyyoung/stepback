@@ -1,0 +1,26 @@
+[package]
+name = "stepback-core-py"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+license = "Apache-2.0"
+repository = "https://github.com/stepback-dev/stepback"
+description = "PyO3 bindings exposing the Rust sb-verify (and future sb-* crates) to Python."
+
+[lib]
+# The `_stepback_core` name MUST match `#[pymodule] fn _stepback_core` in
+# `src/lib.rs` and the `module-name` declared in `pyproject.toml`. The
+# Python-side wrapper package `stepback_core/` re-exports the symbols
+# under stable names so the native module can be renamed later.
+name = "_stepback_core"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+# `extension-module` keeps maturin from linking libpython on Linux; on
+# macOS the linker still produces a loadable bundle. `abi3-py310` makes
+# the resulting wheel forward-compatible with every CPython >= 3.10
+# (matches the `requires-python` declared in stepback's pyproject).
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
+sb-verify = { path = "../../../stepback-core/crates/sb-verify" }
+sb-format = { path = "../../../stepback-core/crates/sb-format" }

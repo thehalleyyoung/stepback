@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:1.7
+#
+# Distroless image for `sb proxy` (alias: `stepback proxy`).
+#
+# Stage 1 builds the wheel and resolves runtime deps into /install using the
+# same Python ABI (3.11) as the distroless runtime stage.
+# Stage 2 is google's distroless python3-debian12 image: glibc + python3.11,
+# no shell, no package manager, no setuid binaries. Suitable for production.
+#
+# Build:
+#   docker build -f docker/Dockerfile.distroless -t stepback/proxy:distroless .
+#
+# Run:
+#   docker run --rm -p 4319:4319 \
+#     -v "$PWD/traces:/var/lib/stepback/traces" \
+#     stepback/proxy:distroless \
+#     proxy --listen 0.0.0.0:4319 --write /var/lib/stepback/traces
+
+ARG PYTHON_VERSION=3.11
+
+# ---------- Stage 1: builder ----------
+FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_ROOT_USER_ACTION=ignore
+
+WORKDIR /src
+
+# Copy only what's needed to build the wheel. .dockerignore prunes the rest.
+COPY pyproject.toml MANIFEST.in README.md LICENSE CITATION.cff ./
+COPY stepback/ ./stepback/
+
+# Build the wheel and install it (plus runtime deps) into a relocatable prefix.
+RUN python -m pip install --upgrade pip build \
+ && python -m build --wheel --outdir /wheels . \
+ && python -m pip install --prefix=/install --no-compile /wheels/stepback-*.whl
+
+# ---------- Stage 2: distroless runtime ----------
+FROM gcr.io/distroless/python3-debian12:nonroot
+
+# Distroless ships /usr/bin/python3.11; mirror /install into the system prefix
+# so `python3 -m stepback.cli` finds the package and its `cryptography` wheel.
+COPY --from=builder /install/lib/python3.11/site-packages/ /usr/lib/python3.11/site-packages/
+
+# Default trace directory; mount over it from the host with `-v`.
+VOLUME ["/var/lib/stepback/traces"]
+EXPOSE 4319
+
+# OCI labels for provenance.
+LABEL org.opencontainers.image.title="stepback-proxy" \
+      org.opencontainers.image.description="HTTP/gRPC sidecar that records .sb traces from non-Python runtimes." \
+      org.opencontainers.image.source="https://github.com/stepback-dev/stepback" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="gcr.io/distroless/python3-debian12:nonroot"
+
+# `stepback` console script lives at /usr/lib/python3.11/site-packages/...
+# Distroless has no shell, so invoke the module directly.
+ENTRYPOINT ["/usr/bin/python3", "-m", "stepback.cli"]
+CMD ["proxy", "--listen", "0.0.0.0:4319", "--write", "/var/lib/stepback/traces"]

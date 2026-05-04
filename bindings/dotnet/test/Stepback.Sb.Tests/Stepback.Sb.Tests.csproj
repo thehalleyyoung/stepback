@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Stepback.Sb.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.5" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Stepback.Sb\Stepback.Sb.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Conformance fixtures live outside the dotnet binding tree. -->
+    <None Include="..\..\..\..\stepback-core\fixtures\v1\manifest.json"
+          Link="fixtures\manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\stepback-core\fixtures\v1\good\*.sb"
+          Link="fixtures\good\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\stepback-core\fixtures\v1\corrupt\*.sb"
+          Link="fixtures\corrupt\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

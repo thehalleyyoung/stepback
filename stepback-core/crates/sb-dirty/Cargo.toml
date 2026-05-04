@@ -1,0 +1,15 @@
+[package]
+name = "sb-dirty"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Dirty-set propagation over an SB-Trace DAG."
+
+[dependencies]
+sb-format = { workspace = true }
+sb-canonical = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

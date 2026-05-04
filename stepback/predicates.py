@@ -371,7 +371,7 @@ class _SafeVisitor(ast.NodeVisitor):
 # ----------------------------------------------------------- DSL: eval
 
 
-_BUILTINS_DISPATCH = {"len": len, "str": str}
+_BUILTINS_DISPATCH: dict[str, Callable[..., Any]] = {"len": len, "str": str}
 
 
 def _resolve_name(name: str, scope_stack: list, default_ctx: dict) -> Any:
@@ -425,9 +425,9 @@ def _eval(node: ast.AST, scope_stack: list, default_ctx: dict) -> Any:
             return l % r
     if isinstance(node, ast.Compare):
         left = _eval(node.left, scope_stack, default_ctx)
-        for op, comp in zip(node.ops, node.comparators):
+        for cmp_op, comp in zip(node.ops, node.comparators):
             right = _eval(comp, scope_stack, default_ctx)
-            ok = _cmp(op, left, right)
+            ok = _cmp(cmp_op, left, right)
             if not ok:
                 return False
             left = right
@@ -457,10 +457,12 @@ def _eval(node: ast.AST, scope_stack: list, default_ctx: dict) -> Any:
         return tuple(_eval(e, scope_stack, default_ctx) for e in node.elts)
     if isinstance(node, ast.Call):
         # Visitor guarantees node.func is ast.Name and id is allowed.
-        fn_name = node.func.id  # type: ignore[union-attr]
+        assert isinstance(node.func, ast.Name)
+        fn_name = node.func.id
         args = [_eval(a, scope_stack, default_ctx) for a in node.args]
         try:
-            return _BUILTINS_DISPATCH[fn_name](*args)
+            fn = _BUILTINS_DISPATCH[fn_name]
+            return fn(*args)
         except Exception as e:
             raise PredicateRuntimeError(
                 f"builtin {fn_name}(...) failed: {e}"

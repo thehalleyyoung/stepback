@@ -401,8 +401,10 @@ def _audit_one(
     for sid in all_ids:
         b = base_by.get(sid)
         r = rep_by.get(sid)
-        kind = (r or b).kind
-        name = (r or b).name
+        present = r or b
+        assert present is not None
+        kind = present.kind
+        name = present.name
         cls, bb, rb, cd, divc = _classify_pair(b, r)
         impacts.append(
             StepImpact(

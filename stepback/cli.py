@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from . import autorecord
 from .recorder import RecorderKey
@@ -55,6 +55,7 @@ from .substitutions import SubstitutionSet
 from .trace_diff import diff_traces, render_trace_diff
 from .policy_audit import audit_policy_change
 from .trace_reader import verify_trace
+from .html_view import write_trace_html
 from .attestation import (
     AttestationVerificationError,
     build_attestation_pack,
@@ -208,6 +209,42 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_view(args: argparse.Namespace) -> int:
+    hmac_key: Optional[bytes] = None
+    if args.hmac_key_hex:
+        try:
+            hmac_key = bytes.fromhex(args.hmac_key_hex)
+        except ValueError as e:
+            print(f"invalid --hmac-key-hex: {e}", file=sys.stderr)
+            return 2
+    summary = write_trace_html(
+        args.trace,
+        args.output,
+        hmac_key=hmac_key,
+        title=args.title,
+    )
+    if args.json:
+        json.dump(
+            {
+                "output_path": summary.output_path,
+                "step_count": summary.step_count,
+                "total_cost_usd": summary.total_cost_usd,
+                "by_kind": summary.by_kind,
+                "bytes_written": summary.bytes_written,
+            },
+            sys.stdout,
+            indent=2,
+            sort_keys=True,
+        )
+        sys.stdout.write("\n")
+    else:
+        print(
+            f"wrote {summary.output_path}  "
+            f"({summary.step_count} steps, {summary.bytes_written} bytes)"
+        )
+    return 0
+
+
 def _apply_subs(t: Trace, specs: List[str]) -> SubstitutionSet:
     subs = SubstitutionSet()
     for spec in specs:
@@ -336,6 +373,155 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    from .exporters import export_trace_file, TraceExportError
+    try:
+        key = bytes.fromhex(args.hmac_key_hex)
+    except ValueError as e:
+        print(f"FAIL: --hmac-key-hex not valid hex: {e}", file=sys.stderr)
+        return 2
+    try:
+        report = export_trace_file(
+            args.format, args.input, args.output, hmac_key=key,
+        )
+    except TraceExportError as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 3
+    except Exception as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 4
+    if args.json:
+        print(json.dumps(report.as_dict(), sort_keys=True))
+    else:
+        print(
+            f"OK  format={report.target_format}  steps={report.step_count}  "
+            f"output={report.output_path}"
+        )
+    return 0
+
+
+def _cmd_import(args: argparse.Namespace) -> int:
+    from .importers import import_trace, TraceImportError
+    key: Optional[RecorderKey]
+    if args.hmac_key_hex:
+        try:
+            raw = bytes.fromhex(args.hmac_key_hex)
+        except ValueError as e:
+            print(f"FAIL: --hmac-key-hex not valid hex: {e}", file=sys.stderr)
+            return 2
+        key = RecorderKey.from_bytes(raw) if hasattr(RecorderKey, "from_bytes") \
+            else RecorderKey.fresh()
+        # Best-effort: if a from_bytes is unavailable, mint fresh and
+        # warn so the caller knows the key was not honoured.
+        if not hasattr(RecorderKey, "from_bytes"):
+            print("WARN: RecorderKey.from_bytes unavailable; minted fresh key",
+                  file=sys.stderr)
+    else:
+        key = RecorderKey.fresh()
+    try:
+        report = import_trace(
+            args.format, args.input, args.output,
+            key=key, compression=not args.no_compression,
+        )
+    except TraceImportError as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 3
+    except Exception as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 4
+    if args.json:
+        print(json.dumps(report.as_dict(), sort_keys=True))
+    else:
+        print(
+            f"OK  format={report.source_format}  steps={report.step_count}  "
+            f"output={report.output_path}"
+        )
+    return 0
+
+
+def _cmd_redact(args: argparse.Namespace) -> int:
+    from .redact import (
+        STANDARD_POLICY, STRICT_POLICY,
+        redact_trace_file, redact_trace_file_streaming,
+    )
+    policies = {"standard": STANDARD_POLICY, "strict": STRICT_POLICY}
+    pol = policies.get(args.policy)
+    if pol is None:
+        print(
+            f"FAIL: unknown --policy {args.policy!r}; "
+            f"known: {sorted(policies)}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        in_key = bytes.fromhex(args.hmac_key_hex)
+    except ValueError as e:
+        print(f"FAIL: --hmac-key-hex not valid hex: {e}", file=sys.stderr)
+        return 2
+    fn = redact_trace_file_streaming if getattr(args, "streaming", False) \
+        else redact_trace_file
+    try:
+        manifest = fn(
+            args.trace, args.output,
+            in_hmac_key=in_key,
+            policy=pol,
+            compression=not args.no_compression,
+        )
+    except Exception as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 3
+    payload = manifest.to_dict() if hasattr(manifest, "to_dict") else dict(
+        policy_name=manifest.policy_name,
+        n_steps=getattr(manifest, "n_steps", 0),
+        n_redactions=getattr(manifest, "n_redactions", 0),
+    )
+    if args.manifest:
+        with open(args.manifest, "w", encoding="utf-8") as f:
+            json.dump(payload, f, sort_keys=True, indent=2)
+    if args.json:
+        print(json.dumps(payload, sort_keys=True))
+    else:
+        print(
+            f"OK  policy={payload.get('policy_name')}  "
+            f"steps={payload.get('n_steps')}  "
+            f"redactions={payload.get('n_redactions')}"
+        )
+    return 0
+
+
+def _cmd_redact_scan(args: argparse.Namespace) -> int:
+    from .redact import STANDARD_POLICY, STRICT_POLICY, scan_trace_file
+    policies = {"standard": STANDARD_POLICY, "strict": STRICT_POLICY}
+    pol = policies.get(args.policy)
+    if pol is None:
+        print(
+            f"FAIL: unknown --policy {args.policy!r}; "
+            f"known: {sorted(policies)}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        in_key = bytes.fromhex(args.hmac_key_hex)
+    except ValueError as e:
+        print(f"FAIL: --hmac-key-hex not valid hex: {e}", file=sys.stderr)
+        return 2
+    try:
+        report = scan_trace_file(args.trace, in_hmac_key=in_key, policy=pol)
+    except Exception as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 3
+    payload = report.to_dict()
+    if args.json:
+        print(json.dumps(payload, sort_keys=True))
+    else:
+        print(
+            f"OK  policy={payload.get('policy_name')}  "
+            f"steps={payload.get('n_steps')}  "
+            f"findings={payload.get('n_findings')}"
+        )
+    return 0
+
+
 def _load_subs_from_args(
     t: Trace, branch_path: Optional[str], specs: List[str]
 ) -> tuple[SubstitutionSet, Optional[str]]:
@@ -460,7 +646,8 @@ def _cmd_minimize(args: argparse.Namespace) -> int:
     subs = SubstitutionSet()
     if args.from_branch:
         loaded = load_branch(args.from_branch)
-        for s in loaded.substitutions.items:
+        loaded_subs: SubstitutionSet = loaded["substitutions"]
+        for s in loaded_subs.items:
             subs.add(s)
     for spec in args.substitute or []:
         subs.add(parse_substitution_spec(spec))
@@ -828,7 +1015,7 @@ def _cmd_divergence(args: argparse.Namespace) -> int:
                 return by_inp_hash.get((kind, _h(inputs)))
         # Set every callback to a sentinel so detect_divergences() does
         # not classify the kind as 'no executor available'.
-        _noop = lambda *a, **k: None
+        _noop: Any = lambda *a, **k: None
         executor = _RecordedExecutor(llm=_noop, tool=_noop, router=_noop)
     else:
         from .replay import Executor
@@ -885,6 +1072,147 @@ def _import_callable(spec: str):
         raise TypeError(f"{spec!r} resolved to non-callable {type(obj).__name__}")
     return obj
 
+
+
+def _cmd_bench_replay_caching(args: argparse.Namespace) -> int:
+    from .bench.replay_caching import run as _run_rc
+
+    try:
+        result = _run_rc(
+            n_steps=args.n_steps,
+            n_trials=args.n_trials,
+            strategy=args.strategy,
+            seed=args.seed,
+        )
+    except RuntimeError as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    print(result.summary_line())
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_bench_record_overhead(args: argparse.Namespace) -> int:
+    from .bench.record_overhead import run as _run_ro
+
+    try:
+        result = _run_ro(n_steps=args.n_steps)
+    except RuntimeError as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    print(result.summary_line())
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _parse_listen(spec: str) -> tuple:
+    """Parse HOST:PORT or :PORT, returning (host, port)."""
+    if ":" not in spec:
+        raise ValueError(f"--listen must be HOST:PORT, got {spec!r}")
+    host, _, port_str = spec.rpartition(":")
+    if not host:
+        host = "127.0.0.1"
+    try:
+        port = int(port_str)
+    except ValueError as e:
+        raise ValueError(f"invalid port in {spec!r}: {e}") from e
+    if port < 0 or port > 65535:
+        raise ValueError(f"port out of range in {spec!r}")
+    return host, port
+
+
+def _cmd_proxy(args: argparse.Namespace) -> int:
+    import logging
+    import signal
+    import threading
+
+    from .proxy import ProxyState, ProxyHTTPServer
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    log = logging.getLogger("stepback.cli.proxy")
+
+    try:
+        http_host, http_port = _parse_listen(args.listen)
+    except ValueError as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 2
+
+    state = ProxyState(
+        write_dir=args.write,
+        max_open_traces=args.max_open_traces,
+    )
+    http_server = ProxyHTTPServer(
+        (http_host, http_port), state, max_body_bytes=args.max_body_bytes,
+    )
+    log.info(
+        "HTTP listening on http://%s:%s (write_dir=%s)",
+        http_host, http_port, state.write_dir,
+    )
+
+    grpc_server = None
+    if args.grpc_listen:
+        try:
+            grpc_host, grpc_port = _parse_listen(args.grpc_listen)
+        except ValueError as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 2
+        try:
+            from .proxy.grpc_server import serve_grpc
+            grpc_server = serve_grpc(
+                state, host=grpc_host, port=grpc_port,
+                max_workers=args.grpc_max_workers,
+            )
+            log.info("gRPC listening on %s:%s", grpc_host, grpc_port)
+        except ImportError as e:
+            print(f"FAIL: gRPC not available: {e}", file=sys.stderr)
+            return 2
+
+    stop = threading.Event()
+
+    def _on_signal(signum, _frame):
+        log.info("received signal %s, shutting down", signum)
+        stop.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, _on_signal)
+        except (ValueError, OSError):
+            # Not on the main thread (e.g. pytest)
+            pass
+
+    http_thread = threading.Thread(
+        target=http_server.serve_forever, name="proxy-http", daemon=True
+    )
+    http_thread.start()
+    try:
+        stop.wait()
+    finally:
+        log.info("stopping HTTP server")
+        http_server.shutdown()
+        http_server.server_close()
+        if grpc_server is not None:
+            log.info("stopping gRPC server")
+            grpc_server.stop(grace=2.0).wait(timeout=5.0)
+        log.info("flushing %d open trace(s)", len(state.list_traces()))
+        state.close_all()
+    return 0
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -1261,6 +1589,207 @@ def main(argv: Optional[list] = None) -> int:
         help="exit code 5 if total severity_score > THRESHOLD",
     )
     p_div.set_defaults(func=_cmd_divergence)
+
+    p_export = sub.add_parser(
+        "export",
+        help="export a verified .sb trace to openai/langsmith/openinference",
+        description=(
+            "Verify the .sb file's HMAC chain, then render the step list "
+            "into one of the foreign trace formats supported by stepback's "
+            "exporters module (openai_chat_log, langsmith[_jsonl], "
+            "openinference[_spans], otel)."
+        ),
+    )
+    p_export.add_argument("--format", required=True,
+                          help="target export format")
+    p_export.add_argument("--input", required=True, help=".sb trace path")
+    p_export.add_argument("--output", required=True, help="output file path")
+    p_export.add_argument("--hmac-key-hex", required=True,
+                          help="hex-encoded HMAC key the trace was signed with")
+    p_export.add_argument("--json", action="store_true",
+                          help="print the ExportReport as JSON on stdout")
+    p_export.set_defaults(func=_cmd_export)
+
+    p_import = sub.add_parser(
+        "import",
+        help="import a foreign trace file into a verified .sb trace",
+        description=(
+            "Parse an openai_chat_log JSON, langsmith JSONL, or "
+            "openinference spans JSON file and emit a freshly-signed .sb "
+            "trace. The resulting trace is HMAC-chain-verified end-to-end."
+        ),
+    )
+    p_import.add_argument(
+        "--format", required=True,
+        choices=sorted({
+            "openai", "openai_chat_log",
+            "langsmith", "langsmith_jsonl",
+            "openinference", "openinference_spans", "otel",
+        }),
+        help="source import format",
+    )
+    p_import.add_argument("-i", "--input", required=True,
+                          help="path to the foreign trace file")
+    p_import.add_argument("-o", "--output", required=True,
+                          help="path to the .sb file to write")
+    p_import.add_argument("--hmac-key-hex",
+                          help="hex-encoded HMAC key (else a fresh key is minted)")
+    p_import.add_argument("--no-compression", action="store_true",
+                          help="disable per-frame zlib compression")
+    p_import.add_argument("--json", action="store_true",
+                          help="print the ImportReport as JSON on stdout")
+    p_import.set_defaults(func=_cmd_import)
+
+    p_redact = sub.add_parser(
+        "redact",
+        help="redact PII / secrets from a verified .sb trace",
+        description=(
+            "Verify the input .sb file, run the configured redaction "
+            "policy over every step, and write a re-signed .sb trace "
+            "to --output. Optionally writes a JSON manifest summarising "
+            "what was redacted (counts only — no raw substrings)."
+        ),
+    )
+    p_redact.add_argument("trace", help="input .sb trace path")
+    p_redact.add_argument("-o", "--output", required=True,
+                          help="output .sb trace path")
+    p_redact.add_argument("--hmac-key-hex", required=True,
+                          help="hex-encoded HMAC key the input was signed with")
+    p_redact.add_argument("--policy", default="standard",
+                          help="redaction policy name: standard | strict")
+    p_redact.add_argument("--manifest",
+                          help="path to write the JSON RedactionManifest")
+    p_redact.add_argument("--no-compression", action="store_true",
+                          help="disable per-frame zlib compression on output")
+    p_redact.add_argument("--streaming", action="store_true",
+                          help="use the streaming redactor for large traces")
+    p_redact.add_argument("--json", action="store_true",
+                          help="print the manifest as JSON on stdout")
+    p_redact.set_defaults(func=_cmd_redact)
+
+    p_scan = sub.add_parser(
+        "redact-scan",
+        help="dry-run redaction: scan a verified .sb and report findings",
+        description=(
+            "Run the redaction policy in scan-only mode: no output trace "
+            "is written, but a JSON ScanReport is emitted summarising "
+            "what *would* be redacted (counts + per-step findings)."
+        ),
+    )
+    p_scan.add_argument("trace", help="input .sb trace path")
+    p_scan.add_argument("--hmac-key-hex", required=True)
+    p_scan.add_argument("--policy", default="standard",
+                        help="redaction policy name: standard | strict")
+    p_scan.add_argument("--json", action="store_true",
+                        help="print the ScanReport as JSON on stdout")
+    p_scan.set_defaults(func=_cmd_redact_scan)
+
+    p_view = sub.add_parser(
+        "view",
+        help="render a self-contained interactive HTML viewer for a .sb trace",
+        description=(
+            "Read a recorded .sb trace and emit a single HTML file with "
+            "an interactive timeline (filter by step kind, search, expand "
+            "step details). The output has no external dependencies and "
+            "can be opened directly in a browser."
+        ),
+    )
+    p_view.add_argument("trace", help="input .sb trace path")
+    p_view.add_argument(
+        "--output", "-o", required=True,
+        help="output HTML file path",
+    )
+    p_view.add_argument(
+        "--title", default=None,
+        help="title shown in the viewer header (default: derived from the trace filename)",
+    )
+    p_view.add_argument(
+        "--hmac-key-hex", default=None,
+        help="optional HMAC key (hex) used to verify the chain while loading",
+    )
+    p_view.add_argument(
+        "--json", action="store_true",
+        help="print a TraceViewSummary as JSON to stdout instead of a one-liner",
+    )
+    p_view.set_defaults(func=_cmd_view)
+
+    # ------------------------------------------------------ bench
+    p_bench = sub.add_parser(
+        "bench",
+        help="run reproducible micro-benchmarks (dirty-set, recorder overhead)",
+        description=(
+            "stepback bench REPLAY-CACHING|RECORD-OVERHEAD — reproduce the "
+            "headline numbers from the README. Each subcommand prints a "
+            "one-line summary and, with --out, writes a structured JSON "
+            "BenchResult."
+        ),
+    )
+    bench_sub = p_bench.add_subparsers(dest="bench_cmd", required=True)
+
+    p_bench_rc = bench_sub.add_parser(
+        "replay-caching",
+        help="benchmark dirty-set size vs. trace length on synthetic traces",
+    )
+    p_bench_rc.add_argument("--n-steps", type=int, default=200,
+                            help="approximate number of steps in the synthetic trace")
+    p_bench_rc.add_argument("--n-trials", type=int, default=10,
+                            help="independent trials to aggregate")
+    p_bench_rc.add_argument(
+        "--strategy",
+        choices=["random_step", "first_quarter", "last_quarter",
+                 "prompt_only", "tool_only"],
+        default="random_step",
+        help="how to pick the substitution target within each trial",
+    )
+    p_bench_rc.add_argument("--seed", type=int, default=0,
+                            help="base RNG seed (default 0)")
+    p_bench_rc.add_argument("--out", help="write structured JSON BenchResult to this path")
+    p_bench_rc.set_defaults(func=_cmd_bench_replay_caching)
+
+    p_bench_ro = bench_sub.add_parser(
+        "record-overhead",
+        help="benchmark per-LLM-call recorder overhead in microseconds",
+    )
+    p_bench_ro.add_argument("--n-steps", type=int, default=1000,
+                            help="number of llm_call steps to time")
+    p_bench_ro.add_argument("--out", help="write structured JSON RecordOverheadResult to this path")
+    p_bench_ro.set_defaults(func=_cmd_bench_record_overhead)
+
+    p_proxy = sub.add_parser(
+        "proxy",
+        help="run the stepback HTTP (and optional gRPC) proxy",
+        description=(
+            "Run a sidecar that exposes StartTrace/RecordStep/EndTrace/"
+            "VerifyTrace over JSON-over-HTTP. Optional gRPC is enabled "
+            "with --grpc-listen if 'grpcio' is installed. See "
+            "stepback/proxy/server.py for the HTTP wire schema."
+        ),
+    )
+    p_proxy.add_argument(
+        "--listen", default="127.0.0.1:4319",
+        help="HOST:PORT for the HTTP listener (default 127.0.0.1:4319)",
+    )
+    p_proxy.add_argument(
+        "--write", required=True,
+        help="directory under which new .sb traces are created",
+    )
+    p_proxy.add_argument(
+        "--max-body-bytes", type=int, default=64 * 1024 * 1024,
+        help="hard cap on request body size in bytes (default 64 MiB)",
+    )
+    p_proxy.add_argument(
+        "--max-open-traces", type=int, default=1024,
+        help="refuse StartTrace once this many traces are simultaneously open",
+    )
+    p_proxy.add_argument(
+        "--grpc-listen", default=None,
+        help="optional HOST:PORT for the gRPC listener (requires grpcio)",
+    )
+    p_proxy.add_argument(
+        "--grpc-max-workers", type=int, default=8,
+        help="grpc thread-pool size (default 8)",
+    )
+    p_proxy.set_defaults(func=_cmd_proxy)
 
     args = p.parse_args(argv)
     return args.func(args)

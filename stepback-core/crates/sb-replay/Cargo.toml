@@ -1,0 +1,15 @@
+[package]
+name = "sb-replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Replay planning and execution traits for SB-Trace."
+
+[dependencies]
+sb-format = { workspace = true }
+sb-dirty = { workspace = true }
+sb-canonical = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

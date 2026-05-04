@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use stepback in academic work, please cite it as below."
+title: "stepback: counterfactual evaluation of LLM agents via LLM-aware step caching and dirty-set propagation"
+authors:
+  - name: "The stepback authors"
+year: 2026
+license: Apache-2.0
+repository-code: "https://example.com/stepback"
+url: "https://example.com/stepback"
+keywords:
+  - LLM agents
+  - counterfactual evaluation
+  - deterministic replay
+  - dirty-set propagation
+  - delta debugging
