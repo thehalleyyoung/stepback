@@ -1,0 +1,19 @@
+{
+  "name": "langchain_tool_run_scalar",
+  "description": "Legacy BaseTool.run(scalar) surface; arg becomes {'input': scalar}.",
+  "provider": "langchain",
+  "request": {
+    "tool_name": "uppercase",
+    "description": "Return the input string in uppercase.",
+    "arguments": "hello world",
+    "use_run": true
+  },
+  "raw_response": "HELLO WORLD",
+  "contract": {
+    "tool_outputs": {
+      "name_recorded_as": "uppercase",
+      "arguments_recorded_as": {"input": "hello world"},
+      "result": "HELLO WORLD"
+    }
+  }
+}

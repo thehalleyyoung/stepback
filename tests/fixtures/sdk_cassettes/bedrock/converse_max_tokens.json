@@ -1,0 +1,35 @@
+{
+  "name": "bedrock_converse_max_tokens",
+  "description": "Bedrock Converse output truncated by max_tokens; stopReason=max_tokens maps to finish_reason=length.",
+  "provider": "bedrock",
+  "request": {
+    "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "messages": [{"role": "user", "content": "Write a long story."}],
+    "kwargs": {"inferenceConfig": {"maxTokens": 16}}
+  },
+  "raw_response": {
+    "ResponseMetadata": {"RequestId": "bedrock-req-maxtok-001"},
+    "modelId": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "output": {
+      "message": {
+        "role": "assistant",
+        "content": [
+          {"text": "Once upon a time, deep in the silver-lit forest of"}
+        ]
+      }
+    },
+    "stopReason": "max_tokens",
+    "usage": {"inputTokens": 12, "outputTokens": 16, "totalTokens": 28}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "bedrock-req-maxtok-001",
+      "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      "finish_reason": "length",
+      "content": "Once upon a time, deep in the silver-lit forest of",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 12, "completion_tokens": 16, "total_tokens": 28},
+      "preserves_native_under": "_bedrock"
+    }
+  }
+}

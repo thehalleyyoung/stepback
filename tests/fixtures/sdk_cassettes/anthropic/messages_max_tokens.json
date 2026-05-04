@@ -1,0 +1,31 @@
+{
+  "name": "anthropic_messages_max_tokens",
+  "description": "stop_reason=max_tokens maps to OpenAI 'length'.",
+  "provider": "anthropic",
+  "request": {
+    "model": "claude-3-5-haiku-20241022",
+    "messages": [{"role": "user", "content": "Recite digits forever."}],
+    "kwargs": {"max_tokens": 4}
+  },
+  "raw_response": {
+    "id": "msg_maxtok",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-haiku-20241022",
+    "content": [{"type": "text", "text": "0 1 2 3"}],
+    "stop_reason": "max_tokens",
+    "stop_sequence": null,
+    "usage": {"input_tokens": 7, "output_tokens": 4}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "msg_maxtok",
+      "model": "claude-3-5-haiku-20241022",
+      "finish_reason": "length",
+      "content": "0 1 2 3",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 7, "completion_tokens": 4, "total_tokens": 11},
+      "preserves_native_under": "_anthropic"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "anthropic_messages_tool_use",
+  "description": "Anthropic tool_use block, stop_reason=tool_use.",
+  "provider": "anthropic",
+  "request": {
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{"role": "user", "content": "Look up customer 42."}],
+    "kwargs": {"max_tokens": 256}
+  },
+  "raw_response": {
+    "id": "msg_tool0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-20241022",
+    "content": [
+      {"type": "text", "text": "I'll look that up. "},
+      {
+        "type": "tool_use",
+        "id": "toolu_01XYZ",
+        "name": "lookup_customer",
+        "input": {"customer_id": 42}
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "usage": {"input_tokens": 22, "output_tokens": 17}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "msg_tool0001",
+      "model": "claude-3-5-sonnet-20241022",
+      "finish_reason": "tool_calls",
+      "content": "I'll look that up. ",
+      "tool_calls": [{
+        "id": "toolu_01XYZ",
+        "type": "function",
+        "function": {"name": "lookup_customer", "arguments": {"customer_id": 42}}
+      }],
+      "usage": {"prompt_tokens": 22, "completion_tokens": 17, "total_tokens": 39},
+      "preserves_native_under": "_anthropic"
+    }
+  }
+}

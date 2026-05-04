@@ -1,0 +1,65 @@
+{
+  "name": "openai_chat_tool_call",
+  "description": "Assistant emits a single function tool_call; finish_reason=tool_calls.",
+  "provider": "openai",
+  "request": {
+    "model": "gpt-4o-2024-11-20",
+    "messages": [
+      {"role": "user", "content": "What is the weather in Paris?"}
+    ],
+    "kwargs": {
+      "temperature": 0.0,
+      "seed": 42,
+      "tools": [{
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather.",
+          "parameters": {"type": "object", "properties": {"city": {"type": "string"}}}
+        }
+      }]
+    }
+  },
+  "raw_response": {
+    "id": "chatcmpl-tool0001",
+    "object": "chat.completion",
+    "created": 1726000123,
+    "model": "gpt-4o-2024-11-20",
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "tool_calls",
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_abc1",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"city\":\"Paris\"}"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {"prompt_tokens": 38, "completion_tokens": 9, "total_tokens": 47}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "chatcmpl-tool0001",
+      "model": "gpt-4o-2024-11-20",
+      "finish_reason": "tool_calls",
+      "content": null,
+      "tool_calls": [{
+        "id": "call_abc1",
+        "type": "function",
+        "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}
+      }],
+      "usage": {"prompt_tokens": 38, "completion_tokens": 9, "total_tokens": 47},
+      "preserves_native_under": null
+    }
+  }
+}

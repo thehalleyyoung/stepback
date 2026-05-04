@@ -1,0 +1,33 @@
+{
+  "name": "bedrock_converse_text_simple",
+  "description": "Bedrock Converse API plain text reply, stopReason=end_turn.",
+  "provider": "bedrock",
+  "request": {
+    "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "messages": [{"role": "user", "content": "Say hi."}],
+    "kwargs": {}
+  },
+  "raw_response": {
+    "ResponseMetadata": {"RequestId": "req-bed-0001", "HTTPStatusCode": 200},
+    "output": {
+      "message": {
+        "role": "assistant",
+        "content": [{"text": "Hi from Bedrock."}]
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {"inputTokens": 9, "outputTokens": 5, "totalTokens": 14},
+    "metrics": {"latencyMs": 312}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "req-bed-0001",
+      "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      "finish_reason": "stop",
+      "content": "Hi from Bedrock.",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 9, "completion_tokens": 5, "total_tokens": 14},
+      "preserves_native_under": "_bedrock"
+    }
+  }
+}

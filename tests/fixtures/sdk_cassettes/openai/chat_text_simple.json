@@ -1,0 +1,51 @@
+{
+  "name": "openai_chat_text_simple",
+  "description": "Single-turn assistant text reply, gpt-4o-mini, finish_reason=stop.",
+  "provider": "openai",
+  "request": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "messages": [
+      {"role": "system", "content": "You are concise."},
+      {"role": "user", "content": "Say hi."}
+    ],
+    "kwargs": {"temperature": 0.0, "seed": 42}
+  },
+  "raw_response": {
+    "id": "chatcmpl-AbCdEf1234567890",
+    "object": "chat.completion",
+    "created": 1726000000,
+    "model": "gpt-4o-mini-2024-07-18",
+    "system_fingerprint": "fp_abc123",
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "Hi.",
+          "refusal": null,
+          "tool_calls": null
+        },
+        "logprobs": null
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 14,
+      "completion_tokens": 2,
+      "total_tokens": 16,
+      "prompt_tokens_details": {"cached_tokens": 0},
+      "completion_tokens_details": {"reasoning_tokens": 0}
+    }
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "chatcmpl-AbCdEf1234567890",
+      "model": "gpt-4o-mini-2024-07-18",
+      "finish_reason": "stop",
+      "content": "Hi.",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 14, "completion_tokens": 2, "total_tokens": 16},
+      "preserves_native_under": null
+    }
+  }
+}

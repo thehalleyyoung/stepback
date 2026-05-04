@@ -1,0 +1,18 @@
+{
+  "name": "mcp_call_tool_namespaced",
+  "description": "MCP server_name namespacing; tool name appears as '{server}:{name}'.",
+  "provider": "mcp",
+  "request": {
+    "server_name": "github",
+    "tool_name": "list_issues",
+    "arguments": {"repo": "stepback-dev/stepback", "state": "open"}
+  },
+  "raw_response": [{"number": 1, "title": "first"}, {"number": 2, "title": "second"}],
+  "contract": {
+    "tool_outputs": {
+      "name_recorded_as": "github:list_issues",
+      "arguments_recorded_as": {"repo": "stepback-dev/stepback", "state": "open"},
+      "result": [{"number": 1, "title": "first"}, {"number": 2, "title": "second"}]
+    }
+  }
+}

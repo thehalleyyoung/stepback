@@ -1,0 +1,33 @@
+{
+  "name": "openai_chat_finish_length",
+  "description": "finish_reason=length (max_tokens hit). Edge case.",
+  "provider": "openai",
+  "request": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "messages": [{"role": "user", "content": "Tell me a long story."}],
+    "kwargs": {"temperature": 0.0, "seed": 42, "max_tokens": 5}
+  },
+  "raw_response": {
+    "id": "chatcmpl-len0001",
+    "object": "chat.completion",
+    "created": 1726000999,
+    "model": "gpt-4o-mini-2024-07-18",
+    "choices": [{
+      "index": 0,
+      "finish_reason": "length",
+      "message": {"role": "assistant", "content": "Once upon a time"}
+    }],
+    "usage": {"prompt_tokens": 6, "completion_tokens": 5, "total_tokens": 11}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "chatcmpl-len0001",
+      "model": "gpt-4o-mini-2024-07-18",
+      "finish_reason": "length",
+      "content": "Once upon a time",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 6, "completion_tokens": 5, "total_tokens": 11},
+      "preserves_native_under": null
+    }
+  }
+}

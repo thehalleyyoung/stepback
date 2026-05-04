@@ -1,0 +1,44 @@
+{
+  "name": "gemini_generate_function_call",
+  "description": "Gemini function_call part; finish_reason=STOP.",
+  "provider": "gemini",
+  "request": {
+    "model": "models/gemini-2.5-pro",
+    "messages": [{"role": "user", "content": "Look up customer 99."}],
+    "kwargs": {}
+  },
+  "raw_response": {
+    "response_id": "resp-gem-fc",
+    "model_version": "gemini-2.5-pro-2025-03-25",
+    "candidates": [{
+      "content": {
+        "role": "model",
+        "parts": [
+          {"function_call": {"name": "lookup_customer", "args": {"customer_id": 99}}}
+        ]
+      },
+      "finish_reason": "STOP",
+      "index": 0
+    }],
+    "usage_metadata": {
+      "prompt_token_count": 14,
+      "candidates_token_count": 9,
+      "total_token_count": 23
+    }
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "resp-gem-fc",
+      "model": "gemini-2.5-pro-2025-03-25",
+      "finish_reason": "stop",
+      "content": null,
+      "tool_calls": [{
+        "id": "gemcall_0000",
+        "type": "function",
+        "function": {"name": "lookup_customer", "arguments": {"customer_id": 99}}
+      }],
+      "usage": {"prompt_tokens": 14, "completion_tokens": 9, "total_tokens": 23},
+      "preserves_native_under": "_gemini"
+    }
+  }
+}

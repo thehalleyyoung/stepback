@@ -1,0 +1,38 @@
+{
+  "name": "gemini_generate_text_simple",
+  "description": "Gemini generate_content text reply; finish_reason=STOP.",
+  "provider": "gemini",
+  "request": {
+    "model": "models/gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "Say hi."}],
+    "kwargs": {}
+  },
+  "raw_response": {
+    "response_id": "resp-gem-0001",
+    "model_version": "gemini-2.5-flash-2025-04-09",
+    "candidates": [{
+      "content": {
+        "role": "model",
+        "parts": [{"text": "Hi from Gemini."}]
+      },
+      "finish_reason": "STOP",
+      "index": 0
+    }],
+    "usage_metadata": {
+      "prompt_token_count": 8,
+      "candidates_token_count": 5,
+      "total_token_count": 13
+    }
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "resp-gem-0001",
+      "model": "gemini-2.5-flash-2025-04-09",
+      "finish_reason": "stop",
+      "content": "Hi from Gemini.",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 8, "completion_tokens": 5, "total_tokens": 13},
+      "preserves_native_under": "_gemini"
+    }
+  }
+}

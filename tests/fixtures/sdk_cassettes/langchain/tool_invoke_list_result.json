@@ -1,0 +1,25 @@
+{
+  "name": "langchain_tool_invoke_list_result",
+  "description": "LangChain BaseTool returning a structured list result via .invoke(dict).",
+  "provider": "langchain",
+  "request": {
+    "tool_name": "search_customers",
+    "description": "Search customers by partial name.",
+    "arguments": {"query": "Acme", "limit": 2},
+    "use_run": false
+  },
+  "raw_response": [
+    {"id": 1, "name": "Acme Bolts"},
+    {"id": 7, "name": "Acme Foundry"}
+  ],
+  "contract": {
+    "tool_outputs": {
+      "name_recorded_as": "search_customers",
+      "arguments_recorded_as": {"query": "Acme", "limit": 2},
+      "result": [
+        {"id": 1, "name": "Acme Bolts"},
+        {"id": 7, "name": "Acme Foundry"}
+      ]
+    }
+  }
+}

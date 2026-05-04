@@ -1,0 +1,35 @@
+{
+  "name": "gemini_generate_max_tokens",
+  "description": "Gemini finish_reason=MAX_TOKENS maps to OpenAI 'length'.",
+  "provider": "gemini",
+  "request": {
+    "model": "models/gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "Count forever."}],
+    "kwargs": {}
+  },
+  "raw_response": {
+    "response_id": "resp-gem-len",
+    "model_version": "gemini-2.5-flash-2025-04-09",
+    "candidates": [{
+      "content": {"role": "model", "parts": [{"text": "1 2 3 4"}]},
+      "finish_reason": "MAX_TOKENS",
+      "index": 0
+    }],
+    "usage_metadata": {
+      "prompt_token_count": 5,
+      "candidates_token_count": 4,
+      "total_token_count": 9
+    }
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "resp-gem-len",
+      "model": "gemini-2.5-flash-2025-04-09",
+      "finish_reason": "length",
+      "content": "1 2 3 4",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 5, "completion_tokens": 4, "total_tokens": 9},
+      "preserves_native_under": "_gemini"
+    }
+  }
+}

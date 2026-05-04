@@ -1,0 +1,33 @@
+{
+  "name": "anthropic_messages_stop_sequence",
+  "description": "Anthropic text reply terminated by a custom stop_sequence; stop_reason=stop_sequence.",
+  "provider": "anthropic",
+  "request": {
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{"role": "user", "content": "Count: 1, 2, "}],
+    "kwargs": {"max_tokens": 64, "stop_sequences": ["END"]}
+  },
+  "raw_response": {
+    "id": "msg_stopseq_01",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-20241022",
+    "content": [
+      {"type": "text", "text": "3, 4, 5 "}
+    ],
+    "stop_reason": "stop_sequence",
+    "stop_sequence": "END",
+    "usage": {"input_tokens": 18, "output_tokens": 7}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "msg_stopseq_01",
+      "model": "claude-3-5-sonnet-20241022",
+      "finish_reason": "stop",
+      "content": "3, 4, 5 ",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 18, "completion_tokens": 7, "total_tokens": 25},
+      "preserves_native_under": "_anthropic"
+    }
+  }
+}

@@ -623,8 +623,48 @@ ordering is intentionally not implied. "Owner" left blank.
     pass and are independent of the parallel-branch and dirty-set
     suites.
 
-37. Add SDK contract tests with recorded cassettes for every provider shim;
-    duck typing is not enough.
+37. **Complete.** Add SDK contract tests with recorded cassettes for every
+    provider shim; duck typing is not enough. Implemented
+    ``tests/test_shim_contract.py`` (55 tests, ~570 LOC, all pass in <1s)
+    plus 22 frozen cassette files under
+    ``tests/fixtures/sdk_cassettes/{openai,anthropic,bedrock,gemini,langchain,mcp}/*.json``
+    (with a per-directory ``README.md`` documenting cassette
+    provenance and the ``raw_response`` / ``contract`` schema). Each
+    cassette carries (a) a sample raw SDK response and (b) a
+    ``contract`` block pinning the canonical ``llm_response`` (or
+    recorded tool output) the shim must produce. The test runner
+    auto-discovers cassettes and exercises three independent code paths
+    per cassette to catch SDK-shape regressions that duck typing would
+    silently absorb:
+    (1) **Recording path** — ``wrap_openai`` / ``wrap_anthropic`` /
+    ``wrap_bedrock`` / ``wrap_gemini`` / ``wrap_langchain_tool`` /
+    ``wrap_mcp_session`` against an in-process fake whose only job is
+    to hand back the cassette's ``raw_response`` byte-for-byte; the
+    recorded ``llm_response`` / ``outputs`` is asserted equal to the
+    cassette's ``contract`` block, the resulting ``.sb`` is verified,
+    and a cached replay confirms zero executor reinvocations.
+    (2) **Pure coercion path** — feed the cassette's ``raw_response``
+    directly to ``_coerce_<provider>_response`` followed by
+    ``_<provider>_to_openai_shape`` and assert the same canonical
+    contract holds, independent of the recorder plumbing.
+    (3) **Duck-typed object path** — wrap the dict in a stub object
+    exposing ``.model_dump()`` (pydantic-like) and attribute access
+    (dataclass-like) and verify the coercion path normalises identically
+    — this is the surface real SDK response objects hit.
+    Cassettes cover the full per-provider shape matrix: OpenAI chat
+    (text-simple, tool-call, parallel-tool-calls, finish_length);
+    Anthropic messages (text-simple, tool-use, max-tokens, stop-sequence);
+    Bedrock Converse (text-simple, tool-use, max-tokens, guardrail);
+    Gemini generate (text-simple, function-call, max-tokens,
+    safety-blocked); LangChain tool (run-scalar, invoke-dict,
+    invoke-list-result); MCP call_tool (simple, no-arguments,
+    namespaced). Each new cassette is a single JSON file — the runner
+    discovers it without code changes — so adding a new SDK shape (e.g.
+    Anthropic thinking blocks, OpenAI Responses API) is friction-free.
+    All 55 contract tests pass alongside the pre-existing
+    ``test_shims.py`` / ``test_bedrock_shim.py`` / ``test_gemini_shim.py``
+    duck-typed suites; together they pin both the duck-typed surface
+    and the recorded-shape contract.
 
 38. **Complete.** Add import/export round-trip tests for LangSmith, OpenInference, JSON,
     HTML, and OTel export. Wired two new exporter formats —

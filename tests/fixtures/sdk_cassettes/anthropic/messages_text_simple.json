@@ -1,0 +1,31 @@
+{
+  "name": "anthropic_messages_text_simple",
+  "description": "Anthropic messages.create text reply, stop_reason=end_turn.",
+  "provider": "anthropic",
+  "request": {
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{"role": "user", "content": "Say hi."}],
+    "kwargs": {"max_tokens": 64}
+  },
+  "raw_response": {
+    "id": "msg_01ABCxyz",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-20241022",
+    "content": [{"type": "text", "text": "Hi there."}],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {"input_tokens": 11, "output_tokens": 4}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "msg_01ABCxyz",
+      "model": "claude-3-5-sonnet-20241022",
+      "finish_reason": "stop",
+      "content": "Hi there.",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15},
+      "preserves_native_under": "_anthropic"
+    }
+  }
+}

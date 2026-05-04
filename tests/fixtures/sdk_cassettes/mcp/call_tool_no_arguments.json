@@ -1,0 +1,28 @@
+{
+  "name": "mcp_call_tool_no_arguments",
+  "description": "MCP tool invocation with no arguments; recorded args must be {} not None.",
+  "provider": "mcp",
+  "request": {
+    "server_name": "fs",
+    "tool_name": "list_root",
+    "arguments": {}
+  },
+  "raw_response": {
+    "content": [
+      {"type": "text", "text": "/\n/etc\n/home\n"}
+    ],
+    "isError": false
+  },
+  "contract": {
+    "tool_outputs": {
+      "name_recorded_as": "fs:list_root",
+      "arguments_recorded_as": {},
+      "result": {
+        "content": [
+          {"type": "text", "text": "/\n/etc\n/home\n"}
+        ],
+        "isError": false
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "gemini_generate_safety_blocked",
+  "description": "Gemini response blocked by SAFETY filter; finish_reason SAFETY maps to content_filter.",
+  "provider": "gemini",
+  "request": {
+    "model": "models/gemini-2.5-pro",
+    "messages": [{"role": "user", "content": "<redacted prompt>"}],
+    "kwargs": {}
+  },
+  "raw_response": {
+    "response_id": "resp-gem-safety",
+    "model_version": "gemini-2.5-pro-2025-03-25",
+    "candidates": [{
+      "content": {"role": "model", "parts": []},
+      "finish_reason": "SAFETY",
+      "index": 0,
+      "safety_ratings": [
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "probability": "HIGH", "blocked": true}
+      ]
+    }],
+    "usage_metadata": {
+      "prompt_token_count": 9,
+      "candidates_token_count": 0,
+      "total_token_count": 9
+    }
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "resp-gem-safety",
+      "model": "gemini-2.5-pro-2025-03-25",
+      "finish_reason": "content_filter",
+      "content": null,
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 9, "completion_tokens": 0, "total_tokens": 9},
+      "preserves_native_under": "_gemini"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "bedrock_converse_guardrail",
+  "description": "Bedrock guardrail intervention maps to OpenAI 'content_filter'.",
+  "provider": "bedrock",
+  "request": {
+    "model": "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "messages": [{"role": "user", "content": "redacted"}],
+    "kwargs": {}
+  },
+  "raw_response": {
+    "ResponseMetadata": {"RequestId": "req-bed-guard"},
+    "output": {
+      "message": {
+        "role": "assistant",
+        "content": [{"text": "Sorry, I can't help with that."}]
+      }
+    },
+    "stopReason": "guardrail_intervened",
+    "usage": {"inputTokens": 4, "outputTokens": 9, "totalTokens": 13}
+  },
+  "contract": {
+    "openai_shape": {
+      "id": "req-bed-guard",
+      "model": "anthropic.claude-3-5-haiku-20241022-v1:0",
+      "finish_reason": "content_filter",
+      "content": "Sorry, I can't help with that.",
+      "tool_calls": null,
+      "usage": {"prompt_tokens": 4, "completion_tokens": 9, "total_tokens": 13},
+      "preserves_native_under": "_bedrock"
+    }
+  }
+}
