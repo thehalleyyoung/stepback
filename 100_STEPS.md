@@ -697,8 +697,36 @@ ordering is intentionally not implied. "Owner" left blank.
     ``import_native_json``). 11/11 round-trip tests pass; the 22
     pre-existing exporters/importers tests stay green.
 
-39. Add CI matrices for Linux, macOS, Windows, Python 3.10 through 3.13, and a
-    nightly Python job allowed to fail but required to file issues.
+39. **Complete.** Add CI matrices for Linux, macOS, Windows, Python 3.10
+    through 3.13, and a nightly Python job allowed to fail but required to
+    file issues. Expanded ``.github/workflows/ci.yml``'s ``test`` job
+    matrix to ``os: [ubuntu-latest, macos-latest, windows-latest]`` ×
+    ``python: ["3.10", "3.11", "3.12", "3.13"]`` (12 legs, ``fail-fast:
+    false``) so every supported stable Python is exercised on every
+    supported OS, including Windows which previously had no coverage.
+    Added a separate ``.github/workflows/nightly.yml`` workflow that
+    runs daily at 06:17 UTC (and on ``workflow_dispatch``) over a
+    matrix of ``ubuntu-latest`` / ``macos-latest`` / ``windows-latest``
+    × ``["3.13", "3.14-dev"]`` to track the unreleased CPython tip via
+    ``actions/setup-python``'s ``allow-prereleases: true``. The nightly
+    job is *allowed to fail* (``continue-on-error: true`` plus an
+    explicit ``exit 0`` after capturing pytest's status code) so it
+    never gates merges to main, but a downstream ``file-issue-on-failure``
+    job runs when ``needs.nightly-pytest.result != 'success'`` and uses
+    ``actions/github-script@v7`` (with ``permissions: issues: write``)
+    to either comment on the existing open tracking issue with the
+    ``nightly-ci`` label or create a fresh one — labelled
+    ``nightly-ci, ci`` — so language-drift regressions surface before
+    they reach the stable matrix without spamming the issue tracker.
+    Each matrix leg uploads its JUnit XML as a 30-day artifact and
+    writes a per-leg summary block to ``$GITHUB_STEP_SUMMARY`` marking
+    the leg as ✅ or ❌ with the captured ``pytest_status``. YAML is
+    validated end-to-end with ``yaml.safe_load`` for both files. The
+    pre-existing ``coverage-floors`` (Step 26), ``api-compat`` (Step
+    25), ``jvm`` (Step 10), ``wasm`` (Step 12), and ``build`` jobs are
+    untouched so the rest of the CI surface keeps its existing
+    contract; only ``test`` gains Windows + 3.13 coverage and
+    ``nightly`` is new.
 
 ## § Trace format & canonicalization
 

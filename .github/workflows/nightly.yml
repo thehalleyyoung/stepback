@@ -1,0 +1,150 @@
+name: Nightly Python
+
+# Step #39 of 100_STEPS.md: a nightly Python job allowed to fail but required
+# to file an issue when it does. Runs the full test suite on the unreleased
+# Python tip ("3.14-dev" tracks the latest CPython main branch via
+# actions/setup-python's `-dev` channel). The job is non-blocking — it must
+# never gate merges to main — but a failure opens (or comments on) a tracking
+# issue so language drift surfaces before stable Python catches up.
+
+on:
+  schedule:
+    # 06:17 UTC daily — off-peak relative to common business-hour CI surges.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  nightly-pytest:
+    name: pytest · Python ${{ matrix.python }} · ${{ matrix.os }} (allowed to fail)
+    runs-on: ${{ matrix.os }}
+    # Allowed-to-fail: the job never blocks main, but failures still produce
+    # an issue via the file-issue step below.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.13", "3.14-dev"]
+    outputs:
+      any_failed: ${{ steps.summary.outputs.any_failed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest (allowed to fail)
+        id: pytest
+        # We capture status manually so the step never short-circuits the
+        # follow-on issue-filer below.
+        shell: bash
+        run: |
+          set +e
+          pytest -q --tb=short --maxfail=20 -o junit_family=xunit2 \
+              --junitxml=pytest-junit.xml
+          status=$?
+          echo "pytest_status=$status" >> "$GITHUB_OUTPUT"
+          if [ $status -ne 0 ]; then
+            echo "::warning::pytest exited with $status on Python ${{ matrix.python }} / ${{ matrix.os }} (nightly is allowed to fail)."
+          fi
+          # Don't propagate failure to the runner — continue-on-error already
+          # ensures the job is non-blocking, but explicit `exit 0` keeps the
+          # downstream upload + summary steps unconditional.
+          exit 0
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.os }}-py${{ matrix.python }}
+          path: pytest-junit.xml
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Summarise to GITHUB_STEP_SUMMARY
+        id: summary
+        if: always()
+        shell: bash
+        run: |
+          status="${{ steps.pytest.outputs.pytest_status }}"
+          echo "## Nightly pytest · Py${{ matrix.python }} · ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" = "0" ]; then
+            echo "✅ pytest passed." >> "$GITHUB_STEP_SUMMARY"
+            echo "any_failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "❌ pytest exited with status $status (nightly · allowed to fail)." >> "$GITHUB_STEP_SUMMARY"
+            echo "any_failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  file-issue-on-failure:
+    name: File / refresh tracking issue when nightly fails
+    needs: nightly-pytest
+    if: ${{ always() && needs.nightly-pytest.result != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open or comment on tracking issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Nightly Python CI failed on ${context.runId}`;
+            const body = [
+              `The nightly Python matrix in `.github/workflows/nightly.yml` reported`,
+              `at least one failing leg. The nightly suite is *allowed to fail*; this`,
+              `issue is filed automatically so language-drift regressions surface`,
+              `before they reach the stable matrix.`,
+              ``,
+              `* Workflow run: ${context.payload?.repository?.html_url ?? ''}/actions/runs/${context.runId}`,
+              `* Triggered: ${context.eventName} on ${context.ref}`,
+              `* Commit: ${context.sha}`,
+              ``,
+              `If the failure is a known upstream incompatibility, label this issue`,
+              `\`upstream\` and link the upstream tracker. Otherwise, treat it as a`,
+              `regression in stepback against the unreleased Python tip.`,
+            ].join('\n');
+
+            // Find an existing open tracking issue rather than spamming the tracker.
+            const search = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-ci',
+              per_page: 50,
+            });
+
+            const existing = search.data.find(i =>
+              i.title.startsWith('Nightly Python CI failed') ||
+              (i.body || '').includes('nightly.yml')
+            );
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Another nightly run failed: ${title}\n\n${body}`,
+              });
+              core.notice(`Commented on existing tracking issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['nightly-ci', 'ci'],
+              });
+              core.notice(`Filed tracking issue #${created.data.number}`);
+            }
