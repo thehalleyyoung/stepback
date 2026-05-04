@@ -57,8 +57,11 @@ __all__ = [
     "import_openai_chat_log",
     "import_langsmith_jsonl",
     "import_openinference_spans",
+    "import_native_json",
     "import_trace",
 ]
+
+NATIVE_JSON_FORMAT_TAG = "stepback_native_json_v1"
 
 
 class ImportError(ValueError):
@@ -799,6 +802,82 @@ _FORMAT_DISPATCH = {
     "openinference_spans": import_openinference_spans,
     "otel": import_openinference_spans,
 }
+
+
+# ---------------------------------------------------------- native JSON
+
+
+def import_native_json(
+    input_path: str,
+    output_path: str,
+    *,
+    key: Optional[RecorderKey] = None,
+    compression: bool = True,
+) -> ImportReport:
+    """Import a stepback native JSON dump emitted by
+    :func:`stepback.export_native_json` back into a ``.sb`` file.
+
+    The expected payload has shape::
+
+        {"format": "stepback_native_json_v1",
+         "header": {...optional...},
+         "steps":  [<step>, ...]}
+
+    Each step dict is written verbatim as a step frame, preserving
+    every field from the original recording. The receipt chain (HMAC
+    + Ed25519) is re-minted with the supplied :class:`RecorderKey`.
+    """
+    try:
+        with open(input_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ImportError(
+            f"could not read native JSON {input_path!r}: {exc}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise ImportError(
+            f"native JSON top-level must be an object, "
+            f"got {type(payload).__name__}"
+        )
+    fmt = payload.get("format")
+    if fmt != NATIVE_JSON_FORMAT_TAG:
+        raise ImportError(
+            f"native JSON format tag mismatch: "
+            f"expected {NATIVE_JSON_FORMAT_TAG!r}, got {fmt!r}"
+        )
+    raw_steps = payload.get("steps")
+    if not isinstance(raw_steps, list):
+        raise ImportError(
+            f"native JSON 'steps' must be a list, "
+            f"got {type(raw_steps).__name__}"
+        )
+
+    writer, key = _open_writer(output_path, key=key, compression=compression)
+    report = ImportReport(output_path=output_path, source_format="native_json")
+    try:
+        for i, step in enumerate(raw_steps):
+            if not isinstance(step, dict):
+                raise ImportError(
+                    f"steps[{i}] is {type(step).__name__}, expected dict"
+                )
+            if "step_id" not in step or "step_kind" not in step:
+                raise ImportError(
+                    f"steps[{i}] missing step_id/step_kind"
+                )
+            writer.write_step(step)
+            _bump_kind(report, str(step.get("step_kind") or "unknown"))
+            cost = step.get("cost_usd")
+            if isinstance(cost, (int, float)):
+                report.total_cost_usd += float(cost)
+    finally:
+        writer.close()
+    return report
+
+
+_FORMAT_DISPATCH["json"] = import_native_json
+_FORMAT_DISPATCH["native_json"] = import_native_json
+_FORMAT_DISPATCH["stepback_json"] = import_native_json
 
 
 def import_trace(

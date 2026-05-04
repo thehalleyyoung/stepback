@@ -280,8 +280,36 @@ ordering is intentionally not implied. "Owner" left blank.
 37. Add SDK contract tests with recorded cassettes for every provider shim;
     duck typing is not enough.
 
-38. Add import/export round-trip tests for LangSmith, OpenInference, JSON,
-    HTML, and OTel export.
+38. **Complete.** Add import/export round-trip tests for LangSmith, OpenInference, JSON,
+    HTML, and OTel export. Wired two new exporter formats —
+    ``export_native_json`` (lossless ``stepback_native_json_v1`` JSON
+    dump that preserves every recorded field, including ``step_id``,
+    ``inputs_hash``, ``outputs_hash``, ``nondeterminism_hash``,
+    ``llm_request``/``llm_response``, ``cost_usd``, and
+    ``wallclock_ns``) and ``export_html_view`` (the self-contained
+    interactive viewer with the embedded
+    ``<script type='application/json' id='stepback-data'>`` data
+    island as the round-trip surface) — plus a matching
+    ``import_native_json`` reader that re-emits each step verbatim
+    into a fresh ``.sb`` file under a freshly-minted recorder key.
+    Registered the new formats in both dispatchers (``json``,
+    ``native_json``, ``stepback_json``, ``html``, ``html_view``) so
+    ``export_trace`` and ``import_trace`` accept them alongside
+    ``langsmith`` / ``openinference`` / ``otel`` / ``openai_chat_log``.
+    ``tests/test_export_roundtrip.py`` records the deterministic
+    12-step fixture agent and exercises the full five-format matrix
+    end-to-end: 11 tests covering the dispatcher registry, LangSmith
+    JSONL round-trip, OpenInference span round-trip, the ``otel``
+    alias (asserting byte-identical output to ``openinference`` and
+    importer parity), the lossless native-JSON path with strict
+    rejection of mismatched format tags + non-object top levels +
+    optional header passthrough, and the HTML data-island
+    round-trip with byte-identical ``html`` ↔ ``html_view`` aliasing.
+    Updated ``stepback.__all__``, ``EXPECTED_PUBLIC_API``, and the
+    ``api_baselines/v0.1.0`` snapshot to admit the three new public
+    symbols (``export_native_json``, ``export_html_view``,
+    ``import_native_json``). 11/11 round-trip tests pass; the 22
+    pre-existing exporters/importers tests stay green.
 
 39. Add CI matrices for Linux, macOS, Windows, Python 3.10 through 3.13, and a
     nightly Python job allowed to fail but required to file issues.

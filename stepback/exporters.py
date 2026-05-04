@@ -68,10 +68,14 @@ __all__ = [
     "export_openai_chat_log",
     "export_langsmith_jsonl",
     "export_openinference_spans",
+    "export_native_json",
+    "export_html_view",
     "export_trace",
     "export_trace_file",
     "available_export_formats",
 ]
+
+NATIVE_JSON_FORMAT_TAG = "stepback_native_json_v1"
 
 
 class ExportError(ValueError):
@@ -529,6 +533,87 @@ def export_openinference_spans(
     return report
 
 
+# --------------------------------------------------------- native JSON
+
+
+def export_native_json(
+    steps: Sequence[dict],
+    output_path: str,
+    *,
+    header: Optional[Dict[str, Any]] = None,
+) -> ExportReport:
+    """Lossless JSON dump of recorded steps.
+
+    Produces a single JSON object with shape::
+
+        {
+          "format": "stepback_native_json_v1",
+          "header": {...},          # optional, recorder metadata
+          "steps":  [<step>, ...]   # verbatim canonicalised step dicts
+        }
+
+    Every recorded field on each step (``step_id``, ``step_kind``,
+    ``inputs``, ``outputs``, ``inputs_hash``, ``outputs_hash``,
+    ``nondeterminism_hash``, ``parent_step_id``, ``llm_request``,
+    ``llm_response``, ``cost_usd``, ``wallclock_ns``, ...) is preserved
+    bit-for-bit, so the round-trip via
+    :func:`stepback.import_native_json` reconstructs an
+    observationally identical ``.sb`` trace (modulo the freshly-minted
+    recorder key + receipt chain).
+    """
+    norm = _normalise_steps(steps)
+    report = ExportReport(output_path=output_path, target_format="native_json")
+    payload: Dict[str, Any] = {"format": NATIVE_JSON_FORMAT_TAG}
+    if header is not None:
+        if not isinstance(header, dict):
+            raise ExportError(
+                f"header must be a dict, got {type(header).__name__}"
+            )
+        payload["header"] = dict(header)
+    payload["steps"] = list(norm)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=False, default=str)
+        f.write("\n")
+    for s in norm:
+        _bump(report, str(s.get("step_kind") or "unknown"))
+    return report
+
+
+# --------------------------------------------------------- HTML view
+
+
+def export_html_view(
+    steps: Sequence[dict],
+    output_path: str,
+    *,
+    header: Optional[Dict[str, Any]] = None,
+    title: Optional[str] = None,
+) -> ExportReport:
+    """Render the self-contained interactive HTML viewer for ``steps``.
+
+    Produces the same single-file ``<!doctype html>`` page that
+    :func:`stepback.html_view.render_trace_html` would, including the
+    embedded ``<script type='application/json' id='stepback-data'>``
+    data island. The data island is the round-trip surface: parsing
+    the embedded JSON reconstructs the recorded step set (id, kind,
+    parent edge, hashes, cost) without re-running any LLM call.
+    """
+    from .html_view import render_trace_html  # local import to avoid cycle
+
+    norm = _normalise_steps(steps)
+    report = ExportReport(output_path=output_path, target_format="html")
+    page = render_trace_html(
+        norm,
+        header or {},
+        title=title or "stepback trace",
+    )
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(page)
+    for s in norm:
+        _bump(report, str(s.get("step_kind") or "unknown"))
+    return report
+
+
 # --------------------------------------------------------- dispatcher
 
 
@@ -540,6 +625,11 @@ _FORMAT_DISPATCH: Dict[str, Callable[..., Any]] = {
     "openinference": export_openinference_spans,
     "openinference_spans": export_openinference_spans,
     "otel": export_openinference_spans,
+    "json": export_native_json,
+    "native_json": export_native_json,
+    "stepback_json": export_native_json,
+    "html": export_html_view,
+    "html_view": export_html_view,
 }
 
 

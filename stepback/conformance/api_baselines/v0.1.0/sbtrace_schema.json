@@ -1,0 +1,96 @@
+{
+  "encoding": "canonical-json",
+  "format_version": 1,
+  "format_version_to_wire": {
+    "1": "1.0.0",
+    "2": "2.0.0"
+  },
+  "frame_kinds": [
+    "blob",
+    "capability",
+    "header",
+    "step",
+    "tail"
+  ],
+  "header_optional": [
+    "blob_min_reuse",
+    "blob_threshold",
+    "compression"
+  ],
+  "header_required": [
+    "canonicalisation_version",
+    "format_version",
+    "hmac_key_id",
+    "magic",
+    "price_list_version",
+    "public_key",
+    "recorder_version",
+    "type",
+    "wallclock_ns"
+  ],
+  "magic": "stepback/.sb",
+  "snapshot_format_version": 1,
+  "step_kinds": [
+    "exception",
+    "llm_call",
+    "mcp_call",
+    "parallel_branch_join",
+    "parallel_branch_open",
+    "policy_check",
+    "router",
+    "tool_call"
+  ],
+  "step_optional": [
+    "branch_id",
+    "branch_ids",
+    "cost_usd",
+    "cpu_ns",
+    "exception",
+    "inputs",
+    "inputs_hash",
+    "llm_request",
+    "llm_response",
+    "metadata",
+    "name",
+    "nondeterminism",
+    "nondeterminism_hash",
+    "outputs",
+    "outputs_hash",
+    "parent_step_id",
+    "parent_step_ids",
+    "policy_decision",
+    "router_decision",
+    "tags",
+    "tool_name",
+    "wallclock_ns"
+  ],
+  "step_required": [
+    "step_id",
+    "step_kind"
+  ],
+  "strict_unknown_optional_fields": false,
+  "strict_unknown_step_kinds": false,
+  "supported_capabilities": [
+    "blobs",
+    "core",
+    "ed25519-receipts",
+    "gzip-step-bodies",
+    "hmac-sha256-chain"
+  ],
+  "wire_encodings": {
+    "1": "canonical-json",
+    "2": "deterministic-cbor"
+  },
+  "wire_version": "1.0.0",
+  "wire_version_info": [
+    1,
+    0,
+    0
+  ],
+  "wrapper_required": [
+    "body",
+    "hmac",
+    "prev_hmac",
+    "sig"
+  ]
+}

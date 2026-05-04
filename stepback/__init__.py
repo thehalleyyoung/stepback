@@ -111,7 +111,9 @@ from .exporters import (
     ExportReport,
     TraceExportError,
     available_export_formats,
+    export_html_view,
     export_langsmith_jsonl,
+    export_native_json,
     export_openai_chat_log,
     export_openinference_spans,
     export_trace,
@@ -126,6 +128,7 @@ from .importers import (
     ImportReport,
     TraceImportError,
     import_langsmith_jsonl,
+    import_native_json,
     import_openai_chat_log,
     import_openinference_spans,
     import_trace,
@@ -174,6 +177,35 @@ from .shims import (
     wrap_mcp_session,
     wrap_openai,
     wrap_vertex_model,
+)
+
+from . import spec
+from .spec import (
+    SBTRACE_FORMAT_VERSION_TO_WIRE,
+    SBTRACE_WIRE_ENCODING,
+    SBTRACE_WIRE_ENCODINGS,
+    SBTRACE_WIRE_MAJOR,
+    SBTRACE_WIRE_MINOR,
+    SBTRACE_WIRE_PATCH,
+    SBTRACE_WIRE_VERSION,
+    SBTRACE_WIRE_VERSION_INFO,
+    SBTraceConformanceError,
+    SBTraceSpec,
+    SBTraceVersionError,
+    ConformanceIssue,
+    ConformanceReport,
+    current_spec,
+    format_version_for_wire_version,
+    is_compatible_reader,
+    parse_wire_version,
+    wire_version_for_format_version,
+)
+from ._deprecation import (
+    DeprecationPolicyError,
+    deprecated,
+    deprecated_alias,
+    format_deprecation_message,
+    warn_deprecated,
 )
 
 __all__ = [
@@ -287,6 +319,8 @@ __all__ = [
     "TraceExportError",
     "available_export_formats",
     "export_langsmith_jsonl",
+    "export_native_json",
+    "export_html_view",
     "export_openai_chat_log",
     "export_openinference_spans",
     "export_trace",
@@ -294,12 +328,39 @@ __all__ = [
     "ImportReport",
     "TraceImportError",
     "import_langsmith_jsonl",
+    "import_native_json",
     "import_openai_chat_log",
     "import_openinference_spans",
     "import_trace",
     "TraceViewSummary",
     "render_trace_html",
     "write_trace_html",
+    # --- SB-Trace wire-format SemVer (Step 22) ----------------------
+    "SBTRACE_WIRE_VERSION",
+    "SBTRACE_WIRE_VERSION_INFO",
+    "SBTRACE_WIRE_MAJOR",
+    "SBTRACE_WIRE_MINOR",
+    "SBTRACE_WIRE_PATCH",
+    "SBTRACE_WIRE_ENCODING",
+    "SBTRACE_WIRE_ENCODINGS",
+    "SBTRACE_FORMAT_VERSION_TO_WIRE",
+    "SBTraceVersionError",
+    "parse_wire_version",
+    "is_compatible_reader",
+    "wire_version_for_format_version",
+    "format_version_for_wire_version",
+    # --- SBTraceSpec versioned schema validator (Step 23) -----------
+    "SBTraceSpec",
+    "SBTraceConformanceError",
+    "ConformanceIssue",
+    "ConformanceReport",
+    "current_spec",
+    # --- Deprecation policy helpers (Step 21) -----------------------
+    "DeprecationPolicyError",
+    "deprecated",
+    "deprecated_alias",
+    "format_deprecation_message",
+    "warn_deprecated",
 ]
 
 __version__ = "0.1.0"
