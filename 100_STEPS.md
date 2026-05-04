@@ -581,8 +581,47 @@ ordering is intentionally not implied. "Owner" left blank.
     pre-existing tests covering the open/join step kinds at small
     width).
 
-36. Add stochastic replay tests with seeded and noisy mock executors; separate
-    correctness from predicate stability.
+36. **Complete.** Add stochastic replay tests with seeded and noisy mock
+    executors; separate correctness from predicate stability. Implemented
+    ``tests/test_stochastic_replay.py`` (15 tests, ~625 LOC, all pass in
+    ~1.5s) which records a deterministic 12-step fixture agent once per
+    test (via ``stepback.testing.run_recorded_agent``) and then re-replays
+    it with intentionally non-deterministic mock executors built from
+    seeded and unseeded ``random.Random`` instances. The suite pins two
+    *separately verified* invariants:
+    (1) **Replay correctness is invariant under executor noise.** The
+    dirty-step set, ``cache_hit_count``, ``real_executions``, the upstream
+    cached-step preservation, and the cost summary are all pure functions
+    of the recorded trace plus staged substitutions and must not depend
+    on whether the executor used to recompute dirty steps is
+    deterministic or stochastic. Tests cover: byte-identical replay
+    output across repeats with a fixed seed (``digest`` ==
+    ``digest``); identical dirty-set across different seeds and across
+    seeded vs. unseeded executors; only-dirty-step outputs differ
+    between repeats with an unseeded executor (cached steps stay
+    byte-identical); a noisy executor never dirties upstream cached
+    steps; ``real_executions`` exactly equals the count of executor
+    invocations on dirty steps; cost summary is invariant under
+    executor noise; the round-trip digest is stable under a fixed seed.
+    (2) **Predicate stability is a separate, user-side concern.**
+    Structural predicates (dirty count, step kinds, cache-hit count,
+    cost bounds) are stable across all seeds; *content* predicates that
+    inspect concrete LLM token strings are not, and the replay engine
+    cannot make them so. Tests demonstrate: a structural predicate is
+    True for every seed in a sweep; a content predicate flips between
+    True/False under reseeding; the same content predicate admits a
+    Wilson confidence interval whose width shrinks under repeated
+    re-execution (documenting the path to Step #82's stochastic
+    confidence intervals); replay correctness is preserved even when
+    the predicate is unstable. The fixture runs the deterministic
+    agent once per test, stages a ``PromptSubstitution`` or
+    ``ToolOutputSubstitution`` to force the dirty path, then replays
+    with seeded ``noisy_llm`` / ``noisy_tool`` factories whose outputs
+    salt-mix the executor's ``random.Random`` state into the response
+    string so that two different seeds produce distinct LLM outputs
+    even on the same canonical input. All 15 stochastic-replay tests
+    pass and are independent of the parallel-branch and dirty-set
+    suites.
 
 37. Add SDK contract tests with recorded cassettes for every provider shim;
     duck typing is not enough.
