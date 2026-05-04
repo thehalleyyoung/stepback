@@ -1,0 +1,20 @@
+{
+  "name": "merkle_summary",
+  "description": "Optional end-of-trace Merkle summary frame. OPTIONAL; if present, MUST be the second-to-last frame (immediately before tail) and commits to every preceding content frame body via an RFC 6962 Merkle tree. See spec/sbtrace-v1.md §6.7 and Step 52 of 100_STEPS.md.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "additive",
+  "fields": [
+    {"id": 1, "name": "type",         "type": "enum",    "required": true, "since": "1.0.0", "enum": ["merkle_summary"], "description": "Frame discriminator."},
+    {"id": 2, "name": "scheme",       "type": "string",  "required": true, "since": "1.0.0", "description": "Identifier for the Merkle leaf-set + tree shape. v1 ships 'frame-body-sha256-rfc6962': leaves are SHA-256(0x00 || canonical-JSON body bytes) of every header/capability/blob/step frame in on-disk order; the merkle_summary and tail frames are NOT leaves."},
+    {"id": 3, "name": "algorithm",    "type": "enum",    "required": true, "since": "1.0.0", "enum": ["sha256"], "description": "Hash function used for leaf and node hashing."},
+    {"id": 4, "name": "leaf_count",   "type": "integer", "required": true, "since": "1.0.0", "description": "Number of leaves the Merkle root commits to. Readers MUST reject the trace if leaf_count disagrees with the number of preceding non-summary, non-tail frames."},
+    {"id": 5, "name": "merkle_root",  "type": "string",  "required": true, "since": "1.0.0", "description": "Lower-case hex SHA-256 of the RFC 6962 Merkle root. For the empty leaf list the root is SHA-256(b'')."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Registered Merkle-summary extensions (e.g. inclusion-proof shapes for selective disclosure)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private Merkle-summary metadata."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for v2+ Merkle-summary fields."}
+  ]
+}

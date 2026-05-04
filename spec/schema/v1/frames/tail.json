@@ -1,0 +1,17 @@
+{
+  "name": "tail",
+  "description": "Tail frame. REQUIRED, exactly once, last frame. See spec/sbtrace-v1.md §6.6.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "strict",
+  "fields": [
+    {"id": 1, "name": "type",         "type": "enum",    "required": true, "since": "1.0.0", "enum": ["tail"], "description": "Frame discriminator."},
+    {"id": 2, "name": "wallclock_ns", "type": "integer", "required": true, "since": "1.0.0", "description": "Recorder wall-clock at trace close, ns since Unix epoch."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec. v1 keeps the tail body minimal; a v2 candidate adds a Merkle summary frame between the last step and the tail (see Step 52 of 100_STEPS.md)."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Tail-side metadata contributed by registered capabilities (e.g. compact dirty-set summary)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private tail metadata."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for v2+ tail frames."}
+  ]
+}

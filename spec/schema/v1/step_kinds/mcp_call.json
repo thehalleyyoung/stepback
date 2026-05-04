@@ -1,0 +1,22 @@
+{
+  "name": "mcp_call",
+  "step_kind": "mcp_call",
+  "description": "Model Context Protocol invocation. A specialised form of tool_call that targets an MCP server.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind", "fixed_value": "mcp_call"},
+    {"field_id": 26, "name": "tool_name", "required": true, "description": "MCP tool / resource / prompt identifier (e.g. 'tool:fs.read', 'resource:doc:42')."},
+    {"field_id": 15, "name": "inputs",    "required": true, "description": "MCP arguments. Canonical-JSON-encodable."},
+    {"field_id": 17, "name": "inputs_hash",  "required": true},
+    {"field_id": 18, "name": "outputs_hash", "required": true}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned MCP extensions (e.g. server attestation, MCP version tag)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

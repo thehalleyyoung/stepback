@@ -1,0 +1,38 @@
+{
+  "wire_version": "1.0.0",
+  "description": "Field-id extension ranges shared across every SB-Trace v1 object schema.",
+  "ranges": [
+    {
+      "lo": 1,
+      "hi": 99,
+      "class": "core",
+      "description": "Reserved for the SB-Trace specification. Allocated only by the spec authors. Readers MUST recognise every core id."
+    },
+    {
+      "lo": 100,
+      "hi": 999,
+      "class": "registered-extension",
+      "description": "Owned by a named, registered capability frame. A reader MUST recognise an id in this range iff the corresponding capability is mandatory and supported."
+    },
+    {
+      "lo": 1000,
+      "hi": 1999,
+      "class": "experimental",
+      "description": "Vendor-private and pre-standardisation use. Readers MUST ignore unknown ids in this range. Two writers using overlapping ids is a private agreement, not a spec conflict."
+    },
+    {
+      "lo": 2000,
+      "hi": 65535,
+      "class": "reserved",
+      "description": "Reserved for future SB-Trace major versions. A v1 writer MUST NOT emit any field with an id in this range; a v1 reader MUST reject any frame that does."
+    }
+  ],
+  "forbidden_ids": [
+    {
+      "id": 0,
+      "reason": "Zero is the implicit default in many compact encodings (CBOR, protobuf-lite). Never assignable."
+    }
+  ],
+  "max_id": 65535,
+  "notes": "Field ids are 16-bit unsigned integers. They are stable forever and never reused, even after a field is deprecated or removed."
+}

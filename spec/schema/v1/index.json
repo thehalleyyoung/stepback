@@ -1,0 +1,34 @@
+{
+  "wire_version": "1.0.0",
+  "format_version": 1,
+  "encoding": "canonical-json",
+  "magic": "stepback/.sb",
+  "extension_ranges": "extension_ranges.json",
+  "wrapper": "wrapper.json",
+  "frames": {
+    "header":         "frames/header.json",
+    "capability":     "frames/capability.json",
+    "step":           "frames/step.json",
+    "blob":           "frames/blob.json",
+    "merkle_summary": "frames/merkle_summary.json",
+    "tail":           "frames/tail.json"
+  },
+  "step_kinds": {
+    "llm_call":             "step_kinds/llm_call.json",
+    "tool_call":            "step_kinds/tool_call.json",
+    "router":               "step_kinds/router.json",
+    "policy_check":         "step_kinds/policy_check.json",
+    "mcp_call":             "step_kinds/mcp_call.json",
+    "parallel_branch_open": "step_kinds/parallel_branch_open.json",
+    "parallel_branch_join": "step_kinds/parallel_branch_join.json",
+    "exception":            "step_kinds/exception.json"
+  },
+  "registered_capabilities": [
+    {"name": "core",                "since": "1.0.0", "description": "Implicit minimum capability. Always supported."},
+    {"name": "blobs",               "since": "1.0.0", "description": "Allows blob frames and $blob references inside step bodies."},
+    {"name": "gzip-step-bodies",    "since": "1.0.0", "description": "Allows the gzip+base64 compressed step encoding."},
+    {"name": "ed25519-receipts",    "since": "1.0.0", "description": "Per-frame Ed25519 signature scheme used by the wrapper.sig field."},
+    {"name": "hmac-sha256-chain",   "since": "1.0.0", "description": "HMAC-SHA256 chaining used by wrapper.prev_hmac / wrapper.hmac."},
+    {"name": "merkle-summary-v1",   "since": "1.0.0", "description": "Optional end-of-trace merkle_summary frame committing to every content frame body via RFC 6962 (Step 52 of 100_STEPS.md)."}
+  ]
+}

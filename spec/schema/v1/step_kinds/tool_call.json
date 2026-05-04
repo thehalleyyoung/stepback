@@ -1,0 +1,22 @@
+{
+  "name": "tool_call",
+  "step_kind": "tool_call",
+  "description": "Recorded tool invocation. Tool name and arguments are part of the cache key.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind", "fixed_value": "tool_call"},
+    {"field_id": 26, "name": "tool_name", "required": true, "description": "Tool identifier as seen by the agent."},
+    {"field_id": 15, "name": "inputs",    "required": true, "description": "Tool arguments. Canonical-JSON-encodable."},
+    {"field_id": 17, "name": "inputs_hash",  "required": true},
+    {"field_id": 18, "name": "outputs_hash", "required": true}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned tool_call extensions (e.g. sandbox attestation, exit codes, structured tool schemas)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

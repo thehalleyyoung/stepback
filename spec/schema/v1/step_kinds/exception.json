@@ -1,0 +1,19 @@
+{
+  "name": "exception",
+  "step_kind": "exception",
+  "description": "Recorded exception raised during agent execution. Semantically terminates its branch but is replayable as a deterministic raise.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind", "fixed_value": "exception"},
+    {"field_id": 31, "name": "exception", "required": true, "description": "Exception payload: type, message, traceback. Canonical-JSON-encodable."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned exception extensions (e.g. structured error codes, language-specific cause chains)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

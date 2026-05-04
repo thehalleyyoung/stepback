@@ -1,0 +1,19 @@
+{
+  "name": "parallel_branch_open",
+  "step_kind": "parallel_branch_open",
+  "description": "Marker step at the fork point of a parallel branch. branch_id identifies the resulting branch.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind", "fixed_value": "parallel_branch_open"},
+    {"field_id": 29, "name": "branch_id", "required": true, "description": "Identifier of the new parallel branch."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned parallel-branch extensions (e.g. scheduling priority hints)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

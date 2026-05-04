@@ -1,0 +1,19 @@
+{
+  "name": "blob",
+  "description": "Blob frame. Interns a recurring sub-tree by content hash. OPTIONAL, zero or more. Only emitted when the header declared compression='gzip+dedup-2'. See spec/sbtrace-v1.md §6.4.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "strict",
+  "fields": [
+    {"id": 1, "name": "type",     "type": "enum",   "required": true, "since": "1.0.0", "enum": ["blob"], "description": "Frame discriminator."},
+    {"id": 2, "name": "id",       "type": "hex",    "required": true, "since": "1.0.0", "description": "64 lowercase hex chars: SHA256(canonical_json(value)). No 'sha256:' prefix in this slot."},
+    {"id": 3, "name": "encoding", "type": "enum",   "required": true, "since": "1.0.0", "enum": ["json", "gzip+base64"], "description": "'json' for canonical-JSON, 'gzip+base64' for gzipped canonical-JSON in base64."},
+    {"id": 4, "name": "data",     "type": "string", "required": true, "since": "1.0.0", "description": "The encoded value."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Reserved for capabilities introducing alternative blob encodings."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private. Readers MUST ignore unknown experimental fields when looking up blobs by id."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for v2+ blob frames."}
+  ]
+}

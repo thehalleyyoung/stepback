@@ -1,0 +1,44 @@
+{
+  "name": "step",
+  "description": "Step frame. Records one unit of agent execution. See spec/sbtrace-v1.md §6.3 and §6.5. The body is one of two encodings: plain (body.step is the step object) or compressed (body.encoding='gzip+base64', body.data is base64-of-gzip of the step object's canonical-JSON).",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "fields": [
+    {"id": 1,  "name": "type",                 "type": "enum",    "required": true,  "since": "1.0.0", "enum": ["step"], "description": "Frame discriminator."},
+    {"id": 2,  "name": "step",                 "type": "object",  "required": false, "since": "1.0.0", "description": "Plain encoding: the canonical-JSON form of the recorded step (see step body schema). MUST be present iff 'encoding' is absent."},
+    {"id": 3,  "name": "encoding",             "type": "enum",    "required": false, "since": "1.0.0", "enum": ["gzip+base64"], "description": "Compressed encoding tag. MUST only appear when the header declared compression='gzip+dedup-2'."},
+    {"id": 4,  "name": "data",                 "type": "string",  "required": false, "since": "1.0.0", "description": "Base64 of the gzipped canonical-JSON encoding of the step object. MUST be present iff 'encoding' is present."},
+
+    {"id": 10, "name": "step_id",              "type": "string",  "required": true,  "since": "1.0.0", "description": "ULID, monotonic per trace. Inside the step body."},
+    {"id": 11, "name": "step_kind",            "type": "enum",    "required": true,  "since": "1.0.0", "enum": ["llm_call", "tool_call", "router", "policy_check", "mcp_call", "parallel_branch_open", "parallel_branch_join", "exception"], "description": "Step kind discriminator. Unknown values are passed through unchanged for forward compatibility."},
+    {"id": 12, "name": "name",                 "type": "string",  "required": false, "since": "1.0.0", "description": "Human-readable label (model id, tool name, ...)."},
+    {"id": 13, "name": "parent_step_id",       "type": "string",  "required": false, "since": "1.0.0", "description": "Parent edge in the call tree. Null for the root."},
+    {"id": 14, "name": "parent_step_ids",      "type": "array",   "required": false, "since": "1.0.0", "description": "Multi-parent edges (parallel_branch_join only)."},
+    {"id": 15, "name": "inputs",               "type": "any",     "required": false, "since": "1.0.0", "description": "Canonical-JSON-encodable input payload."},
+    {"id": 16, "name": "outputs",              "type": "any",     "required": false, "since": "1.0.0", "description": "Canonical-JSON-encodable output payload."},
+    {"id": 17, "name": "inputs_hash",          "type": "hash",    "required": false, "since": "1.0.0", "description": "sha256:<hex> over canonical_json(inputs)."},
+    {"id": 18, "name": "outputs_hash",         "type": "hash",    "required": false, "since": "1.0.0", "description": "sha256:<hex> over canonical_json(outputs)."},
+    {"id": 19, "name": "nondeterminism",       "type": "object",  "required": false, "since": "1.0.0", "description": "Recorded non-deterministic inputs (rng seeds, wallclock, env, network, model_provider)."},
+    {"id": 20, "name": "nondeterminism_hash",  "type": "hash",    "required": false, "since": "1.0.0", "description": "sha256:<hex> over canonical_json(nondeterminism)."},
+    {"id": 21, "name": "wallclock_ns",         "type": "integer", "required": false, "since": "1.0.0", "description": "Step wallclock at write time, ns since Unix epoch."},
+    {"id": 22, "name": "cpu_ns",               "type": "integer", "required": false, "since": "1.0.0", "description": "Cumulative CPU time consumed by this step, in ns."},
+    {"id": 23, "name": "cost_usd",             "type": "number",  "required": false, "since": "1.0.0", "description": "Cost from pinned price_list_version, in USD."},
+    {"id": 24, "name": "llm_request",          "type": "object",  "required": false, "since": "1.0.0", "applies_to_step_kind": "llm_call", "description": "Exact LLM request dict (model, messages, sampling params, tool spec)."},
+    {"id": 25, "name": "llm_response",         "type": "object",  "required": false, "since": "1.0.0", "applies_to_step_kind": "llm_call", "description": "Exact LLM response dict."},
+    {"id": 26, "name": "tool_name",            "type": "string",  "required": false, "since": "1.0.0", "applies_to_step_kind": "tool_call", "description": "Tool identifier (only for tool_call / mcp_call)."},
+    {"id": 27, "name": "policy_decision",      "type": "object",  "required": false, "since": "1.0.0", "applies_to_step_kind": "policy_check", "description": "Enforcement / audit decision payload."},
+    {"id": 28, "name": "router_decision",      "type": "object",  "required": false, "since": "1.0.0", "applies_to_step_kind": "router", "description": "Router decision payload."},
+    {"id": 29, "name": "branch_id",            "type": "string",  "required": false, "since": "1.0.0", "description": "Identifier for parallel branches; set on parallel_branch_open and steps inside the branch."},
+    {"id": 30, "name": "branch_ids",           "type": "array",   "required": false, "since": "1.0.0", "applies_to_step_kind": "parallel_branch_join", "description": "Branch ids being joined."},
+    {"id": 31, "name": "exception",            "type": "object",  "required": false, "since": "1.0.0", "applies_to_step_kind": "exception", "description": "Exception payload (type, message, traceback)."},
+    {"id": 32, "name": "metadata",             "type": "object",  "required": false, "since": "1.0.0", "description": "Free-form recorder metadata. Opaque to the spec."},
+    {"id": 33, "name": "tags",                 "type": "array",   "required": false, "since": "1.0.0", "description": "Free-form string tags. Opaque to the spec."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec. Frame envelope ids live at 1-9; step body ids start at 10."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Step fields owned by a registered capability (e.g. retrieval-context, observability span ids, formal-verification annotations)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private step fields. Readers MUST ignore unknown experimental ids; writers SHOULD declare an advisory capability frame to document them."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for v2+ steps."}
+  ]
+}

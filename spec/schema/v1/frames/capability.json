@@ -1,0 +1,19 @@
+{
+  "name": "capability",
+  "description": "Capability frame. OPTIONAL, zero or more. Declares a named extension a writer relied on. See spec/sbtrace-v1.md §6.2.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "strict",
+  "fields": [
+    {"id": 1, "name": "type",      "type": "enum",    "required": true,  "since": "1.0.0", "enum": ["capability"], "description": "Frame discriminator."},
+    {"id": 2, "name": "name",      "type": "string",  "required": true,  "since": "1.0.0", "description": "Non-empty extension identifier (e.g. 'core', 'compression.gzip-dedup-2')."},
+    {"id": 3, "name": "mandatory", "type": "boolean", "required": true,  "since": "1.0.0", "description": "If true, a reader that does not implement 'name' MUST reject the trace. If false, advisory."},
+    {"id": 4, "name": "params",    "type": "object",  "required": false, "since": "1.0.0", "description": "Extension-specific parameters. Opaque to the v1 spec."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Allocated by registered capability frames. A capability may use this range to namespace its own per-frame metadata, but the metadata sits inside 'params', not at the top level."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private. Readers MUST ignore unknown experimental capability fields."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for v2+ capability frames."}
+  ]
+}

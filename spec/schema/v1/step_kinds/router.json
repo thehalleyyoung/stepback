@@ -1,0 +1,21 @@
+{
+  "name": "router",
+  "step_kind": "router",
+  "description": "Routing decision: choose a downstream model, agent, or branch based on inputs.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind",       "fixed_value": "router"},
+    {"field_id": 28, "name": "router_decision", "required": true, "description": "Router decision payload (chosen route, score table, fallback list)."},
+    {"field_id": 17, "name": "inputs_hash",  "required": true},
+    {"field_id": 18, "name": "outputs_hash", "required": true}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned router extensions (e.g. learned-router scores, A/B-test arm ids)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

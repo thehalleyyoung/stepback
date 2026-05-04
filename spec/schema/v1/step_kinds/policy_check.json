@@ -1,0 +1,21 @@
+{
+  "name": "policy_check",
+  "step_kind": "policy_check",
+  "description": "Replay-time policy enforcement / audit checkpoint. The decision is recorded for audit but the enforcement is performed by an external policy engine (flowwarden/toolwarden).",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind",       "fixed_value": "policy_check"},
+    {"field_id": 27, "name": "policy_decision", "required": true, "description": "Policy decision payload: rule id, action (allow/deny/audit), reason, evidence."},
+    {"field_id": 17, "name": "inputs_hash",  "required": true},
+    {"field_id": 18, "name": "outputs_hash", "required": true}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned policy extensions (e.g. signed witness from a policy engine)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

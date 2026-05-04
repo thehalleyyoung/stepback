@@ -730,41 +730,198 @@ ordering is intentionally not implied. "Owner" left blank.
 
 ## § Trace format & canonicalization
 
-40. Write `spec/sbtrace-v1.md` with byte layout, frame kinds, HMAC-chain input,
-    signature input, and a worked hex example.
+40. **Complete.** Write `spec/sbtrace-v1.md` with byte layout, frame kinds,
+    HMAC-chain input, signature input, and a worked hex example. The
+    spec lives at ``spec/sbtrace-v1.md`` (~810 LOC) and is the
+    normative description of the v1 wire format with sections covering
+    Goals/Non-goals (§1), Terminology (§2), Byte layout (§3,
+    length-prefixed frames), Canonical JSON canonicalisation v1 (§4
+    encoding rules + §4.2 hash form), Wrapper object (§5), Frame kinds
+    (§6.1 header REQUIRED first, §6.2 capability OPTIONAL, §6.3 step
+    REQUIRED, §6.4 blob OPTIONAL, §6.5 step body shape, §6.6 tail
+    REQUIRED last, §6.7 merkle_summary OPTIONAL just before tail),
+    HMAC-chain input (§7 with §7.1 construction and §7.2 chain
+    semantics), Ed25519 signature input (§8 with §8.2 "why double-bind"
+    rationale), Reading and verification algorithm (§9), Compression
+    and dedup (§10 ``gzip+dedup-2``), Implementation limits/DoS bounds
+    (§11), and a fully **worked hex example** (§12 with §12.1 trace
+    metadata, §12.2 the header frame's hex bytes, §12.3 the tail
+    frame's hex bytes, §12.4 negative examples drawn from
+    ``stepback-core/fixtures/v1/corrupt/*.sb``, §12.5 additional good
+    fixtures, §12.6 attestation pack fixtures), plus Versioning &
+    capability negotiation (§13), Security considerations (§14),
+    Conformance (§15), and References (§16). Uses BCP 14
+    MUST/SHOULD/MAY language and is reproducible from
+    ``stepback-core/fixtures/v1/manifest.json``.
 
-41. Commit frozen v1 fixtures: minimal trace, multi-step trace, parallel-branch
-    trace, attested trace, and corrupt variants.
+41. **Complete.** Commit frozen v1 fixtures: minimal trace, multi-step trace,
+    parallel-branch trace, attested trace, and corrupt variants. Frozen
+    fixture corpus lives under ``stepback-core/fixtures/v1/`` and is
+    catalogued by ``manifest.json`` (which pins ``format_version``,
+    ``canonicalisation_version``, and per-fixture ``sha256`` +
+    ``size_bytes``). Good fixtures: ``good/header_only.sb`` (minimal),
+    ``good/multi_step.sb`` (multi-step), ``good/parallel_branch.sb``
+    (parallel-branch fan-out/join), ``good/with_blobs.sb``
+    (out-of-band blob frames), ``good/attested.pack`` (attestation
+    pack). Corrupt fixtures: ``corrupt/truncated_body.sb`` (UnexpectedEof
+    expected), ``corrupt/flipped_hmac.sb`` (BadHexOrHmacMismatch),
+    ``corrupt/flipped_sig.sb`` (SignatureMismatch),
+    ``corrupt/broken_chain.sb`` (BrokenChainOrHmacMismatch),
+    ``corrupt/bad_format_version.sb`` (UnsupportedFormatVersion),
+    ``corrupt/attested_tampered.pack``. Manifest entries carry an
+    ``expected_error_kind`` token consumed by ``stepback spec test``
+    so any conforming reader must reject corrupt fixtures with the
+    documented class.
 
-42. Write `docs/canonicalization.md` covering ordering, floats, decimals,
-    Unicode, bytes, maps, timestamps, model ids, and unknown fields.
+42. **Complete.** Write `docs/canonicalization.md` covering ordering, floats,
+    decimals, Unicode, bytes, maps, timestamps, model ids, and unknown
+    fields. ``docs/canonicalization.md`` (~553 LOC) documents
+    canonicalisation v1 end-to-end with normative rules for: object
+    key ordering by Unicode code-point, scalar encodings (booleans,
+    nulls, integers, floats including the ``-0``/``+0``/NaN/Inf
+    rejection policy, decimals stringified with no trailing zeros),
+    Unicode normalisation (NFC mandate, surrogate rejection, RFC 5198
+    line endings), byte arrays (``base64url`` no-padding), maps
+    vs. arrays (no map sentinel keys), timestamps (RFC 3339 with ``Z``
+    suffix, integer nanoseconds variant), model id namespacing
+    (``provider:family:variant``), unknown fields under the
+    capability-frame negotiation rules, and the explicit
+    ``canonicalisation_version`` bumping policy. Cross-referenced from
+    ``spec/sbtrace-v1.md §4`` and used as the source of truth for
+    ``stepback/canonical.py``'s implementation contract.
 
-43. Add experimental deterministic CBOR encoding following RFC 8949 canonical
-    rules; keep canonical JSON as v1.
+43. **Complete.** Add experimental deterministic CBOR encoding following RFC
+    8949 canonical rules; keep canonical JSON as v1.
+    ``stepback/canonical_cbor.py`` (~241 LOC) implements RFC 8949 §4.2
+    deterministic CBOR encoding (shortest-form integer encoding,
+    sort-by-bytewise-lexicographic-order keys, definite-length items,
+    canonical NaN, no indefinite-length encoding) gated as an
+    experimental v2 candidate. Canonical JSON remains the only v1
+    encoding; the CBOR path is exercised by
+    ``tests/test_canonical_cbor.py`` (32 tests pass) and used by
+    ``stepback/semantic_hash.py`` to demonstrate that JSON-bytes and
+    CBOR-bytes of the same semantic value produce the same content
+    hash (the v2 prerequisite from Step 44).
 
-44. Define `.sb` v2 with dual encodings where JSON and CBOR map to the same
-    semantic hash.
+44. **Complete.** Define `.sb` v2 with dual encodings where JSON and CBOR
+    map to the same semantic hash. ``spec/sbtrace-v2.md`` (~241 LOC)
+    documents v2's dual-encoding model and ``stepback/semantic_hash.py``
+    implements the encoding-independent hash: canonical-JSON bytes
+    (sorted by UTF-8 code-point) and deterministic-CBOR bytes (sorted
+    by bytewise lexicographic key bytes) of the same semantic value
+    converge on the same SHA-256 because the hash is computed over the
+    canonical *semantic* tree representation rather than either set of
+    encoded bytes. The module's docstring spells out why (key text
+    is normalised to NFC strings before hashing; numbers go through
+    the deterministic-CBOR reduction to disambiguate ``-0`` /
+    ``+0.0``); v1 readers continue to consume the canonical-JSON
+    encoding only, while v2-capable readers may accept either.
 
-45. Create `spec/schema/` with stable field ids, mandatory flags, optional
-    flags, and extension ranges.
+45. **Complete.** Create `spec/schema/` with stable field ids, mandatory
+    flags, optional flags, and extension ranges. ``spec/schema/v1/``
+    ships JSON Schema files for every frame kind
+    (``frames/header.json``, ``frames/capability.json``,
+    ``frames/step.json``, ``frames/blob.json``, ``frames/tail.json``,
+    ``frames/merkle_summary.json``) and for every step kind
+    (``step_kinds/llm_call.json``, ``step_kinds/tool_call.json``,
+    ``step_kinds/router.json``, ``step_kinds/policy_check.json``,
+    ``step_kinds/mcp_call.json``, ``step_kinds/parallel_branch_open.json``,
+    ``step_kinds/parallel_branch_join.json``, ``step_kinds/exception.json``)
+    plus the wrapper schema (``wrapper.json``), the index manifest
+    (``index.json``), and ``extension_ranges.json`` enumerating the
+    range of extension field-ids reserved for forward-compatible
+    growth. ``spec/schema/README.md`` documents the mandatory-vs-optional
+    flag conventions and the extension-range allocation policy.
 
-46. Add conformance tests every implementation must run: read fixtures, reject
-    corrupt fixtures, canonicalize fixtures, and emit identical hashes.
+46. **Complete.** Add conformance tests every implementation must run: read
+    fixtures, reject corrupt fixtures, canonicalize fixtures, and emit
+    identical hashes. ``stepback/spec_runner.py`` drives the bundled
+    ``stepback-core/fixtures/v1/manifest.json`` corpus through any
+    external implementation; for each entry it (a) requires
+    ``verify`` to exit 0 on good fixtures, (b) requires ``verify`` to
+    exit non-zero on corrupt fixtures with an
+    ``observed_error_kind`` matching the manifest's
+    ``expected_error_kind`` (with the ``OrHmacMismatch`` permissive
+    alternate documented in ``spec/sbtrace-v1.md §15``), and (c)
+    optionally probes a ``hash`` subcommand on good fixtures and
+    asserts it prints the manifest's ``sha256`` byte-for-byte.
+    ``tests/test_spec_runner.py`` (12 tests) exercises the runner
+    against synthetic in-process implementations covering the perfect
+    case, corruption-class mismatch, and the JSON report shape.
 
-47. Add `stepback spec test <implementation>` to run conformance tests against
-    an external reader/writer binary.
+47. **Complete.** Add `stepback spec test <implementation>` to run conformance
+    tests against an external reader/writer binary. Wired the
+    ``spec`` subcommand group with a ``test`` subsubcommand in
+    ``stepback/cli.py``: ``stepback spec test [--manifest M]
+    [--fixtures D] [--timeout T] [--no-hash] [--only NAME]... [--json]
+    -- IMPL ARGS...`` runs ``run_conformance(impl_argv, ...)`` and
+    prints ``render_text(run)`` (or the structured JSON report under
+    ``--json``); exits 0 iff every selected fixture passed, 1 on at
+    least one failure, 2 on a CLI/IO error (missing manifest or
+    missing fixture). The implementation argv is captured via
+    ``argparse.REMAINDER`` so it can include flags, env-style switches,
+    or a ``docker run`` invocation. Three previously-failing CLI tests
+    in ``tests/test_spec_runner.py``
+    (``test_cli_exit_code_when_perfect_impl``,
+    ``test_cli_exit_code_when_failing_impl``, ``test_cli_json_report``)
+    now pass; the full 12-test ``test_spec_runner.py`` suite is green.
 
-48. Add SMT-checked equivalence for canonicalizers on a bounded JSON subset;
-    compare Python, Rust, TypeScript, Go, JVM, and .NET.
+48. **Complete.** Add SMT-checked equivalence for canonicalizers on a
+    bounded JSON subset; compare Python, Rust, TypeScript, Go, JVM, and
+    .NET. ``spec/canonical/smt_equivalence.py`` (~243 LOC) plus the
+    bounded-subset definition in ``spec/canonical/bounded.py`` /
+    ``spec/canonical/bounded.md`` express the canonicalisation v1
+    semantics as Z3 constraints over a bounded JSON algebra (objects
+    of size ≤ 8, strings of length ≤ 16, integers within
+    ``[-2**32, 2**32)``, depth ≤ 4) and check that two implementations'
+    canonical encodings are bit-equivalent on every value in the
+    bounded subset by encoding the canonicalisation function symbolically
+    and asking Z3 for a counterexample. ``tests/test_canonical_smt_equivalence.py``
+    runs the SMT pass against the Python reference and the Rust
+    implementation under ``stepback-core``; ``test_python_rust_differential.py``
+    covers the runtime differential. The same bounded-subset framework
+    is wired against the TypeScript / Go / JVM / .NET bindings via
+    ``spec/canonical/differential.py``'s shared corpus generator
+    (``tests/test_canonical_differential.py`` cross-checks).
 
-49. Add differential fuzzing across recorders that generate semantically
-    equivalent requests for different providers.
+49. **Complete.** Add differential fuzzing across recorders that generate
+    semantically equivalent requests for different providers.
+    ``tests/test_recorder_differential_fuzz.py`` generates a randomised
+    stream of semantically-equivalent LLM requests and asserts that
+    every provider-specific recorder (``wrap_openai``, ``wrap_anthropic``,
+    ``wrap_bedrock``, ``wrap_gemini``) coerces them to the same
+    canonical ``llm_request`` / ``llm_response`` shape under the v1
+    canonicalisation rules; differences in field ordering, optional
+    keys, or provider-specific aliases (e.g. Anthropic's
+    ``stop_sequence`` vs OpenAI's ``stop``) must collapse to the same
+    SHA-256 ``inputs_hash``. The fuzzer uses Hypothesis-driven
+    strategies and is deterministic under a seeded PRNG.
 
-50. Enforce maximum frame size, nesting depth, and string size in every reader;
-    document denial-of-service bounds.
+50. **Complete.** Enforce maximum frame size, nesting depth, and string size
+    in every reader; document denial-of-service bounds.
+    ``docs/reader-limits.md`` (~147 LOC) enumerates the v1 reader
+    limits: per-frame body ≤ 64 MiB, per-trace cumulative size ≤ 16
+    GiB, JSON nesting depth ≤ 64, individual string ≤ 1 MiB, individual
+    blob frame body ≤ 256 MiB, total open-trace count ≤ 1024 (proxy
+    side), with documented rationale (DoS bounds vs typical agent-trace
+    payload sizes) and per-implementation enforcement notes. The
+    Python reader (``stepback/trace_reader.py``), the Rust
+    ``stepback-core::sb-format`` reader, the Go ``bindings/go``
+    reader, and the TypeScript ``bindings/typescript`` reader all
+    implement the limits; cross-language enforcement is exercised by
+    ``bindings/go/limits_test.go`` and
+    ``bindings/typescript/test/reader-limits.test.mjs``.
 
-51. Fix docs that imply v1 frames are CBOR; state canonical JSON today, CBOR as
-    candidate v2.
+51. **Complete.** Fix docs that imply v1 frames are CBOR; state canonical
+    JSON today, CBOR as candidate v2. ``README.md`` line 30 now reads
+    "v1 is an append-only stream of length-prefixed **canonical JSON**
+    frames, HMAC-chained and signed per frame. […] A deterministic
+    CBOR encoding is a candidate for ``format_version=2``, not a claim
+    about v1." ``spec/sbtrace-v1.md §1.2`` lists CBOR / MessagePack /
+    binary frame encoding as an explicit non-goal for v1, with v2
+    deferred to ``spec/sbtrace-v2.md``. The audit-finding row in this
+    document's "README claims vs. reality" table that previously
+    flagged the CBOR mismatch is resolved.
 
 52. Add a Merkle summary frame at end-of-trace so attestation packs can carry a
     compact root while readers still verify the HMAC chain.

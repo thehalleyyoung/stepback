@@ -1,0 +1,20 @@
+{
+  "name": "parallel_branch_join",
+  "step_kind": "parallel_branch_join",
+  "description": "Marker step where parallel branches re-converge. parent_step_ids enumerates the joined-branch tip steps; branch_ids enumerates their branch ids.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind",        "fixed_value": "parallel_branch_join"},
+    {"field_id": 14, "name": "parent_step_ids",  "required": true, "description": "Tip steps of every branch being joined (ordered)."},
+    {"field_id": 30, "name": "branch_ids",       "required": true, "description": "Branch ids being joined (ordered, parallel to parent_step_ids)."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned join-time extensions (e.g. per-branch reduction operator)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}

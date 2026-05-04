@@ -1,0 +1,30 @@
+{
+  "name": "header",
+  "description": "Trace header frame. REQUIRED, exactly once, first frame in every .sb file. See spec/sbtrace-v1.md §6.1.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "strict",
+  "fields": [
+    {"id": 1,  "name": "type",                     "type": "enum",    "required": true, "since": "1.0.0", "enum": ["header"], "description": "Frame discriminator."},
+    {"id": 2,  "name": "magic",                    "type": "enum",    "required": true, "since": "1.0.0", "enum": ["stepback/.sb"], "description": "Format magic string."},
+    {"id": 3,  "name": "format_version",           "type": "integer", "required": true, "since": "1.0.0", "description": "Wire-format major version. 1 in v1; 2 in v2."},
+    {"id": 4,  "name": "recorder_version",         "type": "string",  "required": true, "since": "1.0.0", "description": "SemVer of the recorder library that wrote the trace."},
+    {"id": 5,  "name": "canonicalisation_version", "type": "string",  "required": true, "since": "1.0.0", "description": "Canonicalisation rule version. '1' in v1."},
+    {"id": 6,  "name": "public_key",               "type": "hex",     "required": true, "since": "1.0.0", "description": "64 hex chars: Ed25519 public key whose private half signed every frame."},
+    {"id": 7,  "name": "hmac_key_id",              "type": "hex",     "required": true, "since": "1.0.0", "description": "First 16 hex chars of SHA256(hmac_key). Identifies the key without revealing it."},
+    {"id": 8,  "name": "price_list_version",       "type": "string",  "required": true, "since": "1.0.0", "description": "Pinned cost-model version used to compute step cost_usd."},
+    {"id": 9,  "name": "wallclock_ns",             "type": "integer", "required": true, "since": "1.0.0", "description": "Recorder wall-clock at trace open, ns since Unix epoch."},
+    {"id": 10, "name": "compression",              "type": "enum",    "required": false, "since": "1.0.0", "enum": ["none", "gzip+dedup-2"], "description": "Trace-level compression scheme tag. Optional for forward compatibility; absent ≡ 'none'."},
+    {"id": 11, "name": "blob_threshold",           "type": "integer", "required": false, "since": "1.0.0", "description": "Min canonical-JSON byte size considered for blob interning. Optional; absent ≡ 0."},
+    {"id": 12, "name": "blob_min_reuse",           "type": "integer", "required": false, "since": "1.0.0", "description": "Min reuse count for a sub-tree to be interned. Optional; absent ≡ 0."},
+
+    {"id": 13, "name": "semantic_hash_version",    "type": "string",  "required": false, "since": "2.0.0", "description": "Semantic-hash function version. v2-only; absent in v1 headers."},
+    {"id": 14, "name": "wire_encodings",           "type": "array",   "required": false, "since": "2.0.0", "description": "Ordered list of every encoding the trace may carry. v2-only."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec. New core header fields require a wire-format minor or major bump."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Header fields contributed by a registered capability (e.g. 'attestation.witness' could allocate ids in this range)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private header fields. Readers MUST ignore unknown ones; writers SHOULD declare an advisory capability frame to document them."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions of the header."}
+  ]
+}

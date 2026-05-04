@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any, List, Optional
 
 from . import autorecord
@@ -1119,6 +1120,73 @@ def _cmd_bench_record_overhead(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bench_soak(args: argparse.Namespace) -> int:
+    from .bench.soak import run as _run_soak
+
+    try:
+        result = _run_soak(
+            n_traces=args.n_traces,
+            n_steps=args.n_steps,
+            seed=args.seed,
+            do_substitution=not args.no_substitution,
+            progress_every=args.progress_every,
+            track_memory=args.track_memory,
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    print(result.summary_line())
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_spec_test(args: argparse.Namespace) -> int:
+    """Step 47: ``stepback spec test <impl-argv>...`` runs the conformance
+    corpus against an external implementation and exits 0 iff every
+    fixture passes."""
+    from .spec_runner import run_conformance, render_text
+
+    manifest_path = Path(args.manifest) if args.manifest else None
+    fixtures_dir = Path(args.fixtures) if args.fixtures else None
+    only = args.only or None
+
+    if not args.impl_argv:
+        print(
+            "stepback spec test: at least one IMPL token is required",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        run = run_conformance(
+            list(args.impl_argv),
+            manifest_path=manifest_path,
+            fixtures_dir=fixtures_dir,
+            timeout=float(args.timeout),
+            enable_hash=not args.no_hash,
+            only=only,
+        )
+    except FileNotFoundError as e:
+        print(f"stepback spec test: {e}", file=sys.stderr)
+        return 2
+    except ValueError as e:
+        print(f"stepback spec test: {e}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        json.dump(run.to_dict(), sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(render_text(run))
+    return 0 if run.ok else 1
+
+
 def _parse_listen(spec: str) -> tuple:
     """Parse HOST:PORT or :PORT, returning (host, port)."""
     if ":" not in spec:
@@ -1754,6 +1822,83 @@ def main(argv: Optional[list] = None) -> int:
                             help="number of llm_call steps to time")
     p_bench_ro.add_argument("--out", help="write structured JSON RecordOverheadResult to this path")
     p_bench_ro.set_defaults(func=_cmd_bench_record_overhead)
+
+    p_bench_soak = bench_sub.add_parser(
+        "soak",
+        help="record + replay a synthetic fleet (aggregates only)",
+        description=(
+            "Drive a fleet of N synthetic record/replay cycles and emit "
+            "only aggregate statistics (counts, percentiles, rolling "
+            "digest, error tallies). Designed to be safe to run on a "
+            "schedule indefinitely without unbounded artifact growth."
+        ),
+    )
+    p_bench_soak.add_argument("--n-traces", type=int, default=10_000,
+                              help="number of synthetic traces in the fleet (default 10000)")
+    p_bench_soak.add_argument("--n-steps", type=int, default=10,
+                              help="approximate number of steps per trace (default 10)")
+    p_bench_soak.add_argument("--seed", type=int, default=0,
+                              help="base RNG seed (default 0)")
+    p_bench_soak.add_argument("--no-substitution", action="store_true",
+                              help="skip the per-trace substitution; replay is pure cache-hit")
+    p_bench_soak.add_argument("--progress-every", type=int, default=0,
+                              help="print progress every N traces (0 disables)")
+    p_bench_soak.add_argument("--track-memory", action="store_true",
+                              help="run under tracemalloc and report peak memory")
+    p_bench_soak.add_argument("--out", help="write aggregate JSON SoakResult to this path")
+    p_bench_soak.set_defaults(func=_cmd_bench_soak)
+
+    # --- spec ---------------------------------------------------------- #
+    p_spec = sub.add_parser(
+        "spec",
+        help="SB-Trace specification tooling (conformance runner)",
+        description=(
+            "Group of subcommands that operate on the SB-Trace v1 "
+            "specification — currently the conformance runner that "
+            "drives an external implementation through the bundled "
+            "fixture corpus."
+        ),
+    )
+    spec_sub = p_spec.add_subparsers(dest="spec_cmd", required=True)
+    p_spec_test = spec_sub.add_parser(
+        "test",
+        help="run the SB-Trace conformance corpus against IMPL",
+        description=(
+            "Drive an external SB-Trace implementation through the "
+            "bundled v1 conformance corpus (good fixtures must verify, "
+            "corrupt fixtures must reject) and print a pass/fail "
+            "summary. Exit code is 0 iff every selected fixture passed."
+        ),
+    )
+    p_spec_test.add_argument(
+        "--manifest", default=None,
+        help="override path to manifest.json (defaults to bundled v1 manifest)",
+    )
+    p_spec_test.add_argument(
+        "--fixtures", default=None,
+        help="override fixtures directory (defaults to manifest's parent dir)",
+    )
+    p_spec_test.add_argument(
+        "--timeout", type=float, default=30.0,
+        help="per-invocation subprocess timeout in seconds (default 30)",
+    )
+    p_spec_test.add_argument(
+        "--no-hash", action="store_true",
+        help="skip the optional 'hash' subcommand probe on good fixtures",
+    )
+    p_spec_test.add_argument(
+        "--only", action="append", default=None,
+        help="restrict to fixtures with this name (repeatable)",
+    )
+    p_spec_test.add_argument(
+        "--json", action="store_true",
+        help="emit the structured ConformanceRun JSON instead of text",
+    )
+    p_spec_test.add_argument(
+        "impl_argv", nargs=argparse.REMAINDER,
+        help="argv of the implementation to drive (e.g. ./sb-verifier or 'docker run ghcr.io/...')",
+    )
+    p_spec_test.set_defaults(func=_cmd_spec_test)
 
     p_proxy = sub.add_parser(
         "proxy",

@@ -1,0 +1,47 @@
+{
+  "name": "wrapper",
+  "description": "Per-frame envelope that carries the body, the HMAC chain, and the Ed25519 signature. Defined in spec/sbtrace-v1.md §5.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "strict",
+  "fields": [
+    {
+      "id": 1,
+      "name": "body",
+      "type": "object",
+      "required": true,
+      "since": "1.0.0",
+      "description": "Frame body (header / capability / step / blob / tail). Discriminated by body.type."
+    },
+    {
+      "id": 2,
+      "name": "prev_hmac",
+      "type": "hex",
+      "required": true,
+      "since": "1.0.0",
+      "description": "64 lowercase hex chars: HMAC of the previous frame, or 64 zeros for the first frame."
+    },
+    {
+      "id": 3,
+      "name": "hmac",
+      "type": "hex",
+      "required": true,
+      "since": "1.0.0",
+      "description": "64 lowercase hex chars: HMAC_SHA256(K_h, prev_hmac_bytes || canonical_json(body))."
+    },
+    {
+      "id": 4,
+      "name": "sig",
+      "type": "string",
+      "required": true,
+      "since": "1.0.0",
+      "description": "Signature envelope, 'ed25519:' + lowercase hex of Ed25519_sign(K_s, hmac_bytes)."
+    }
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                  "description": "Wrapper fields are extremely tightly scoped; only the four fields above are defined in v1."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension",  "description": "Reserved for registered capabilities such as a future per-frame encoding tag (e.g. v2's 'enc' selector)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",          "description": "Vendor-private. Readers MUST ignore unknown experimental wrapper fields when verifying."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",              "description": "Reserved for v2+ wrappers."}
+  ]
+}

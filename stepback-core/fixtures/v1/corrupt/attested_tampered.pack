@@ -1,0 +1,47 @@
+{
+  "attestor_public_key": "ed25519:367b87a9e63dfa182fb497dba71e6db8e1d9b66b5ceb3183d9088c97ef60d093",
+  "body_hash": "sha256:d005afe07a7c2ef9bb6883ea6c01e1acaf465ff44175447fb96233d8ea6eb644",
+  "builder_version": "stepback/0.1",
+  "entries": [
+    {
+      "cache_hit_count": 0,
+      "canonicalisation_version": "1",
+      "dirty_step_count": 3,
+      "divergent_step_count": 3,
+      "divergent_step_ids": [
+        "01HZZ00000000000000000000000000",
+        "01HZZ00000000000000000000000001",
+        "01HZZ00000000000000000000000002"
+      ],
+      "real_executions": 0,
+      "recorder_public_key": "ed25519:ff57575dc7af8bfc4d0837cc1ce2017b686a88145dc5579a958e3462fe9a908e",
+      "recorder_version": "0.1.0",
+      "replay_error": null,
+      "replay_status": "ok",
+      "step_count": 3,
+      "substitutions": [],
+      "total_cost_delta_usd": 0.0,
+      "total_cost_recorded_usd": 0.0,
+      "total_cost_replayed_usd": 0.0,
+      "trace_chain_hash": "sha256:5160ec85e869bff547aa7a58e8312dfdb27341855c88fb8cabdc224d46b8cbae",
+      "trace_path": "/Users/halleyyoung/projects/kitchensink/repos/stepback/stepback-core/fixtures/v1/good/multi_step.sb",
+      "verify_error": null,
+      "verify_status": "ok"
+    }
+  ],
+  "format_version": 1,
+  "magic": "stepback/.pack",
+  "policy_version_pin": "fixture-pinned-policy-v1",
+  "produced_at": "2026-01-01T00:00:00Z",
+  "signature": "ed25519:5ccf482c26f603e34d34d8b3fe0fa044255af2020ae5b9e37cf7169b40e41247dd05c9209efe11380219e911ceb6160df4a5597c8380f17bda09513d8e40e60b",
+  "summary": {
+    "divergent_traces": 1,
+    "replayed_error": 0,
+    "replayed_ok": 1,
+    "total_cost_delta_usd": 0.0,
+    "total_dirty_steps": 3,
+    "trace_count": 1,
+    "verified_fail": 0,
+    "verified_ok": 1
+  }
+}

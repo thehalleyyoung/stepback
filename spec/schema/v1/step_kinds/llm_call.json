@@ -1,0 +1,22 @@
+{
+  "name": "llm_call",
+  "step_kind": "llm_call",
+  "description": "Recorded LLM API call. Carries exact request/response bytes for replay-time cache equivalence checks.",
+  "wire_version": "1.0.0",
+  "since": "1.0.0",
+  "forward_compatibility": "tolerant",
+  "extends": "frames/step.json",
+  "specializations": [
+    {"field_id": 11, "name": "step_kind",     "fixed_value": "llm_call"},
+    {"field_id": 24, "name": "llm_request",   "required": true, "description": "Exact LLM request dict including model id, messages, tool spec, sampling params."},
+    {"field_id": 25, "name": "llm_response",  "required": true, "description": "Exact LLM response dict."},
+    {"field_id": 17, "name": "inputs_hash",   "required": true, "description": "Hash over canonical_json(llm_request) plus any contextual inputs."},
+    {"field_id": 18, "name": "outputs_hash",  "required": true, "description": "Hash over canonical_json(llm_response)."}
+  ],
+  "extension_ranges": [
+    {"lo": 1,    "hi": 99,    "class": "core",                 "description": "Reserved for the SB-Trace spec."},
+    {"lo": 100,  "hi": 999,   "class": "registered-extension", "description": "Capability-owned llm_call extensions (e.g. token-level logprobs, retrieval-context provenance)."},
+    {"lo": 1000, "hi": 1999,  "class": "experimental",         "description": "Vendor-private. Readers MUST ignore unknown experimental ids."},
+    {"lo": 2000, "hi": 65535, "class": "reserved",             "description": "Reserved for future major versions."}
+  ]
+}
