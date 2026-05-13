@@ -93,6 +93,9 @@ MEDIA_TYPE_PACK = "application/vnd.stepback.attestation-pack+json"
 class ProvenanceVerificationError(Exception):
     """Raised when DSSE envelope verification fails."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB602"
+
 
 # ------------------------------------------------------------------ helpers
 

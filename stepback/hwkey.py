@@ -99,9 +99,15 @@ from cryptography.hazmat.primitives.serialization import (
 class HardwareKeyUnavailableError(RuntimeError):
     """Raised when a required hardware/library dependency is not available."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB502"
+
 
 class HardwareKeySignError(RuntimeError):
     """Raised when a signing operation fails at the hardware layer."""
+
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB503"
 
 
 # ---------------------------------------------------------------------------

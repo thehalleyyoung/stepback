@@ -68,6 +68,9 @@ PACK_FORMAT_VERSION = 1
 class AttestationVerificationError(Exception):
     """Raised when an attestation pack fails signature or hash verification."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB500"
+
 
 @dataclass
 class AttestationEntry:

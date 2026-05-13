@@ -180,20 +180,24 @@ def _check_key_material() -> DoctorCheck:
             detail="Key loaded from environment variable",
         )
 
-    toml_path = _find_stepback_toml(Path.cwd())
-    if toml_path:
-        cfg = _load_toml_config(toml_path)
-        stepback_section = cfg.get("stepback", cfg)
-        if stepback_section.get("hmac_key_hex"):
+    from .config import find_config_file, load_config, ConfigError
+
+    config_path = find_config_file()
+    if config_path:
+        try:
+            cfg = load_config(path=config_path)
+        except ConfigError:
+            cfg = None
+        if cfg is not None and cfg.keys.hmac_key_hex:
             return DoctorCheck(
                 name="HMAC key",
                 status=PASS,
-                detail=f"Key configured in {toml_path}",
+                detail=f"Key configured in {config_path}",
             )
         return DoctorCheck(
             name="HMAC key",
             status=WARN,
-            detail=f"stepback.toml found at {toml_path} but hmac_key_hex is not set",
+            detail=f"stepback.toml found at {config_path} but hmac_key_hex is not set",
             remediation=(
                 "Add an HMAC key to stepback.toml:\n"
                 "  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
@@ -216,13 +220,16 @@ def _check_key_material() -> DoctorCheck:
 
 def _check_trace_dir() -> DoctorCheck:
     """Check that the configured (or default) trace directory is writable."""
-    # Determine trace_dir from config or default
+    from .config import find_config_file, load_config, ConfigError
+
+    config_path = find_config_file()
     trace_dir_str = "traces"
-    toml_path = _find_stepback_toml(Path.cwd())
-    if toml_path:
-        cfg = _load_toml_config(toml_path)
-        stepback_section = cfg.get("stepback", cfg)
-        trace_dir_str = stepback_section.get("trace_dir", "traces")
+    if config_path:
+        try:
+            cfg = load_config(path=config_path)
+            trace_dir_str = cfg.trace.trace_dir
+        except ConfigError:
+            pass
 
     trace_dir = Path(trace_dir_str)
     if not trace_dir.is_absolute():

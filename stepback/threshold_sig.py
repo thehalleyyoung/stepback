@@ -75,6 +75,9 @@ _THRESHOLD_SIG_TYPE: str = "stepback.attestation.threshold.v1"
 class ThresholdSignatureError(Exception):
     """Raised when threshold signature verification fails."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB504"
+
 
 @dataclass
 class WitnessSpec:

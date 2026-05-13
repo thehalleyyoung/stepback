@@ -1916,6 +1916,43 @@
       "name": "CohereShimContract",
       "qualname": "stepback.shims.CohereShimContract"
     },
+    "ConfigError": {
+      "bases": [
+        "builtins.Exception",
+        "builtins.BaseException"
+      ],
+      "is_dataclass": false,
+      "is_enum": false,
+      "is_exception": true,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "str",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "message"
+            },
+            {
+              "annotation": "Optional[Path]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "path"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "ConfigError",
+      "qualname": "stepback.config.ConfigError"
+    },
     "ConformanceIssue": {
       "bases": [],
       "fields": [
@@ -2404,6 +2441,11 @@
       },
       "name": "CrossTraceDiff",
       "qualname": "stepback.trace_diff.CrossTraceDiff"
+    },
+    "DEFAULT_CONFIG": {
+      "kind": "value",
+      "name": "DEFAULT_CONFIG",
+      "type": "StepbackConfig"
     },
     "DEFAULT_SEED_POLICY": {
       "kind": "value",
@@ -4319,6 +4361,26 @@
       "name": "DryRunCollector",
       "qualname": "stepback.otel_bridge.DryRunCollector"
     },
+    "ENV_VAR_MAP": {
+      "kind": "value",
+      "name": "ENV_VAR_MAP",
+      "type": "mapping",
+      "value": {
+        "keys.hmac_key_hex": "STEPBACK_HMAC_KEY_HEX",
+        "keys.private_key_path": "STEPBACK_PRIVATE_KEY_PATH",
+        "price_list.path": "STEPBACK_PRICE_LIST_PATH",
+        "price_list.version": "STEPBACK_PRICE_LIST_VERSION",
+        "redaction.preset": "STEPBACK_REDACTION_PRESET",
+        "redaction.rules": "STEPBACK_REDACTION_RULES_JSON",
+        "shims.default_model": "STEPBACK_SHIMS_DEFAULT_MODEL",
+        "shims.default_provider": "STEPBACK_SHIMS_DEFAULT_PROVIDER",
+        "trace.max_file_size_bytes": "STEPBACK_TRACE_MAX_FILE_SIZE_BYTES",
+        "trace.trace_dir": "STEPBACK_TRACE_DIR",
+        "viewer.show_costs": "STEPBACK_VIEWER_SHOW_COSTS",
+        "viewer.show_hashes": "STEPBACK_VIEWER_SHOW_HASHES",
+        "viewer.theme": "STEPBACK_VIEWER_THEME"
+      }
+    },
     "EventBus": {
       "bases": [
         "abc.ABC"
@@ -6073,6 +6135,52 @@
       },
       "name": "KafkaEventBus",
       "qualname": "stepback.event_bus.KafkaEventBus"
+    },
+    "KeyConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "hmac_key_hex",
+          "type": "Optional[str]"
+        },
+        {
+          "has_default": true,
+          "name": "private_key_path",
+          "type": "Optional[str]"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "hmac_key_hex"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "private_key_path"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "KeyConfig",
+      "qualname": "stepback.config.KeyConfig"
     },
     "LeaseExpiredError": {
       "bases": [
@@ -8812,6 +8920,52 @@
       "name": "PredicateNotTriggered",
       "qualname": "stepback.minimize.PredicateNotTriggered"
     },
+    "PriceListConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "version",
+          "type": "Optional[str]"
+        },
+        {
+          "has_default": true,
+          "name": "path",
+          "type": "Optional[str]"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "version"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "path"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "PriceListConfig",
+      "qualname": "stepback.config.PriceListConfig"
+    },
     "PromptSubstitution": {
       "bases": [
         "stepback.substitutions.Substitution"
@@ -9679,6 +9833,52 @@
       },
       "name": "RecorderOptions",
       "qualname": "stepback.backpressure.RecorderOptions"
+    },
+    "RedactionConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "preset",
+          "type": "Optional[str]"
+        },
+        {
+          "has_default": true,
+          "name": "rules",
+          "type": "dataclasses.field"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "preset"
+            },
+            {
+              "annotation": "dataclasses.field",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "rules"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "RedactionConfig",
+      "qualname": "stepback.config.RedactionConfig"
     },
     "RegionSummary": {
       "bases": [],
@@ -11084,6 +11284,14 @@
       "name": "SBTraceVersionError",
       "qualname": "stepback.spec.SBTraceVersionError"
     },
+    "SECRET_KEYS": {
+      "kind": "value",
+      "name": "SECRET_KEYS",
+      "type": "frozenset",
+      "value": [
+        "'keys.hmac_key_hex'"
+      ]
+    },
     "SLSA_PREDICATE_TYPE": {
       "kind": "value",
       "name": "SLSA_PREDICATE_TYPE",
@@ -11782,6 +11990,52 @@
       },
       "name": "SemanticKernelFilter",
       "qualname": "stepback.shims.SemanticKernelFilter"
+    },
+    "ShimConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "default_provider",
+          "type": "Optional[str]"
+        },
+        {
+          "has_default": true,
+          "name": "default_model",
+          "type": "Optional[str]"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "default_provider"
+            },
+            {
+              "annotation": "Optional[str]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "default_model"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "ShimConfig",
+      "qualname": "stepback.config.ShimConfig"
     },
     "StabilityConfig": {
       "bases": [],
@@ -13334,6 +13588,129 @@
       },
       "name": "StepbackCallbackHandler",
       "qualname": "stepback.shims.StepbackCallbackHandler"
+    },
+    "StepbackConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "version",
+          "type": "str"
+        },
+        {
+          "has_default": true,
+          "name": "trace",
+          "type": "TraceConfig"
+        },
+        {
+          "has_default": true,
+          "name": "keys",
+          "type": "KeyConfig"
+        },
+        {
+          "has_default": true,
+          "name": "shims",
+          "type": "ShimConfig"
+        },
+        {
+          "has_default": true,
+          "name": "redaction",
+          "type": "RedactionConfig"
+        },
+        {
+          "has_default": true,
+          "name": "price_list",
+          "type": "PriceListConfig"
+        },
+        {
+          "has_default": true,
+          "name": "viewer",
+          "type": "ViewerConfig"
+        },
+        {
+          "has_default": true,
+          "name": "config_file",
+          "type": "Optional[Path]"
+        },
+        {
+          "has_default": true,
+          "name": "sources",
+          "type": "Dict[str, str]"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "str",
+              "default": "'1'",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "version"
+            },
+            {
+              "annotation": "TraceConfig",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "trace"
+            },
+            {
+              "annotation": "KeyConfig",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "keys"
+            },
+            {
+              "annotation": "ShimConfig",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "shims"
+            },
+            {
+              "annotation": "RedactionConfig",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "redaction"
+            },
+            {
+              "annotation": "PriceListConfig",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "price_list"
+            },
+            {
+              "annotation": "ViewerConfig",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "viewer"
+            },
+            {
+              "annotation": "Optional[Path]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "config_file"
+            },
+            {
+              "annotation": "Dict[str, str]",
+              "default": "<factory>",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "sources"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "StepbackConfig",
+      "qualname": "stepback.config.StepbackConfig"
     },
     "StrandsCallbackHandler": {
       "bases": [],
@@ -15094,6 +15471,12 @@
               "default": "False",
               "kind": "KEYWORD_ONLY",
               "name": "distributed"
+            },
+            {
+              "annotation": "Optional[Callable[[int, int], None]]",
+              "default": "None",
+              "kind": "KEYWORD_ONLY",
+              "name": "on_step"
             }
           ],
           "return_annotation": "ReplayResult"
@@ -15146,6 +15529,52 @@
       },
       "name": "Trace",
       "qualname": "stepback.replay.Trace"
+    },
+    "TraceConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "trace_dir",
+          "type": "str"
+        },
+        {
+          "has_default": true,
+          "name": "max_file_size_bytes",
+          "type": "Optional[int]"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "str",
+              "default": "'traces'",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "trace_dir"
+            },
+            {
+              "annotation": "Optional[int]",
+              "default": "None",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "max_file_size_bytes"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "TraceConfig",
+      "qualname": "stepback.config.TraceConfig"
     },
     "TraceExportError": {
       "bases": [
@@ -15920,6 +16349,63 @@
       "kind": "class",
       "name": "VLLMShimContract",
       "qualname": "stepback.shims.VLLMShimContract"
+    },
+    "ViewerConfig": {
+      "bases": [],
+      "fields": [
+        {
+          "has_default": true,
+          "name": "theme",
+          "type": "str"
+        },
+        {
+          "has_default": true,
+          "name": "show_costs",
+          "type": "bool"
+        },
+        {
+          "has_default": true,
+          "name": "show_hashes",
+          "type": "bool"
+        }
+      ],
+      "is_dataclass": true,
+      "is_enum": false,
+      "is_exception": false,
+      "kind": "class",
+      "methods": {
+        "__init__": {
+          "parameters": [
+            {
+              "annotation": "",
+              "default": "",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "self"
+            },
+            {
+              "annotation": "str",
+              "default": "'light'",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "theme"
+            },
+            {
+              "annotation": "bool",
+              "default": "True",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "show_costs"
+            },
+            {
+              "annotation": "bool",
+              "default": "True",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "name": "show_hashes"
+            }
+          ],
+          "return_annotation": "None"
+        }
+      },
+      "name": "ViewerConfig",
+      "qualname": "stepback.config.ViewerConfig"
     },
     "WorkerLease": {
       "bases": [],
@@ -18088,6 +18574,22 @@
         "return_annotation": "TraceObjectives"
       }
     },
+    "find_config_file": {
+      "kind": "function",
+      "name": "find_config_file",
+      "qualname": "stepback.config.find_config_file",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Optional[Path]",
+            "default": "None",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "name": "start"
+          }
+        ],
+        "return_annotation": "Optional[Path]"
+      }
+    },
     "fireworks_executor": {
       "kind": "function",
       "name": "fireworks_executor",
@@ -18760,6 +19262,22 @@
           }
         ],
         "return_annotation": "Dict[str, Any]"
+      }
+    },
+    "load_config": {
+      "kind": "function",
+      "name": "load_config",
+      "qualname": "stepback.config.load_config",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Optional[Path]",
+            "default": "None",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "name": "path"
+          }
+        ],
+        "return_annotation": "StepbackConfig"
       }
     },
     "mcp_tool_executor": {

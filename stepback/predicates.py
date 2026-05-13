@@ -419,6 +419,9 @@ class PredicateSyntaxError(ValueError):
             ``ast``).
     """
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB600"
+
     def __init__(self, msg: str, *, src: str, pos: tuple = (1, 0)) -> None:
         self.src = src
         self.pos = pos
@@ -434,6 +437,9 @@ class PredicateSyntaxError(ValueError):
 
 class PredicateRuntimeError(RuntimeError):
     """Raised when an otherwise-valid DSL predicate explodes at eval time."""
+
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB601"
 
 
 # ------------------------------------------------------------- DSL: parse

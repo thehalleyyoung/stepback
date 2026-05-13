@@ -84,6 +84,9 @@ class BranchTraceMismatch(ValueError):
     diff.
     """
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB301"
+
 
 def trace_chain_hash(recorded_steps: List[dict]) -> str:
     """Stable digest of a trace's identity.

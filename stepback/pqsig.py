@@ -71,6 +71,9 @@ class PQUnavailableError(Exception):
     introduction, or because the algorithm name is unknown.
     """
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB501"
+
 
 @dataclass
 class PQKeyPair:

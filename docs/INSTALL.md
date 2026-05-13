@@ -1,5 +1,27 @@
 # Installing stepback
 
+> **Note (2026-05):** stepback is **not currently published to PyPI,
+> crates.io, npm, or any other package registry.** Every install path
+> below that names a registry (`pip install stepback`, `pipx install
+> stepback`, `cargo install`, `npm install`, `pip install
+> stepback-core`, etc.) describes the *intended* publish layout and is
+> not yet wired up. Until publishing is configured, install from the
+> GitHub source:
+>
+> ```bash
+> # Python recorder + replayer + CLI:
+> pip install git+https://github.com/thehalleyyoung/stepback.git
+>
+> # Or for development from a clone:
+> git clone https://github.com/thehalleyyoung/stepback
+> cd stepback && pip install -e '.[dev]'
+> ```
+>
+> Rust crates and other bindings build from a checkout of the same
+> repository. Anything past that point in this file is roadmap.
+
+---
+
 This document is the canonical install reference across every language
 binding, container image, and tool stepback ships. Each section labels its
 maturity using one of the following badges:
@@ -74,6 +96,48 @@ pipx uninstall stepback
 
 Requires Python ≥ 3.11. `pipx` itself can be installed with
 `brew install pipx`, `apt install pipx`, or `python -m pip install --user pipx`.
+
+### Shell completion
+
+`stepback completion <shell>` prints a completion script for bash, zsh,
+fish, or PowerShell (pwsh). Run once after installing, then restart your
+shell (or source the file immediately).
+
+**bash** — add to `~/.bashrc` or drop a file into `~/.bash_completion.d/`:
+
+```bash
+mkdir -p ~/.bash_completion.d
+stepback completion bash > ~/.bash_completion.d/stepback
+# Then reload: source ~/.bash_completion.d/stepback
+```
+
+Or for eval-based sourcing (no file required):
+
+```bash
+echo 'source <(stepback completion bash)' >> ~/.bashrc
+```
+
+**zsh** — requires `$fpath` to include `~/.zfunc` and `compinit` loaded:
+
+```zsh
+mkdir -p ~/.zfunc
+stepback completion zsh > ~/.zfunc/_stepback
+# Add to ~/.zshrc if not already present:
+#   fpath=(~/.zfunc $fpath)
+#   autoload -Uz compinit && compinit
+```
+
+**fish**:
+
+```fish
+stepback completion fish > ~/.config/fish/completions/stepback.fish
+```
+
+**PowerShell (pwsh)**:
+
+```pwsh
+stepback completion pwsh >> $PROFILE
+```
 
 ---
 

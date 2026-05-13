@@ -76,6 +76,9 @@ NATIVE_JSON_FORMAT_TAG = "stepback_native_json_v1"
 class ImportError(ValueError):
     """Raised when a foreign trace cannot be parsed into stepback steps."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB401"
+
 
 TraceImportError = ImportError
 

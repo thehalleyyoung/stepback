@@ -85,6 +85,9 @@ NATIVE_JSON_FORMAT_TAG = "stepback_native_json_v1"
 class ExportError(ValueError):
     """Raised when a stepback trace cannot be rendered into the target format."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB403"
+
 
 TraceExportError = ExportError
 

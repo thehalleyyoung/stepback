@@ -117,6 +117,9 @@ __all__ = [
 class PredicateNotTriggered(ValueError):
     """The full substitution set does not flip the predicate."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB303"
+
 
 class BudgetExhausted(Exception):
     """A configured probe / time budget was exceeded mid-search.
@@ -126,6 +129,9 @@ class BudgetExhausted(Exception):
     minimal as a *superset* of the true minimal — search was cut
     short, so further reduction may have been possible.
     """
+
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB302"
 
     def __init__(self, message: str, partial: "MinimizationResult") -> None:
         super().__init__(message)

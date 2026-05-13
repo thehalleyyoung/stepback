@@ -67,6 +67,9 @@ __all__ = [
 class OtelBridgeError(RuntimeError):
     """Raised when the OTel bridge fails to export a trace."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB800"
+
 
 # ======================================================================
 # Result type

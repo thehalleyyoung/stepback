@@ -158,6 +158,9 @@ def _effective_workers(
 class MissingExecutor(RuntimeError):
     """Raised when a dirty step has no executor callback registered."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB300"
+
 
 class UnavailableExecutorError(MissingExecutor):
     """Raised by :class:`PartialExecutor` when a dirty step requires an executor
@@ -906,6 +909,7 @@ def _execute_plan(
     *,
     event_bus: Optional[Any] = None,
     job_id: Optional[str] = None,
+    on_step: Optional[Callable[[int, int], None]] = None,
 ) -> ReplayResult:
     """Full re-evaluation loop used by both ``ReplayPlan.execute`` and
     ``Trace.run_replay``.  Kept as a module-level helper so both callers
@@ -918,6 +922,10 @@ def _execute_plan(
         a ``REPLAY_STEP_COMPLETE`` event is published after each step.
     job_id :
         Job identifier forwarded to every emitted event.
+    on_step :
+        Optional progress callback invoked after every step with
+        ``(steps_done, total_steps)``.  Useful for CLI progress bars.
+        Exceptions raised by the callback are silently ignored.
     """
     started_at = _utc_now_iso()
     outputs_by_id: Dict[str, Any] = {}
@@ -1147,6 +1155,13 @@ def _execute_plan(
                 dirty=is_dirty,
                 payload={"kind": kind, "cache_hit": cache_hit},
             ))
+
+        # Progress callback — failures must not abort the replay.
+        if on_step is not None:
+            try:
+                on_step(len(steps_view), len(recorded_steps))
+            except Exception:  # pragma: no cover
+                pass
 
     finished_at = _utc_now_iso()
     return ReplayResult(
@@ -2207,6 +2222,7 @@ class Trace:
         *,
         workers: Optional[int] = None,
         distributed: bool = False,
+        on_step: Optional[Callable[[int, int], None]] = None,
     ) -> ReplayResult:
         """Full planning + execution in a single pass.
 
@@ -2221,11 +2237,15 @@ class Trace:
         distributed :
             See :meth:`replay_forward`.  When ``True`` and *workers* is not
             given, auto-selects a worker count.
+        on_step :
+            Optional progress callback ``(steps_done, total_steps)`` invoked
+            after every step.  Only used in sequential mode; ignored when
+            *workers* > 1.
         """
         eff_workers = _effective_workers(distributed, workers)
         if eff_workers is not None and eff_workers > 1:
             return _execute_plan_parallel(self.recorded_steps, subs, executor, eff_workers)
-        return _execute_plan(self.recorded_steps, subs, executor)
+        return _execute_plan(self.recorded_steps, subs, executor, on_step=on_step)
 
     # --------------------------------------------------- minimize
     def minimize(

@@ -445,6 +445,20 @@ EXPECTED_PUBLIC_API = frozenset({
     "StabilityConfig",
     "StabilityResult",
     "measure_predicate_stability",
+    # --- stepback.toml config loader (Step 160) ----------------------
+    "ConfigError",
+    "TraceConfig",
+    "KeyConfig",
+    "ShimConfig",
+    "RedactionConfig",
+    "PriceListConfig",
+    "ViewerConfig",
+    "StepbackConfig",
+    "DEFAULT_CONFIG",
+    "ENV_VAR_MAP",
+    "SECRET_KEYS",
+    "find_config_file",
+    "load_config",
 })
 
 

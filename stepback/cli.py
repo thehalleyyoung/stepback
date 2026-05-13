@@ -34,6 +34,7 @@ from typing import Any, List, Optional
 
 from . import autorecord
 from .recorder import RecorderKey
+from ._progress import ProgressReporter, make_minimize_progress
 from .branch_io import (
     BranchTraceMismatch,
     diff_replays,
@@ -288,6 +289,92 @@ def _cmd_debug(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_open(args: argparse.Namespace) -> int:
+    """Launch the HTML viewer for a trace in the user's browser.
+
+    Renders the trace to a self-contained HTML file in a temp directory,
+    starts a minimal HTTP server on a free local port, and opens the
+    browser (unless ``--no-browser`` is given).  The server shuts down
+    cleanly when the user presses Ctrl-C.
+
+    Works on macOS, Linux, WSL, and remote SSH sessions.  In a WSL or
+    headless environment use ``--no-browser`` and manually open the
+    printed URL.
+    """
+    import http.server
+    import os
+    import socket
+    import tempfile
+    import threading
+    import webbrowser
+
+    hmac_key: Optional[bytes] = None
+    if args.hmac_key_hex:
+        try:
+            hmac_key = bytes.fromhex(args.hmac_key_hex)
+        except ValueError as e:
+            print(f"invalid --hmac-key-hex: {e}", file=sys.stderr)
+            return 2
+
+    # Render HTML to a temporary directory.
+    tmp_dir = tempfile.mkdtemp(prefix="stepback-open-")
+    html_path = os.path.join(tmp_dir, "trace.html")
+    write_trace_html(
+        args.trace,
+        html_path,
+        hmac_key=hmac_key,
+        title=args.title,
+    )
+
+    # Bind to an OS-assigned free port.
+    if args.port:
+        port = args.port
+    else:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+
+    host = args.host or "127.0.0.1"
+
+    # Silence the default request log unless --verbose is set.
+    class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, fmt: str, *fmtargs: object) -> None:  # type: ignore[override]
+            if getattr(args, "verbose", False):
+                super().log_message(fmt, *fmtargs)
+
+    httpd = http.server.HTTPServer(
+        (host, port),
+        lambda *a, **kw: _QuietHandler(*a, directory=tmp_dir, **kw),
+    )
+    httpd.timeout = 1.0
+
+    url = f"http://{host}:{port}/trace.html"
+    print(f"Serving {args.trace} at {url}")
+    print("Press Ctrl-C to stop.")
+
+    # Open browser in background thread so we don't block server startup.
+    if not getattr(args, "no_browser", False):
+        def _open():
+            webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
+
+    try:
+        while True:
+            httpd.handle_request()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+        # Clean up temp files.
+        try:
+            os.remove(html_path)
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
+
+    return 0
+
+
 def _apply_subs(t: Trace, specs: List[str]) -> SubstitutionSet:
     subs = SubstitutionSet()
     for spec in specs:
@@ -326,8 +413,16 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     from .replay import Executor
 
     executor = Executor(fallback_recorded=True)
+    quiet = getattr(args, "quiet", False) or args.json
+    total_steps = len(t.recorded_steps)
+    reporter = ProgressReporter(
+        total=total_steps,
+        label="replay",
+        quiet=quiet,
+    )
     try:
-        result = t.run_replay(subs, executor)
+        with reporter:
+            result = t.run_replay(subs, executor, on_step=reporter.update)
     except Exception as e:  # MissingExecutor or similar
         print(
             f"replay would require real LLM/tool execution; "
@@ -335,6 +430,9 @@ def _cmd_replay(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 3
+    reporter.done(
+        f"cache_hits={result.cache_hit_count} dirty={result.dirty_count}"
+    )
 
     if args.json:
         body = {
@@ -685,11 +783,23 @@ def _cmd_report(args: argparse.Namespace) -> int:
 def _cmd_bisect(args: argparse.Namespace) -> int:
     t = replay(args.trace)
     pred = compile(args.predicate, "<predicate>", "eval")
-    found = t.bisect(
-        good=args.good,
-        bad=args.bad,
-        predicate=lambda step: bool(eval(pred, {"step": step})),
-    )
+    quiet = getattr(args, "quiet", False)
+    probes = [0]
+    reporter = ProgressReporter(label="bisect", quiet=quiet)
+
+    def _pred_with_progress(step) -> bool:
+        result = bool(eval(pred, {"step": step}))
+        probes[0] += 1
+        reporter.update(probes[0])
+        return result
+
+    with reporter:
+        found = t.bisect(
+            good=args.good,
+            bad=args.bad,
+            predicate=_pred_with_progress,
+        )
+    reporter.done(f"probes={probes[0]}")
     if found is None:
         print("no step matched the predicate")
         return 1
@@ -742,9 +852,15 @@ def _cmd_minimize(args: argparse.Namespace) -> int:
         print(f"error: unknown strategy '{strategy_name}'", file=sys.stderr)
         return 2
     strategy = strategy_map[strategy_name]
+    quiet = getattr(args, "quiet", False) or getattr(args, "json", False)
+    _min_reporter, _min_progress = make_minimize_progress(
+        label="minimize",
+        quiet=quiet,
+    )
     options = MinimizeOptions(
         strategy=strategy,
         probe_budget=getattr(args, "probe_budget", None),
+        progress=_min_progress,
     )
 
     from .replay import Executor
@@ -791,6 +907,7 @@ def _cmd_minimize(args: argparse.Namespace) -> int:
                 executor=Executor(fallback_recorded=True),
             )
             if not witnesses:
+                _min_reporter.done()
                 print(
                     "error: predicate does not fire under the full substitution set",
                     file=sys.stderr,
@@ -809,9 +926,11 @@ def _cmd_minimize(args: argparse.Namespace) -> int:
             )
             payload = _serialise_result(outcome)
     except PredicateNotTriggered as exc:
+        _min_reporter.done()
         print(f"error: {exc}", file=sys.stderr)
         return 4
     except BudgetExhausted as exc:
+        _min_reporter.done()
         print(f"error: {exc}", file=sys.stderr)
         partial = _serialise_result(exc.partial)
         partial["budget_exhausted"] = True
@@ -819,6 +938,7 @@ def _cmd_minimize(args: argparse.Namespace) -> int:
         sys.stdout.write("\n")
         return 5
 
+    _min_reporter.done(f"minimal={len(payload.get('minimal', []))}")
     json.dump(payload, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0
@@ -1751,11 +1871,36 @@ _STEPBACK_TOML_TEMPLATE = """\
 version = "1"
 
 # Directory where .sb trace files are written by default.
+# Relative paths are resolved from this file's directory.
 trace_dir = "traces"
 
-# Set to a hex HMAC key to sign every frame.  Generate with:
-#   python -c "import secrets; print(secrets.token_hex(32))"
-# hmac_key_hex = ""
+# ── Key material ──────────────────────────────────────────────────────────────
+# IMPORTANT: Do NOT commit key material to version control.
+# Prefer environment variables (STEPBACK_HMAC_KEY_HEX) or a user-level config
+# at ~/.config/stepback/stepback.toml for secret values.
+[stepback.keys]
+# hmac_key_hex = ""  # generate: python -c "import secrets; print(secrets.token_hex(32))"
+# private_key_path = "~/.config/stepback/signing.pem"
+
+# ── LLM provider defaults ─────────────────────────────────────────────────────
+[stepback.shims]
+# default_provider = "openai"
+# default_model = "gpt-4o"
+
+# ── Redaction ─────────────────────────────────────────────────────────────────
+[stepback.redaction]
+# preset = "pii-basic"   # one of: pii-basic, pii-strict, secrets-only, hipaa-lite, gdpr-lite
+
+# ── Price-list pinning ────────────────────────────────────────────────────────
+[stepback.price_list]
+# version = "2024-07"
+# path = "price-list.json"  # optional custom price list
+
+# ── HTML viewer preferences ───────────────────────────────────────────────────
+[stepback.viewer]
+theme = "light"       # "light" or "dark"
+show_costs = true
+show_hashes = true
 """
 
 _QUICKSTART_AGENT_TEMPLATE = '''\
@@ -1889,6 +2034,135 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_config(args: argparse.Namespace) -> int:
+    """stepback config — print the effective merged configuration.
+
+    Shows each key, its resolved value, and where the value came from
+    (``default``, ``env:STEPBACK_XXX``, or ``file:/path/to/stepback.toml``).
+    Secret values (``keys.hmac_key_hex``) are redacted unless
+    ``--show-secrets`` is given.  Exits 0 even when no config file is found
+    (effective config from defaults is still valid).
+    """
+    from .config import load_config, ENV_VAR_MAP, SECRET_KEYS, ConfigError
+
+    try:
+        cfg = load_config()
+    except ConfigError as exc:
+        print(f"stepback config: error loading configuration: {exc}", file=sys.stderr)
+        return 1
+
+    # Flatten config into (key, value) pairs in a stable display order.
+    show_secrets: bool = getattr(args, "show_secrets", False)
+
+    def _display(key: str, value: Any) -> str:
+        if not show_secrets and key in SECRET_KEYS and value is not None:
+            return "<redacted>"
+        if value is None:
+            return ""
+        if isinstance(value, list):
+            return json.dumps(value)
+        return str(value)
+
+    entries: List[tuple] = [
+        ("version", cfg.version),
+        ("trace.trace_dir", cfg.trace.trace_dir),
+        ("trace.max_file_size_bytes", cfg.trace.max_file_size_bytes),
+        ("keys.hmac_key_hex", cfg.keys.hmac_key_hex),
+        ("keys.private_key_path", cfg.keys.private_key_path),
+        ("shims.default_provider", cfg.shims.default_provider),
+        ("shims.default_model", cfg.shims.default_model),
+        ("redaction.preset", cfg.redaction.preset),
+        ("redaction.rules", cfg.redaction.rules if cfg.redaction.rules else None),
+        ("price_list.version", cfg.price_list.version),
+        ("price_list.path", cfg.price_list.path),
+        ("viewer.theme", cfg.viewer.theme),
+        ("viewer.show_costs", cfg.viewer.show_costs),
+        ("viewer.show_hashes", cfg.viewer.show_hashes),
+    ]
+
+    if getattr(args, "json_output", False):
+        out: Any = {
+            "config_file": str(cfg.config_file) if cfg.config_file else None,
+            "values": {
+                key: {
+                    "value": (
+                        None if (key in SECRET_KEYS and not show_secrets)
+                        else (value if not isinstance(value, list) else value)
+                    ),
+                    "redacted": key in SECRET_KEYS and not show_secrets and value is not None,
+                    "source": cfg.sources.get(key, "default"),
+                    "env_var": ENV_VAR_MAP.get(key),
+                }
+                for key, value in entries
+            },
+        }
+        print(json.dumps(out, indent=2))
+        return 0
+
+    # Text output
+    config_file_label = str(cfg.config_file) if cfg.config_file else "none found"
+    print(f"Effective stepback configuration")
+    print(f"Config file: {config_file_label}")
+    print()
+
+    col_key = max(len(k) for k, _ in entries) + 2
+    col_val = 35
+    header = f"{'Key':<{col_key}}  {'Value':<{col_val}}  Source"
+    print(header)
+    print("─" * len(header))
+    for key, value in entries:
+        source = cfg.sources.get(key, "default")
+        display_val = _display(key, value)
+        env_var = ENV_VAR_MAP.get(key)
+        source_label = source
+        if source.startswith("env:") and env_var:
+            source_label = f"env: {env_var}"
+        elif source.startswith("file:"):
+            source_label = f"file: {cfg.config_file}"
+        print(f"{key:<{col_key}}  {display_val:<{col_val}}  {source_label}")
+    print()
+    if not show_secrets:
+        redacted = [k for k, v in entries if k in SECRET_KEYS and v is not None]
+        if redacted:
+            print(f"Note: {', '.join(redacted)} redacted. Use --show-secrets to reveal.")
+    return 0
+
+
+def _cmd_completion(args: argparse.Namespace) -> int:
+    """stepback completion <shell> — print a shell completion script.
+
+    Supported shells: bash, zsh, fish, pwsh (PowerShell).
+
+    One-line install examples::
+
+        # bash
+        stepback completion bash >> ~/.bash_completion.d/stepback
+        # or: source <(stepback completion bash)
+
+        # zsh  (add ~/.zfunc to fpath first)
+        stepback completion zsh > ~/.zfunc/_stepback
+
+        # fish
+        stepback completion fish > ~/.config/fish/completions/stepback.fish
+
+        # PowerShell
+        stepback completion pwsh >> $PROFILE
+    """
+    from .completion import generate, SHELLS
+
+    shell = args.shell
+    try:
+        print(generate(shell), end="")
+    except ValueError:
+        print(
+            f"stepback completion: unknown shell {shell!r}. "
+            f"Supported shells: {', '.join(SHELLS)}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(prog="stepback", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1938,6 +2212,10 @@ def main(argv: Optional[list] = None) -> int:
     p_replay.add_argument("--name", help="branch name (default: 'counterfactual')")
     p_replay.add_argument("--base-step", help="base step id for the saved branch")
     p_replay.add_argument("--json", action="store_true")
+    p_replay.add_argument(
+        "--quiet", action="store_true",
+        help="suppress progress output even on a TTY",
+    )
     p_replay.set_defaults(func=_cmd_replay)
 
     p_diff = sub.add_parser(
@@ -1979,6 +2257,10 @@ def main(argv: Optional[list] = None) -> int:
     p_bisect.add_argument("--bad", required=True)
     p_bisect.add_argument(
         "--predicate", required=True, help="Python expression over `step`"
+    )
+    p_bisect.add_argument(
+        "--quiet", action="store_true",
+        help="suppress progress output even on a TTY",
     )
     p_bisect.set_defaults(func=_cmd_bisect)
 
@@ -2023,6 +2305,10 @@ def main(argv: Optional[list] = None) -> int:
     p_min.add_argument(
         "--max-witnesses", type=int, default=4,
         help="max number of witnesses for --all-witnesses (default 4)",
+    )
+    p_min.add_argument(
+        "--quiet", action="store_true",
+        help="suppress progress output even on a TTY",
     )
     p_min.set_defaults(func=_cmd_minimize)
 
@@ -2433,6 +2719,54 @@ def main(argv: Optional[list] = None) -> int:
     )
     p_debug.set_defaults(func=_cmd_debug)
 
+    # ------------------------------------------------------ open
+    p_open = sub.add_parser(
+        "open",
+        help="launch the interactive HTML viewer in your browser",
+        description=(
+            "Render a .sb trace as a self-contained HTML file, start a "
+            "local HTTP server on a free port, and open the page in your "
+            "default browser.  Press Ctrl-C to stop the server.\n\n"
+            "Works on macOS, Linux, WSL, and remote SSH.  In headless or "
+            "remote-SSH sessions pass --no-browser and open the printed URL "
+            "yourself (e.g. via port-forwarding)."
+        ),
+    )
+    p_open.add_argument("trace", help="input .sb trace path")
+    p_open.add_argument(
+        "--no-browser",
+        action="store_true",
+        dest="no_browser",
+        default=False,
+        help="print the URL but do not open a browser window",
+    )
+    p_open.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="TCP port to listen on (default: OS-assigned free port)",
+    )
+    p_open.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="host/address to bind to (default: 127.0.0.1)",
+    )
+    p_open.add_argument(
+        "--title", default=None,
+        help="title shown in the viewer header (default: derived from trace filename)",
+    )
+    p_open.add_argument(
+        "--hmac-key-hex", default=None,
+        help="optional HMAC key (hex) used to verify the chain while loading",
+    )
+    p_open.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="log each HTTP request to stdout",
+    )
+    p_open.set_defaults(func=_cmd_open)
+
     # ------------------------------------------------------ bench
     p_bench = sub.add_parser(
         "bench",
@@ -2840,6 +3174,51 @@ def main(argv: Optional[list] = None) -> int:
         help="Do not open the HTML viewer in the browser.",
     )
     p_qs.set_defaults(func=_cmd_quickstart)
+
+    # ------------------------------------------------------------------ config
+    p_config = sub.add_parser(
+        "config",
+        help="print the effective merged configuration and the source of each key",
+        description=(
+            "Load the effective ``stepback.toml`` (applying STEPBACK_* env var "
+            "overrides) and print each config key, its resolved value, and where "
+            "the value came from: ``default``, ``env: STEPBACK_xxx``, or "
+            "``file: /path/to/stepback.toml``.  Exits 0 even when no config "
+            "file is found."
+        ),
+    )
+    p_config.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        default=False,
+        help="Emit the config as a JSON object instead of a table.",
+    )
+    p_config.add_argument(
+        "--show-secrets",
+        action="store_true",
+        dest="show_secrets",
+        default=False,
+        help="Show secret values (hmac_key_hex) instead of redacting them.",
+    )
+    p_config.set_defaults(func=_cmd_config)
+
+    # ------------------------------------------------------------------ completion
+    p_completion = sub.add_parser(
+        "completion",
+        help="print a shell completion script (bash, zsh, fish, pwsh)",
+        description=(
+            "Print a shell completion script for the specified shell and "
+            "exit. Pipe or redirect the output to the appropriate file; "
+            "see the one-line install examples in the command's help text."
+        ),
+    )
+    p_completion.add_argument(
+        "shell",
+        choices=["bash", "zsh", "fish", "pwsh"],
+        help="target shell (bash, zsh, fish, or pwsh for PowerShell)",
+    )
+    p_completion.set_defaults(func=_cmd_completion)
 
     args = p.parse_args(argv)
     return args.func(args)

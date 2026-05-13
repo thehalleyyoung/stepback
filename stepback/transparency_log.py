@@ -71,6 +71,9 @@ _HASH_ALG = "sha256"
 class TransparencyLogError(Exception):
     """Raised on inclusion-proof verification failures or log corruption."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB505"
+
 
 # ---------------------------------------------------------------------------
 # Data classes

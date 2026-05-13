@@ -86,6 +86,9 @@ MAX_STRING_BYTES = 16 * 1024 * 1024  # 16 MiB
 class TraceVerificationError(Exception):
     """Raised when an `.sb` file fails signature or HMAC verification."""
 
+    #: Canonical error code; see :mod:`stepback.errors` for details.
+    code: str = "SB003"
+
 
 def _enforce_value_limits(value, max_depth: int, max_string_bytes: int) -> None:
     """Walk ``value`` iteratively and reject anything that exceeds the

@@ -5,7 +5,7 @@ traces, replay counterfactuals with dirty-set propagation, and bisect
 regressions — re-executing only the steps whose inputs actually changed.
 
 ```bash
-pip install stepback
+pip install git+https://github.com/thehalleyyoung/stepback.git
 ```
 
 ```python

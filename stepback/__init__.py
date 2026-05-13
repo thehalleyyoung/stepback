@@ -447,6 +447,21 @@ from .stability import (  # Step 82: statistical stability metrics
     StabilityResult,
     measure_predicate_stability,
 )
+from .config import (  # Step 160: stepback.toml configuration loader
+    ConfigError,
+    TraceConfig,
+    KeyConfig,
+    ShimConfig,
+    RedactionConfig,
+    PriceListConfig,
+    ViewerConfig,
+    StepbackConfig,
+    DEFAULT_CONFIG,
+    ENV_VAR_MAP,
+    SECRET_KEYS,
+    find_config_file,
+    load_config,
+)
 from .provenance import (  # Step 111: SLSA / in-toto provenance
     ProvenanceVerificationError,
     INTOTO_STATEMENT_TYPE,
@@ -886,6 +901,20 @@ __all__ = [
     "verify_provenance_signature",
     "sha256_of_file",
     "sha256_of_bytes",
+    # --- stepback.toml config loader (Step 160) ----------------------
+    "ConfigError",
+    "TraceConfig",
+    "KeyConfig",
+    "ShimConfig",
+    "RedactionConfig",
+    "PriceListConfig",
+    "ViewerConfig",
+    "StepbackConfig",
+    "DEFAULT_CONFIG",
+    "ENV_VAR_MAP",
+    "SECRET_KEYS",
+    "find_config_file",
+    "load_config",
 ]
 
 __version__ = "0.1.0"
