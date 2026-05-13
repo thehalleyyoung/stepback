@@ -56,7 +56,7 @@ from .substitutions import SubstitutionSet
 from .trace_diff import diff_traces, render_trace_diff
 from .policy_audit import audit_policy_change
 from .trace_reader import verify_trace
-from .html_view import write_trace_html
+from .html_view import write_trace_html, write_time_travel_html
 from .attestation import (
     AttestationVerificationError,
     build_attestation_pack,
@@ -246,6 +246,48 @@ def _cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_debug(args: argparse.Namespace) -> int:
+    """Render a time-travel debugger HTML page for a trace + optional substitutions."""
+    hmac_key: Optional[bytes] = None
+    if args.hmac_key_hex:
+        try:
+            hmac_key = bytes.fromhex(args.hmac_key_hex)
+        except ValueError as e:
+            print(f"invalid --hmac-key-hex: {e}", file=sys.stderr)
+            return 2
+    subs = [parse_substitution_spec(s) for s in (args.sub or [])]
+    summary = write_time_travel_html(
+        args.trace,
+        args.output,
+        hmac_key=hmac_key,
+        substitutions=subs or None,
+        title=args.title,
+    )
+    if args.json:
+        json.dump(
+            {
+                "output_path": summary.output_path,
+                "step_count": summary.step_count,
+                "dirty_count": summary.dirty_count,
+                "cache_hit_count": summary.cache_hit_count,
+                "total_cost_usd": summary.total_cost_usd,
+                "by_kind": summary.by_kind,
+                "bytes_written": summary.bytes_written,
+            },
+            sys.stdout,
+            indent=2,
+            sort_keys=True,
+        )
+        sys.stdout.write("\n")
+    else:
+        print(
+            f"wrote {summary.output_path}  "
+            f"({summary.step_count} steps, {summary.dirty_count} dirty, "
+            f"{summary.cache_hit_count} cache hits, {summary.bytes_written} bytes)"
+        )
+    return 0
+
+
 def _apply_subs(t: Trace, specs: List[str]) -> SubstitutionSet:
     subs = SubstitutionSet()
     for spec in specs:
@@ -365,13 +407,40 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     key = bytes.fromhex(args.hmac_key_hex)
-    try:
-        v = verify_trace(args.trace, key)
-    except Exception as e:
-        print(f"FAIL: {e}", file=sys.stderr)
-        return 2
-    print(f"OK  steps={len(v.steps)}  pubkey={v.public_key_hex[:16]}…")
-    return 0
+    strict = getattr(args, "strict", False)
+    policy_path = getattr(args, "policy", None)
+
+    if strict or policy_path:
+        from .verify_policy import VerifyPolicy, load_policy, verify_with_policy
+        if policy_path:
+            try:
+                policy = load_policy(policy_path)
+            except ValueError as e:
+                print(f"FAIL: {e}", file=sys.stderr)
+                return 2
+            if strict:
+                policy.strict = True
+        else:
+            policy = VerifyPolicy.strict_default()
+        result = verify_with_policy(args.trace, key, policy)
+        if result.ok:
+            v = result.trace
+            pubkey_prefix = v.public_key_hex[:16] if v else "unknown"
+            steps = len(v.steps) if v else "?"
+            print(f"OK  steps={steps}  pubkey={pubkey_prefix}…")
+            return 0
+        else:
+            for violation in result.violations:
+                print(f"FAIL [{violation.check}]: {violation.message}", file=sys.stderr)
+            return 1
+    else:
+        try:
+            v = verify_trace(args.trace, key)
+        except Exception as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 2
+        print(f"OK  steps={len(v.steps)}  pubkey={v.public_key_hex[:16]}…")
+        return 0
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -1147,6 +1216,303 @@ def _cmd_bench_soak(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bench_dirty_set_distributions(args: argparse.Namespace) -> int:
+    from .bench.dirty_set_distributions import run as _run_dsd
+
+    try:
+        corpora = args.corpora.split(",") if args.corpora else None
+        result = _run_dsd(
+            n_trials=args.n_trials,
+            n_steps=args.n_steps,
+            seed=args.seed,
+            corpora=corpora,
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+
+    # Print summary table
+    print(
+        f"dirty-set distributions: {result.total_trials} trials across "
+        f"{len(result.distributions)} cells ({result.wall_time_ms:.0f} ms)\n"
+    )
+    print(
+        f"{'corpus':<20} {'position':<8} {'sub_kind':<24} "
+        f"{'p50':>6} {'p95':>6} {'mean':>6}"
+    )
+    print("-" * 72)
+    for d in result.distributions:
+        sk = d.sub_kind.replace("Substitution", "Sub")
+        print(
+            f"{d.corpus:<20} {d.position:<8} {sk:<24} "
+            f"{d.p50:>6.2f} {d.p95:>6.2f} {d.mean:>6.2f}"
+        )
+
+    if args.out:
+        import os as _os
+        _dir = _os.path.dirname(_os.path.abspath(args.out))
+        if _dir:
+            _os.makedirs(_dir, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_bench_model_swap(args: argparse.Namespace) -> int:
+    from .bench.model_swap import run as _run_ms
+
+    try:
+        result = _run_ms(
+            n_steps=args.n_steps,
+            n_trials=args.n_trials,
+            seed=args.seed,
+            model_a_name=args.model_a,
+            model_b_name=args.model_b,
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    print(result.summary_line())
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_bench_storage_compression(args: argparse.Namespace) -> int:
+    from .bench.storage_compression import run as _run_sc
+
+    try:
+        result = _run_sc(
+            n_traces=args.n_traces,
+            n_steps=args.n_steps,
+            seed=args.seed,
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    print(result.summary_line())
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_bench_microbenchmarks(args: argparse.Namespace) -> int:
+    from .bench.microbenchmarks import run as _run_mb
+
+    try:
+        result = _run_mb(n_iter=args.n_iter)
+    except (RuntimeError, ValueError) as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    for line in result.summary_lines():
+        print(line)
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_bench_leaderboard(args: argparse.Namespace) -> int:
+    import os as _os
+    from .bench.leaderboard import (
+        build_leaderboard,
+        generate_leaderboard_html,
+        generate_leaderboard_json,
+        load_submissions_from_dir,
+    )
+
+    # Accept a directory or individual files
+    inputs = args.submissions
+    if not inputs:
+        print("bench leaderboard: no inputs provided", file=sys.stderr)
+        return 2
+
+    raw_submissions = []
+    for path in inputs:
+        if _os.path.isdir(path):
+            raw_submissions.extend(load_submissions_from_dir(path))
+        elif _os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                raw_submissions.append((path, data))
+            except Exception as e:
+                raw_submissions.append((path, {"_parse_error": str(e)}))
+        else:
+            print(f"bench leaderboard: path not found: {path}", file=sys.stderr)
+            return 2
+
+    lb = build_leaderboard(raw_submissions)
+    accepted = len(lb.accepted)
+    rejected = len(lb.rejected)
+    print(
+        f"leaderboard: {accepted} accepted, {rejected} rejected "
+        f"({lb.total_submitted} total)"
+    )
+
+    if args.out:
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(generate_leaderboard_json(lb), f, indent=2, sort_keys=True)
+            f.write("\n")
+
+    if args.html:
+        d = _os.path.dirname(_os.path.abspath(args.html))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.html, "w", encoding="utf-8") as f:
+            f.write(generate_leaderboard_html(lb))
+
+    return 0 if rejected == 0 else 1
+
+
+def _cmd_bench_frontier_reeval_schedule(args: argparse.Namespace) -> int:
+    import os as _os
+    from .bench.frontier_eval import (
+        ReEvaluationPolicy,
+        compute_schedule,
+        default_catalog,
+        load_catalog_from_json,
+        save_schedule_json,
+    )
+    from .bench.leaderboard import load_submissions_from_dir as _lb_load
+    from datetime import date as _date
+
+    raw_submissions: list = []
+    if args.submissions:
+        for path in args.submissions:
+            if _os.path.isdir(path):
+                loaded = _lb_load(path)
+                raw_submissions.extend(raw for _, raw in loaded)
+            elif _os.path.isfile(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        raw_submissions.append(json.load(f))
+                except Exception as e:
+                    raw_submissions.append({"_parse_error": str(e)})
+            else:
+                print(
+                    f"bench frontier-reeval-schedule: path not found: {path}",
+                    file=sys.stderr,
+                )
+                return 2
+
+    catalog = (
+        load_catalog_from_json(args.catalog) if args.catalog else default_catalog()
+    )
+
+    policy = ReEvaluationPolicy(
+        max_age_days=args.max_age_days,
+        check_superseded=not args.no_superseded,
+        check_new_frontier=not args.no_new_frontier,
+    )
+
+    # Build a submission_id → models mapping if --models-file was given
+    models_map: dict = {}
+    if args.models_file:
+        with open(args.models_file, encoding="utf-8") as f:
+            models_map = json.load(f)
+
+    schedule = compute_schedule(
+        raw_submissions,
+        catalog=catalog,
+        policy=policy,
+        reference_date=_date.fromisoformat(args.reference_date) if args.reference_date else None,
+        submission_models=models_map if models_map else None,
+    )
+
+    total = schedule.total_submissions
+    needs = schedule.needs_reeval_count
+    print(
+        f"frontier-reeval-schedule: {needs}/{total} submissions need re-evaluation"
+    )
+
+    if args.out:
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        save_schedule_json(schedule, args.out)
+
+    return 0 if needs == 0 else 1
+
+
+def _cmd_bench_minimization(args: argparse.Namespace) -> int:
+    from .bench.minimization import run as _run_min
+
+    try:
+        result = _run_min(
+            n_steps=args.n_steps,
+            n_noisy=args.n_noisy,
+            n_trials=args.n_trials,
+            seed=args.seed,
+        )
+    except (RuntimeError, ValueError) as e:
+        print(f"bench failed: {e}", file=sys.stderr)
+        return 4
+    print(result.summary_line())
+    if args.out:
+        import os as _os
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+    return 0
+
+
+def _cmd_bench_validate_submission(args: argparse.Namespace) -> int:
+    import os as _os
+    from .bench.submission import validate_submission_json
+
+    path = args.manifest
+    if not _os.path.isfile(path):
+        print(
+            f"bench validate-submission: file not found: {path}", file=sys.stderr
+        )
+        return 2
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"bench validate-submission: JSON parse error: {e}", file=sys.stderr)
+        return 2
+
+    result = validate_submission_json(data)
+    print(result.summary_line())
+
+    if args.out:
+        d = _os.path.dirname(_os.path.abspath(args.out))
+        if d:
+            _os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(result.to_json(), f, indent=2, sort_keys=True)
+            f.write("\n")
+
+    return 0 if result.valid else 1
+
+
 def _cmd_spec_test(args: argparse.Namespace) -> int:
     """Step 47: ``stepback spec test <impl-argv>...`` runs the conformance
     corpus against an external implementation and exits 0 iff every
@@ -1201,6 +1567,37 @@ def _parse_listen(spec: str) -> tuple:
     if port < 0 or port > 65535:
         raise ValueError(f"port out of range in {spec!r}")
     return host, port
+
+
+def _cmd_diagnose(args: argparse.Namespace) -> int:
+    """stepback diagnose — check installed SDK/framework versions."""
+    import json as _json
+    from .diagnose import diagnose_all, format_diagnose_table, WARN_NEWER, WARN_UNSUPPORTED
+
+    results = diagnose_all()
+
+    if args.json_output:
+        data = [
+            {
+                "name": r.name,
+                "package": r.package,
+                "kind": r.kind,
+                "installed": r.installed,
+                "status": r.status,
+                "detail": r.detail,
+            }
+            for r in results
+        ]
+        print(_json.dumps(data, indent=2))
+    else:
+        print(format_diagnose_table(results, show_all=args.show_all), end="")
+
+    if args.strict:
+        has_warnings = any(
+            r.status in (WARN_NEWER, WARN_UNSUPPORTED) for r in results
+        )
+        return 1 if has_warnings else 0
+    return 0
 
 
 def _cmd_proxy(args: argparse.Namespace) -> int:
@@ -1283,6 +1680,215 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
     return 0
 
 
+# ─────────────────────────────────────────────────────── stepback doctor ─────
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """stepback doctor — run environment health checks."""
+    import json as _json
+    from .doctor import run_doctor, format_doctor_table, FAIL, WARN
+
+    checks = run_doctor(check_network=getattr(args, "network", False))
+
+    if getattr(args, "json_output", False):
+        data = [
+            {
+                "name": c.name,
+                "status": c.status,
+                "detail": c.detail,
+                "remediation": c.remediation,
+            }
+            for c in checks
+        ]
+        print(_json.dumps(data, indent=2))
+    else:
+        print(format_doctor_table(checks), end="")
+
+    if any(c.status == FAIL for c in checks):
+        return 1
+    return 0
+
+
+# ─────────────────────────────────────────────────────── stepback quickstart ─
+
+def _cmd_quickstart(args: argparse.Namespace) -> int:
+    """stepback quickstart — interactive first-run setup wizard."""
+    from pathlib import Path as _Path
+    from .quickstart import run_wizard
+
+    output_dir = _Path(args.output_dir).resolve() if getattr(args, "output_dir", None) else None
+    provider = getattr(args, "provider", None)
+    api_key = getattr(args, "api_key", None)
+    non_interactive = getattr(args, "non_interactive", False)
+    skip_open = getattr(args, "skip_open", False)
+
+    try:
+        result = run_wizard(
+            non_interactive=non_interactive,
+            provider_name=provider or None,
+            api_key=api_key or None,
+            output_dir=output_dir,
+            open_browser=True,
+            skip_open=skip_open,
+        )
+    except KeyboardInterrupt:
+        print("\nAborted.")
+        return 1
+
+    if result.errors and not non_interactive:
+        print("\nWarnings during quickstart:")
+        for e in result.errors:
+            print(f"  • {e}")
+
+    return 0
+
+
+# ─────────────────────────────────────────────────────── stepback init ───────
+
+_STEPBACK_TOML_TEMPLATE = """\
+# stepback configuration — https://github.com/stepback-dev/stepback
+[stepback]
+version = "1"
+
+# Directory where .sb trace files are written by default.
+trace_dir = "traces"
+
+# Set to a hex HMAC key to sign every frame.  Generate with:
+#   python -c "import secrets; print(secrets.token_hex(32))"
+# hmac_key_hex = ""
+"""
+
+_QUICKSTART_AGENT_TEMPLATE = '''\
+"""Quickstart example agent for stepback.
+
+This script records a deterministic 12-step customer-payments agent
+using stepback\'s built-in fixture.  It demonstrates record / replay /
+substitute without requiring an LLM API key.
+
+Run:
+    python agent.py
+
+Then replay:
+    stepback replay traces/quickstart.sb
+
+Substitute the buggy lookup result and see the dirty-set shrink:
+    stepback replay traces/quickstart.sb \\
+        --substitute "tool_output@step:2=:inline:{{\\"id\\": \\"acme-us\\", \\"name\\": \\"Acme Bolts Inc\\", \\"country\\": \\"US\\", \\"iban\\": \\"US12-3456-7890\\"}}"
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+# Allow running as a standalone script; tries the installed package first
+# then falls back to the source tree two levels up.
+try:
+    import stepback  # noqa: F401 (installed package)
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import stepback
+from stepback.testing.agent import run_recorded_agent
+
+TRACE_PATH = Path(__file__).parent / "traces" / "quickstart.sb"
+
+
+def main() -> None:
+    TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Recording agent → {TRACE_PATH}")
+    with stepback.record(str(TRACE_PATH)) as rec:
+        run_recorded_agent(rec)
+    print("Done.  Replay with:")
+    print(f"  stepback replay {TRACE_PATH}")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    """stepback init — scaffold a new stepback project in the current directory.
+
+    Creates:
+      * ``stepback.toml`` — project config (skipped if it already exists).
+      * ``examples/quickstart/agent.py`` — runnable demo agent.
+      * ``traces/`` directory referenced by the config.
+      * Records a deterministic demo trace at
+        ``examples/quickstart/traces/quickstart.sb``.
+
+    After this command a brand-new user can immediately run::
+
+        stepback replay examples/quickstart/traces/quickstart.sb
+    """
+    import textwrap
+
+    target = Path(args.directory).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+
+    # ── stepback.toml ────────────────────────────────────────────────────────
+    toml_path = target / "stepback.toml"
+    if toml_path.exists() and not args.force:
+        print(f"  skip  {toml_path}  (already exists; use --force to overwrite)")
+    else:
+        toml_path.write_text(_STEPBACK_TOML_TEMPLATE)
+        print(f"  write {toml_path}")
+
+    # ── traces/ dir ──────────────────────────────────────────────────────────
+    traces_dir = target / "traces"
+    traces_dir.mkdir(exist_ok=True)
+    print(f"  mkdir {traces_dir}")
+
+    # ── examples/quickstart/agent.py ─────────────────────────────────────────
+    qs_dir = target / "examples" / "quickstart"
+    qs_dir.mkdir(parents=True, exist_ok=True)
+    agent_path = qs_dir / "agent.py"
+    if agent_path.exists() and not args.force:
+        print(f"  skip  {agent_path}  (already exists; use --force to overwrite)")
+    else:
+        agent_path.write_text(_QUICKSTART_AGENT_TEMPLATE)
+        print(f"  write {agent_path}")
+
+    # ── record demo trace ────────────────────────────────────────────────────
+    from .recorder import record as _record
+    from .testing.agent import run_recorded_agent
+
+    qs_traces_dir = qs_dir / "traces"
+    qs_traces_dir.mkdir(exist_ok=True)
+    trace_path = qs_traces_dir / "quickstart.sb"
+
+    if trace_path.exists() and not args.force:
+        print(f"  skip  {trace_path}  (already exists; use --force to overwrite)")
+    else:
+        with _record(str(trace_path), signing=False) as rec:
+            run_recorded_agent(rec)
+        print(f"  write {trace_path}")
+
+    # ── success banner ───────────────────────────────────────────────────────
+    rel_trace = trace_path.relative_to(target) if trace_path.is_relative_to(target) else trace_path
+    print()
+    print("✓ stepback project initialised.  Next steps:")
+    print()
+    print(f"  1. Inspect the demo trace:")
+    print(f"       stepback inspect {rel_trace}")
+    print()
+    print(f"  2. Replay with no substitutions (all 12 steps cache-hit):")
+    print(f"       stepback replay {rel_trace}")
+    print()
+    print(f"  3. Substitute the buggy tool output and see the dirty-set:")
+    print(
+        f"       stepback replay {rel_trace} \\\n"
+        f'           --substitute "tool_output@step:2=:inline:'
+        f'{{\\"id\\": \\"acme-us\\", \\"name\\": \\"Acme Bolts Inc\\", '
+        f'\\"country\\": \\"US\\", \\"iban\\": \\"US12-3456-7890\\"}}"'
+    )
+    print()
+    print(f"  4. Run the example agent yourself:")
+    print(f"       python {agent_path.relative_to(target) if agent_path.is_relative_to(target) else agent_path}")
+    print()
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(prog="stepback", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1353,6 +1959,15 @@ def main(argv: Optional[list] = None) -> int:
     p_verify = sub.add_parser("verify", help="verify HMAC chain + signatures")
     p_verify.add_argument("trace")
     p_verify.add_argument("--hmac-key-hex", required=True)
+    p_verify.add_argument(
+        "--strict", action="store_true",
+        help="enable strict mode: warnings become errors",
+    )
+    p_verify.add_argument(
+        "--policy",
+        metavar="POLICY_FILE",
+        help="path to a JSON verify-policy file (VerifyPolicy schema)",
+    )
     p_verify.set_defaults(func=_cmd_verify)
 
     p_bisect = sub.add_parser(
@@ -1781,6 +2396,43 @@ def main(argv: Optional[list] = None) -> int:
     )
     p_view.set_defaults(func=_cmd_view)
 
+    # ------------------------------------------------------ debug (time-travel)
+    p_debug = sub.add_parser(
+        "debug",
+        help="render a time-travel debugger HTML page for a trace",
+        description=(
+            "Read a recorded .sb trace, replay it (with optional substitutions), "
+            "and produce a self-contained HTML page with step forward/back navigation, "
+            "cache-hit display, canonical input diffs, and a causal graph view."
+        ),
+    )
+    p_debug.add_argument("trace", help="input .sb trace path")
+    p_debug.add_argument(
+        "--output", "-o", required=True,
+        help="output HTML file path",
+    )
+    p_debug.add_argument(
+        "--title", default=None,
+        help="title shown in the viewer header (default: derived from the trace filename)",
+    )
+    p_debug.add_argument(
+        "--hmac-key-hex", default=None,
+        help="optional HMAC key (hex) used to verify the chain while loading",
+    )
+    p_debug.add_argument(
+        "--sub", action="append", default=[],
+        metavar="SPEC",
+        help=(
+            "substitution spec applied before replay "
+            "(can be repeated; same syntax as 'stepback replay --sub')"
+        ),
+    )
+    p_debug.add_argument(
+        "--json", action="store_true",
+        help="print a TimeTravelSummary as JSON to stdout instead of a one-liner",
+    )
+    p_debug.set_defaults(func=_cmd_debug)
+
     # ------------------------------------------------------ bench
     p_bench = sub.add_parser(
         "bench",
@@ -1847,6 +2499,135 @@ def main(argv: Optional[list] = None) -> int:
                               help="run under tracemalloc and report peak memory")
     p_bench_soak.add_argument("--out", help="write aggregate JSON SoakResult to this path")
     p_bench_soak.set_defaults(func=_cmd_bench_soak)
+
+    p_bench_dsd = bench_sub.add_parser(
+        "dirty-set-distributions",
+        help="empirical dirty-set fraction distributions over multiple fixture corpora",
+        description=(
+            "Compute full dirty-set distributions — percentile tables and "
+            "normalized histograms — across multiple synthetic trace corpora "
+            "(linear_chain, parallel_wide, mixed_synthetic, agent_fixture) "
+            "and substitution strategies.  Uses compute_dirty_set (pure "
+            "analysis; no LLM/tool re-execution).  Step 66 of 100_STEPS.md."
+        ),
+    )
+    p_bench_dsd.add_argument("--n-trials", type=int, default=20,
+                             help="trials per (corpus, position, sub_kind) cell (default 20)")
+    p_bench_dsd.add_argument("--n-steps", type=int, default=50,
+                             help="target steps for linear/mixed corpora (default 50)")
+    p_bench_dsd.add_argument("--seed", type=int, default=0,
+                             help="base RNG seed (default 0)")
+    p_bench_dsd.add_argument(
+        "--corpora",
+        default="",
+        help=(
+            "comma-separated subset of corpora to run "
+            "(linear_chain,parallel_wide,mixed_synthetic,agent_fixture); "
+            "default: all"
+        ),
+    )
+    p_bench_dsd.add_argument("--out", help="write DistributionSuite JSON to this path")
+    p_bench_dsd.set_defaults(func=_cmd_bench_dirty_set_distributions)
+
+    p_bench_ms = bench_sub.add_parser(
+        "model-swap",
+        help="differential benchmark: replay with model A vs model B",
+    )
+    p_bench_ms.add_argument("--n-steps", type=int, default=20,
+                            help="approximate number of steps per synthetic trace (default 20)")
+    p_bench_ms.add_argument("--n-trials", type=int, default=5,
+                            help="independent trials to aggregate (default 5)")
+    p_bench_ms.add_argument("--seed", type=int, default=0,
+                            help="base RNG seed (default 0)")
+    p_bench_ms.add_argument("--model-a", default="bench-model-a-v1",
+                            help="name tag for model A (default bench-model-a-v1)")
+    p_bench_ms.add_argument("--model-b", default="bench-model-b-v1",
+                            help="name tag for model B (default bench-model-b-v1)")
+    p_bench_ms.add_argument("--out", help="write structured JSON ModelSwapResult to this path")
+    p_bench_ms.set_defaults(func=_cmd_bench_model_swap)
+
+    p_bench_sc = bench_sub.add_parser(
+        "storage-compression",
+        help="benchmark raw JSON vs .sb v1 vs CBOR vs zstd storage costs",
+    )
+    p_bench_sc.add_argument("--n-traces", type=int, default=20,
+                            help="number of synthetic traces (default 20)")
+    p_bench_sc.add_argument("--n-steps", type=int, default=30,
+                            help="approximate number of steps per trace (default 30)")
+    p_bench_sc.add_argument("--seed", type=int, default=0,
+                            help="base RNG seed (default 0)")
+    p_bench_sc.add_argument("--out", help="write structured JSON StorageCompressionResult to this path")
+    p_bench_sc.set_defaults(func=_cmd_bench_storage_compression)
+
+    p_bench_mb = bench_sub.add_parser(
+        "microbenchmarks",
+        help="canonicalization, frame write, HMAC/signing, and hash microbenchmarks",
+    )
+    p_bench_mb.add_argument("--n-iter", type=int, default=500,
+                            help="timed iterations per operation (default 500)")
+    p_bench_mb.add_argument("--out", help="write structured JSON MicroBenchSuite to this path")
+    p_bench_mb.set_defaults(func=_cmd_bench_microbenchmarks)
+
+    p_bench_lb = bench_sub.add_parser(
+        "leaderboard",
+        help="build a ranked leaderboard from signed JSON submissions",
+    )
+    p_bench_lb.add_argument(
+        "submissions", nargs="+",
+        help="paths to submission JSON files or directories containing them",
+    )
+    p_bench_lb.add_argument("--out", help="write leaderboard JSON to this path")
+    p_bench_lb.add_argument("--html", help="write leaderboard HTML to this path")
+    p_bench_lb.set_defaults(func=_cmd_bench_leaderboard)
+
+    p_bench_fr = bench_sub.add_parser(
+        "frontier-reeval-schedule",
+        help="compute which submissions need re-evaluation against frontier models",
+    )
+    p_bench_fr.add_argument(
+        "--submissions", nargs="*", default=[],
+        help="paths to submission JSON files or directories (default: none → empty schedule)",
+    )
+    p_bench_fr.add_argument("--catalog", default=None,
+                            help="path to frontier model catalog JSON (default: bundled)")
+    p_bench_fr.add_argument("--models-file", default=None,
+                            help="JSON mapping submission_id → [model_id, ...] used by each")
+    p_bench_fr.add_argument("--max-age-days", type=int, default=180,
+                            help="submissions older than this need re-evaluation (default 180)")
+    p_bench_fr.add_argument("--reference-date", default=None,
+                            help="YYYY-MM-DD reference date for age calculation (default: today)")
+    p_bench_fr.add_argument("--no-superseded", action="store_true",
+                            help="disable superseded-model check")
+    p_bench_fr.add_argument("--no-new-frontier", action="store_true",
+                            help="disable new-frontier-model check")
+    p_bench_fr.add_argument("--out", help="write schedule JSON to this path")
+    p_bench_fr.set_defaults(func=_cmd_bench_frontier_reeval_schedule)
+
+    p_bench_vs = bench_sub.add_parser(
+        "validate-submission",
+        help="validate a submission JSON manifest against MLPerf-style submission rules",
+    )
+    p_bench_vs.add_argument(
+        "manifest",
+        help="path to the submission JSON file to validate",
+    )
+    p_bench_vs.add_argument("--out", help="write SubmissionValidationResult JSON to this path")
+    p_bench_vs.set_defaults(func=_cmd_bench_validate_submission)
+
+    p_bench_mn = bench_sub.add_parser(
+        "minimization",
+        help="minimization benchmark: trace size, predicate stability, LLM calls vs naive ddmin",
+    )
+    p_bench_mn.add_argument("--n-steps", type=int, default=20,
+                            help="approximate number of steps per synthetic trace (default 20)")
+    p_bench_mn.add_argument("--n-noisy", type=int, default=5,
+                            help="number of noisy substitutions per trial (default 5)")
+    p_bench_mn.add_argument("--n-trials", type=int, default=5,
+                            help="independent trials to aggregate (default 5)")
+    p_bench_mn.add_argument("--seed", type=int, default=0,
+                            help="base RNG seed (default 0)")
+    p_bench_mn.add_argument("--out", help="write structured JSON MinimizationBenchResult to this path")
+    p_bench_mn.set_defaults(func=_cmd_bench_minimization)
 
     # --- spec ---------------------------------------------------------- #
     p_spec = sub.add_parser(
@@ -1935,6 +2716,130 @@ def main(argv: Optional[list] = None) -> int:
         help="grpc thread-pool size (default 8)",
     )
     p_proxy.set_defaults(func=_cmd_proxy)
+
+    # ------------------------------------------------------------------ diagnose
+    p_diag = sub.add_parser(
+        "diagnose",
+        help="Inspect installed SDK/framework versions against the certified matrix.",
+    )
+    p_diag.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        default=False,
+        help="Emit results as a JSON array instead of a table.",
+    )
+    p_diag.add_argument(
+        "--all",
+        action="store_true",
+        dest="show_all",
+        default=False,
+        help="Include packages that are not installed in the output.",
+    )
+    p_diag.add_argument(
+        "--strict",
+        action="store_true",
+        dest="strict",
+        default=False,
+        help="Exit 1 if any package has a warning status (warn_newer or warn_unsupported).",
+    )
+    p_diag.set_defaults(func=_cmd_diagnose)
+
+    # ------------------------------------------------------------------ doctor
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="run environment health checks and print a PASS/WARN/FAIL table",
+        description=(
+            "Check Python version, optional Rust/WASM components, HMAC key "
+            "material, writable trace directory, and (with --network) TCP "
+            "reachability of configured LLM providers.  Exits 1 if any check "
+            "is FAIL."
+        ),
+    )
+    p_doctor.add_argument(
+        "--network",
+        action="store_true",
+        default=False,
+        help="Also check TCP reachability of known LLM provider hosts (makes outbound connections).",
+    )
+    p_doctor.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        default=False,
+        help="Emit results as a JSON array instead of a table.",
+    )
+    p_doctor.set_defaults(func=_cmd_doctor)
+
+    # ------------------------------------------------------------------ init
+    p_init = sub.add_parser(
+        "init",
+        help="scaffold a stepback.toml, quickstart example, and demo trace",
+        description=(
+            "Initialise a new stepback project in DIRECTORY (default: current "
+            "working directory). Creates stepback.toml, examples/quickstart/agent.py, "
+            "and records a deterministic demo trace so you can immediately run "
+            "`stepback replay examples/quickstart/traces/quickstart.sb`."
+        ),
+    )
+    p_init.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="Target directory (default: current working directory).",
+    )
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite existing stepback.toml and agent.py if present.",
+    )
+    p_init.set_defaults(func=_cmd_init)
+
+    # -------------------------------------------------------------- quickstart
+    p_qs = sub.add_parser(
+        "quickstart",
+        help="interactive first-run wizard: pick a provider, store API key, record a trace",
+        description=(
+            "Walk through picking a provider shim, storing your API key safely "
+            "in the OS keyring (never on disk or in the repo), recording one "
+            "demo trace, and opening it in the HTML viewer.  "
+            "Use --non-interactive for scripted / CI use."
+        ),
+    )
+    p_qs.add_argument(
+        "--provider",
+        choices=["openai", "anthropic", "bedrock", "gemini", "demo"],
+        default=None,
+        help="Provider to use (skips the interactive picker).",
+    )
+    p_qs.add_argument(
+        "--api-key",
+        dest="api_key",
+        default=None,
+        help="API key for the chosen provider (skips the interactive key prompt).",
+    )
+    p_qs.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        default=None,
+        help="Directory for the recorded trace and HTML file (default: a temp dir).",
+    )
+    p_qs.add_argument(
+        "--non-interactive",
+        dest="non_interactive",
+        action="store_true",
+        default=False,
+        help="Skip all prompts; use --provider (default: demo) and --api-key as given.",
+    )
+    p_qs.add_argument(
+        "--skip-open",
+        dest="skip_open",
+        action="store_true",
+        default=False,
+        help="Do not open the HTML viewer in the browser.",
+    )
+    p_qs.set_defaults(func=_cmd_quickstart)
 
     args = p.parse_args(argv)
     return args.func(args)

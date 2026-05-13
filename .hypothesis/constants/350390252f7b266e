@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/trace_writer.py
+# hypothesis_version: 6.148.5
+
+[b'\x00', 100, 200, '$blob', '.', '0.1.0', '2026-04-01', '>I', 'TraceWriter', 'algorithm', 'ascii', 'blob', 'blob_min_reuse', 'blob_threshold', 'body', 'capability', 'compression', 'data', 'ed25519:', 'encoding', 'format_version', 'gzip+base64', 'gzip+dedup-2', 'header', 'hmac', 'hmac_key_id', 'id', 'json', 'leaf_count', 'magic', 'mandatory', 'merkle_root', 'merkle_summary', 'name', 'none', 'params', 'prev_hmac', 'price_list_version', 'public_key', 'recorder_version', 'scheme', 'sha256', 'sig', 'step', 'stepback/.sb', 'tail', 'type', 'utf-8', 'wallclock_ns', 'wb']

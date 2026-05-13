@@ -1,0 +1,62 @@
+{
+  "_meta": {
+    "source": "google-genai>=0.8.0 Client.models.generate_content",
+    "api_version": "v1beta",
+    "model": "gemini-2.5-flash-2025-04-09",
+    "request": {
+      "contents": [
+        {
+          "role": "user",
+          "parts": [{"text": "What is the weather in Paris right now?"}]
+        }
+      ],
+      "config": {
+        "temperature": 0.0,
+        "max_output_tokens": 256,
+        "tools": [
+          {
+            "function_declarations": [
+              {
+                "name": "get_weather",
+                "description": "Get the current weather for a location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {"type": "string", "description": "City name"}
+                  },
+                  "required": ["location"]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {"text": "I'll look up the current weather in Paris for you."},
+          {
+            "function_call": {
+              "id": "call_abc123xyz",
+              "name": "get_weather",
+              "args": {"location": "Paris"}
+            }
+          }
+        ]
+      },
+      "finish_reason": "MALFORMED_FUNCTION_CALL",
+      "index": 0
+    }
+  ],
+  "usage_metadata": {
+    "prompt_token_count": 48,
+    "candidates_token_count": 22,
+    "total_token_count": 70
+  },
+  "model_version": "gemini-2.5-flash-2025-04-09",
+  "response_id": "resp-0002efgh"
+}

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/Documents/div/mathdivergence/halley-labs/wasserstein-bounds/src/lipschitz_estimation.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1e-12, 1e-10, 0.05, 0.1, 0.5, 0.9, 0.95, 1.0, 1.5, 100, 2000, 'adversarial', 'assumed', 'ci_upper', 'combined', 'coverage', 'domain_validated', 'empirical_only', 'estimated_L', 'estimated_lipschitz', 'exact', 'expansive', 'finite_difference', 'inf', 'lipschitz', 'max_observed_ratio', 'soundness_upgraded', 'stage_shifts', 'sub-lipschitz', 'true_lipschitz', 'unknown', 'violation_rate', 'w1_ratio']

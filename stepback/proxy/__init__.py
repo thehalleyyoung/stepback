@@ -1,7 +1,7 @@
 """``stepback-proxy`` — HTTP (and optional gRPC) sidecar for recording
 ``.sb`` traces from non-Python runtimes.
 
-The proxy exposes four core RPCs that mirror the in-process recorder:
+The proxy exposes five RPCs that mirror the in-process recorder:
 
 * ``StartTrace``  — open a new ``.sb`` file, mint per-trace HMAC + Ed25519
   keys, and return a trace handle.
@@ -9,6 +9,9 @@ The proxy exposes four core RPCs that mirror the in-process recorder:
 * ``EndTrace``    — flush and close an open trace.
 * ``VerifyTrace`` — verify HMAC chain + per-frame Ed25519 signatures of an
   existing ``.sb`` file.
+* ``ReplayTrace`` — submit a closed trace and optional substitutions, receive
+  replay events streamed one per step (NDJSON over HTTP; server-streaming
+  gRPC over the optional gRPC transport).
 
 Two transports are provided:
 
@@ -51,3 +54,4 @@ __all__ = [
     "UnknownTraceError",
     "serve_http",
 ]
+

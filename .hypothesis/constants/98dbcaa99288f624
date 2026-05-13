@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/trace_reader.py
+# hypothesis_version: 6.148.7
+
+[b'\x00', 256, 1024, '$blob', ',', ', ', '>I', 'Unknown', 'algorithm', 'ascii', 'auto', 'blob', 'blobs', 'body', 'capability', 'core', 'data', 'ed25519-receipts', 'ed25519:', 'empty trace', 'encoding', 'frame_index', 'gzip+base64', 'gzip-step-bodies', 'header', 'hmac', 'hmac-sha256-chain', 'id', 'json', 'kind', 'leaf_count', 'mandatory', 'merkle-summary-v1', 'merkle_root', 'merkle_summary', 'name', 'none', 'params', 'prev_hmac', 'prev_hmac mismatch', 'public_key', 'python', 'rb', 'rust', 'scheme', 'sha256', 'sig', 'step', 'tail', 'truncated frame body', 'type', 'utf-8']

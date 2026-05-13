@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/soak.py
+# hypothesis_version: 6.148.7
+
+[b'\x00', b'|', 0.0, 0.95, 0.99, 1000000.0, 256, 10000, 1000003, 2147483647, 2779077210, 'SoakResult', 'ascii', 'cache_hits', 'digest', 'dirty_count', 'do_substitution', 'error_kinds', 'errors', 'file_size_bytes', 'max', 'mean', 'median', 'min', 'n_steps must be >= 1', 'n_steps_actual', 'n_steps_target', 'n_traces', 'p95', 'p99', 'peak_memory_bytes', 'random_step', 'real_executions', 'record_ms', 'replay_ms', 'run', 'seed', 'stdev', 'step_id', 'step_kind', 'total_ms', 'traces_per_second', 'wall_time_s']

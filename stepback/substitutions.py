@@ -299,6 +299,58 @@ class OutputsPatchSubstitution(Substitution):
 
 
 @dataclass
+class FieldOutputSubstitution(Substitution):
+    """Output-forcing: update specific top-level fields in a step's recorded output.
+
+    All top-level fields in the recorded output NOT listed in ``field_updates``
+    are preserved unchanged.  This is the companion to the ``context_fields``
+    recorder parameter: by substituting only the fields a particular downstream
+    step depends on, you can make that downstream step dirty while keeping
+    other downstream steps — whose ``context_fields`` declarations do not
+    reference the changed fields — as cache hits.
+
+    Example::
+
+        # Record step A producing {"fast_result": 1, "slow_result": 2}.
+        # Step B was recorded with context_fields=["fast_result"].
+        # Step C was recorded with context_fields=["slow_result"].
+        #
+        # Substitute only slow_result → B stays clean, C goes dirty.
+        trace.substitute(FieldOutputSubstitution("step:1", {"slow_result": 99}))
+        result = trace.replay_forward(executor)
+        # result: B is cache_hit=True, C is dirty=True
+
+    Parameters
+    ----------
+    at_step : str
+        The ``step_id`` of the step whose output fields are replaced.
+    field_updates : dict
+        Mapping of top-level output field name → new value.  Must be
+        non-empty.  Keys that do not exist in the recorded output are
+        added (forward-compatible extension).
+    """
+
+    at_step: str
+    field_updates: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.field_updates, dict):
+            raise ValueError("FieldOutputSubstitution.field_updates must be a dict")
+        if not self.field_updates:
+            raise ValueError("FieldOutputSubstitution.field_updates must be non-empty")
+
+    def apply(self, inputs: dict, recorded_step: dict) -> None:
+        return  # no-op on inputs
+
+    def is_output_forcing(self) -> bool:
+        return True
+
+    def force_output(self, recorded_step: dict) -> Any:
+        recorded_outputs = recorded_step.get("outputs") or {}
+        return {**recorded_outputs, **self.field_updates}
+
+
+@dataclass
 class RaiseSubstitution(Substitution):
     """Output-forcing: pretend the step raised ``exception_type``.
 

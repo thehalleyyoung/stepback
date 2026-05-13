@@ -43,12 +43,14 @@ import json
 import os
 import struct
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, BinaryIO, Optional
+from typing import Any, BinaryIO, List, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .canonical import CANONICALISATION_VERSION, canonical_json
+from .merkle import leaf_hash, merkle_root
 
 ZERO_HMAC = b"\x00" * 32
 
@@ -59,6 +61,14 @@ BLOB_REF_KEY = "$blob"
 DEFAULT_BLOB_THRESHOLD = 200  # min canonical-JSON bytes to consider interning
 DEFAULT_BLOB_MIN_REUSE = 2     # only intern sub-trees referenced >= N times
 COMPRESSION_SCHEME = "gzip+dedup-2"
+DEFAULT_BATCH_SIGN_INTERVAL = 100  # steps per auto-flush in streaming+batch mode
+
+#: v1 Merkle summary scheme identifier. Leaves are
+#: ``SHA-256(0x00 || canonical-JSON body bytes)`` of every header,
+#: capability, blob, and step frame in on-disk order; the
+#: ``merkle_summary`` and ``tail`` frames themselves are NOT leaves.
+#: Internal nodes are ``SHA-256(0x01 || left || right)`` per RFC 6962.
+MERKLE_SCHEME = "frame-body-sha256-rfc6962"
 
 
 def _walk_candidates(value, threshold: int, counts: dict, raws: dict) -> None:
@@ -110,7 +120,16 @@ class TraceWriter:
     blob_threshold: int = DEFAULT_BLOB_THRESHOLD
     blob_min_reuse: int = DEFAULT_BLOB_MIN_REUSE
     pending_steps: list = field(default_factory=list)
+    pending_items: list = field(default_factory=list)
     seen_blobs: set = field(default_factory=set)
+    emit_merkle_summary: bool = True
+    _leaves: list = field(default_factory=list)
+    signing: bool = True
+    batch_sign: bool = False
+    batch_sign_interval: int = DEFAULT_BATCH_SIGN_INTERVAL
+    batch_sign_workers: int = 0
+    _executor: Optional[ThreadPoolExecutor] = field(default=None, repr=False)
+    _streaming_batch: List[dict] = field(default_factory=list)
 
     @classmethod
     def open(
@@ -122,11 +141,22 @@ class TraceWriter:
         compression: bool = True,
         blob_threshold: int = DEFAULT_BLOB_THRESHOLD,
         blob_min_reuse: int = DEFAULT_BLOB_MIN_REUSE,
+        emit_merkle_summary: bool = True,
+        signing: bool = True,
+        batch_sign: bool = False,
+        batch_sign_interval: int = DEFAULT_BATCH_SIGN_INTERVAL,
+        batch_sign_workers: int = 0,
     ) -> "TraceWriter":
+        if batch_sign and not signing:
+            raise ValueError("batch_sign=True requires signing=True")
         hmac_key = hmac_key or os.urandom(32)
         signing_key = signing_key or Ed25519PrivateKey.generate()
         os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
         f = open(path, "wb")
+        executor: Optional[ThreadPoolExecutor] = None
+        if batch_sign:
+            max_w = batch_sign_workers if batch_sign_workers > 0 else None
+            executor = ThreadPoolExecutor(max_workers=max_w)
         w = cls(
             path=path,
             hmac_key=hmac_key,
@@ -135,8 +165,14 @@ class TraceWriter:
             compression=compression,
             blob_threshold=blob_threshold,
             blob_min_reuse=blob_min_reuse,
+            emit_merkle_summary=emit_merkle_summary,
+            signing=signing,
+            batch_sign=batch_sign,
+            batch_sign_interval=batch_sign_interval,
+            batch_sign_workers=batch_sign_workers,
+            _executor=executor,
         )
-        public_key_hex = signing_key.public_key().public_bytes_raw().hex()
+        public_key_hex = signing_key.public_key().public_bytes_raw().hex() if signing else ""
         w._write_frame(
             {
                 "type": "header",
@@ -157,13 +193,22 @@ class TraceWriter:
 
     def _write_frame(self, body: dict) -> None:
         body_bytes = canonical_json(body)
+        # Track every content-frame body in the Merkle leaf list; the
+        # summary frame itself and the trailing tail are NOT leaves
+        # (see ``spec/sbtrace-v1.md`` §6.7 and ``stepback/merkle.py``).
+        if body.get("type") not in ("merkle_summary", "tail"):
+            self._leaves.append(leaf_hash(body_bytes))
         h = hmac.new(self.hmac_key, self.prev_hmac + body_bytes, hashlib.sha256).digest()
-        sig = self.signing_key.sign(h)
+        if self.signing:
+            sig = self.signing_key.sign(h)
+            sig_str = "ed25519:" + sig.hex()
+        else:
+            sig_str = "none"
         wrapper = {
             "body": body,
             "prev_hmac": self.prev_hmac.hex(),
             "hmac": h.hex(),
-            "sig": "ed25519:" + sig.hex(),
+            "sig": sig_str,
         }
         wrapper_bytes = canonical_json(wrapper)
         assert self.f is not None
@@ -172,7 +217,106 @@ class TraceWriter:
         self.f.flush()
         self.prev_hmac = h
 
+    def _write_frames_batch(self, bodies: List[dict]) -> None:
+        """Write multiple frames with parallel Ed25519 signing.
+
+        HMAC chain is computed sequentially (each HMAC depends on the
+        previous), but all Ed25519 signatures are computed in parallel
+        via the thread pool executor.
+        """
+        if not bodies:
+            return
+
+        # Step 1: compute bodies + HMACs sequentially to maintain chain
+        prev_hmacs = []  # prev_hmac for each frame (before its own HMAC)
+        body_bytes_list = []
+        hmac_list = []
+        prev = self.prev_hmac
+        for body in bodies:
+            bb = canonical_json(body)
+            if body.get("type") not in ("merkle_summary", "tail"):
+                self._leaves.append(leaf_hash(bb))
+            h = hmac.new(self.hmac_key, prev + bb, hashlib.sha256).digest()
+            prev_hmacs.append(prev)
+            body_bytes_list.append(bb)
+            hmac_list.append(h)
+            prev = h
+        self.prev_hmac = prev
+
+        # Step 2: sign all HMACs in parallel
+        assert self.f is not None
+        executor = self._executor
+        if executor is not None and len(hmac_list) > 1:
+            futures = [executor.submit(self.signing_key.sign, h) for h in hmac_list]
+            sigs = [f.result() for f in futures]
+        else:
+            sigs = [self.signing_key.sign(h) for h in hmac_list]
+
+        # Step 3: assemble wrappers and write to disk sequentially
+        for ph, bb, h, sig, body in zip(prev_hmacs, body_bytes_list, hmac_list, sigs, bodies):
+            wrapper = {
+                "body": body,
+                "prev_hmac": ph.hex(),
+                "hmac": h.hex(),
+                "sig": "ed25519:" + sig.hex(),
+            }
+            wrapper_bytes = canonical_json(wrapper)
+            self.f.write(struct.pack(">I", len(wrapper_bytes)))
+            self.f.write(wrapper_bytes)
+        self.f.flush()
+
+    def write_capability(
+        self,
+        name: str,
+        *,
+        mandatory: bool = False,
+        params: Optional[dict] = None,
+    ) -> None:
+        """Emit a capability frame declaring an extension this writer relied on.
+
+        See ``spec/sbtrace-v1.md`` §6.2. ``name`` MUST be a non-empty
+        string. ``mandatory=True`` instructs readers to fail closed if
+        they do not implement ``name``; ``mandatory=False`` is advisory
+        and unknown names MAY be ignored. ``params`` is an optional
+        extension-specific JSON object.
+
+        When ``compression=True`` the frame is buffered alongside
+        pending step frames so on-disk relative order matches the call
+        order of ``write_capability`` and ``write_step``.
+        """
+        if not isinstance(name, str) or not name:
+            raise ValueError("capability name must be a non-empty string")
+        if not isinstance(mandatory, bool):
+            raise TypeError("capability mandatory must be a bool")
+        if params is not None and not isinstance(params, dict):
+            raise TypeError("capability params must be a dict or None")
+        body: dict = {
+            "type": "capability",
+            "name": name,
+            "mandatory": mandatory,
+        }
+        if params is not None:
+            body["params"] = json.loads(canonical_json(params).decode("utf-8"))
+        if self.batch_sign and not self.compression:
+            # In streaming batch mode, buffer the capability with the batch
+            self._streaming_batch.append(body)
+            return
+        if not self.compression:
+            self._write_frame(body)
+            return
+        self.pending_items.append(("capability", body))
+
     def write_step(self, step: dict) -> None:
+        if self.batch_sign and not self.compression:
+            # Streaming batch mode: buffer steps and flush at interval
+            body = {"type": "step", "step": step}
+            self._streaming_batch.append(body)
+            if (
+                self.batch_sign_interval > 0
+                and len(self._streaming_batch) >= self.batch_sign_interval
+            ):
+                self.flush()
+            return
         if not self.compression:
             self._write_frame({"type": "step", "step": step})
             return
@@ -185,12 +329,15 @@ class TraceWriter:
         # successive llm_call frames in the agent's chat history).
         snapshot = json.loads(canonical_json(step).decode("utf-8"))
         self.pending_steps.append(snapshot)
+        self.pending_items.append(("step", snapshot))
 
     def _flush_pending(self) -> None:
-        if not self.pending_steps:
+        if not self.pending_steps and not self.pending_items:
             return
         # Pre-pass: count occurrences of every interior dict/list across
-        # all pending steps.
+        # all pending steps. (Capability params are not interned — they
+        # are typically tiny and conceptually part of the negotiation
+        # surface, not bulk payload.)
         counts: dict = {}
         raws: dict = {}
         for s in self.pending_steps:
@@ -225,7 +372,11 @@ class TraceWriter:
                         "data": raw.decode("utf-8"),
                     }
                 )
-        for s in self.pending_steps:
+        for kind, payload in self.pending_items:
+            if kind == "capability":
+                self._write_frame(payload)
+                continue
+            s = payload
             interned = _apply_intern(s, self.blob_threshold, intern_set)
             raw = canonical_json(interned)
             gz = gzip.compress(raw, compresslevel=9, mtime=0)
@@ -241,9 +392,91 @@ class TraceWriter:
             else:
                 self._write_frame({"type": "step", "step": interned})
         self.pending_steps = []
+        self.pending_items = []
+
+    def _flush_pending_batch(self) -> None:
+        """Like _flush_pending but uses parallel batch signing for the frame list."""
+        if not self.pending_steps and not self.pending_items:
+            return
+        counts: dict = {}
+        raws: dict = {}
+        for s in self.pending_steps:
+            _walk_candidates(s, self.blob_threshold, counts, raws)
+        intern_set = {
+            d for d, n in counts.items() if n >= self.blob_min_reuse
+        }
+        bodies: List[dict] = []
+        # Blob frames first
+        for digest in sorted(intern_set):
+            if digest in self.seen_blobs:
+                continue
+            self.seen_blobs.add(digest)
+            raw = raws[digest]
+            gz = gzip.compress(raw, compresslevel=9, mtime=0)
+            b64_gz = base64.b64encode(gz).decode("ascii")
+            if len(b64_gz) + 24 < len(raw):
+                bodies.append({"type": "blob", "id": digest, "encoding": "gzip+base64", "data": b64_gz})
+            else:
+                bodies.append({"type": "blob", "id": digest, "encoding": "json", "data": raw.decode("utf-8")})
+        # Step and capability frames
+        for kind, payload in self.pending_items:
+            if kind == "capability":
+                bodies.append(payload)
+                continue
+            s = payload
+            interned = _apply_intern(s, self.blob_threshold, intern_set)
+            raw = canonical_json(interned)
+            gz = gzip.compress(raw, compresslevel=9, mtime=0)
+            b64_gz = base64.b64encode(gz).decode("ascii")
+            if len(b64_gz) + 24 < len(raw):
+                bodies.append({"type": "step", "encoding": "gzip+base64", "data": b64_gz})
+            else:
+                bodies.append({"type": "step", "step": interned})
+        self._write_frames_batch(bodies)
+        self.pending_steps = []
+        self.pending_items = []
+
+    def flush(self) -> None:
+        """Flush buffered frames to disk.
+
+        In ``compression=False, batch_sign=True`` (streaming batch) mode,
+        writes the current ``_streaming_batch`` to disk using parallel
+        Ed25519 signing, then clears the buffer.
+
+        In all other modes this is a no-op (``compression=True`` mode
+        defers all writes to ``close()``).
+        """
+        if not self.batch_sign or self.compression:
+            return
+        if not self._streaming_batch:
+            return
+        self._write_frames_batch(self._streaming_batch)
+        self._streaming_batch = []
 
     def close(self) -> None:
         if self.f and not self.f.closed:
-            self._flush_pending()
+            # Flush streaming batch if in batch+no-compression mode
+            if self.batch_sign and not self.compression and self._streaming_batch:
+                self._write_frames_batch(self._streaming_batch)
+                self._streaming_batch = []
+            # For compression=True + batch_sign=True, _flush_pending() handles the batch
+            if self.compression and self.batch_sign:
+                self._flush_pending_batch()
+            else:
+                self._flush_pending()
+            if self.emit_merkle_summary:
+                root = merkle_root(self._leaves)
+                self._write_frame(
+                    {
+                        "type": "merkle_summary",
+                        "scheme": MERKLE_SCHEME,
+                        "algorithm": "sha256",
+                        "leaf_count": len(self._leaves),
+                        "merkle_root": root.hex(),
+                    }
+                )
             self._write_frame({"type": "tail", "wallclock_ns": time.time_ns()})
             self.f.close()
+            if self._executor is not None:
+                self._executor.shutdown(wait=True)
+                self._executor = None

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/distributed_dirty.py
+# hypothesis_version: 6.148.7
+
+['Substitution', 'Trace_', '__dirty_sentinel__', 'branch_tail_hashes', 'branch_tails', 'context', 'input_drift', 'inputs', 'inputs_hash', 'name', 'nondeterminism', 'nondeterminism_hash', 'outputs', 'outputs_hash', 'parallel_branch_join', 'parallel_branch_open', 'parent_dirty', 'parent_step_id', 'parent_step_ids', 'step_id', 'step_kind', 'substituted']

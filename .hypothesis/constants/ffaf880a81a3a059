@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/minimize.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1e-09, 1.0, 49373, 49374, 'BranchGroup', 'BruteForceStrategy', 'BudgetExhausted', 'DDMinStrategy', 'LinearShrinkStrategy', 'MinimizationResult', 'MinimizeOptions', 'ParetoEntry', 'Strategy', 'Trace', 'TraceObjectives', 'attribute_steps', 'binary', 'branch_names', 'branch_tail_hashes', 'branch_tails', 'brute', 'ddmin', 'ddmin_substitutions', 'extract_objectives', 'find_all_minimal', 'inputs', 'linear', 'llm_call', 'minimize_branches', 'open_step_id', 'outputs', 'parallel_branch_join', 'parallel_branch_open', 'parent_step_id', 'parent_step_ids', 'policy_blocked', 'shapley', 'step_id', 'step_kind', 'step_shapley']

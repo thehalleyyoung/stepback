@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/branch_io.py
+# hypothesis_version: 6.148.7
+
+[0.0, '"', ',', '.', ':', ':idx=', ':inline:', ':kv:', '=', '@', 'E', 'ModelSubstitution', 'PolicySubstitution', 'PromptSubstitution', 'RaiseSubstitution', 'ReplayResult', 'RouterSubstitution', 'SamplingSubstitution', '[', 'a_outputs_hash', 'a_total_cost_usd', 'append', 'b_outputs_hash', 'b_total_cost_usd', 'base_step', 'cost_delta_usd', 'diverged', 'divergent_step_count', 'e', 'format_version', 'inline:', 'inputs_hash', 'inputs_patch', 'kind', 'magic', 'message', 'model', 'name', 'null', 'outputs_hash', 'outputs_patch', 'path=', 'policy', 'prepend', 'prompt', 'r', 'raise', 'replace', 'router', 'sampling', 'step_diffs', 'step_id', 'stepback/.sbb', 'substitutions', 'system', 'system_append', 'system_prepend', 'system_replace', 'tool_args', 'tool_output', 'total_cost_delta_usd', 'trace_path', 'type', 'utf-8', 'w', '{']

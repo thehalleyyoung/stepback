@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/verify_policy.py
+# hypothesis_version: 6.148.5
+
+['1.0.0', '>I', 'VerifyPolicy', 'allowed_public_keys', 'canonical_bytes', 'crypto', 'enabled', 'error', 'r', 'rb', 'recorder_identity', 'recorder_version', 'schema', 'strict', 'utf-8', 'warning']

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/case_studies/parameter_sweep.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.4, 'INJECTED-001', 'assistant', 'candidate_labels', 'choices', 'code-review-agent v1', 'completion_tokens', 'content', 'critical', 'diverged_fraction', 'file', 'findings', 'finish_reason', 'gpt-4o-2024-11-20', 'id', 'index', 'llm_call', 'low', 'mean_dirty_count', 'message', 'model', 'n_candidates', 'n_steps_per_trace', 'n_traces', 'outputs', 'prompt_tokens', 'record', 'result', 'role', 'sb-sweep-', 'severity', 'static_analysis', 'step_id', 'step_kind', 'stop', 'strict_system_prompt', 'system', 'tool_call', 'total_tokens', 'usage', 'user', '|']

@@ -5,13 +5,19 @@ A *predicate* is any ``Callable[[X], bool]`` accepted by
 ``Trace.bisect`` (where ``X = StepView``) or ``find_minimal``
 (where ``X = ReplayResult``).
 
-Two ways to build one:
+Three ways to build one:
 
 1. The original combinator helpers (``all_of``, ``any_of``, ``not_``,
    ``xor_``) which compose plain Python callables.
 
 2. The string DSL (``compile_predicate``) which compiles a small
    sandboxed subset of Python expression syntax to a callable.
+
+3. The **typed factory functions** (``threshold``, ``regex_match``,
+   ``regex_search``, ``policy_check``, ``callback``) that wrap logic in
+   a :class:`TypedPredicate` carrying ``name`` and ``description``
+   metadata alongside the callable.  All typed predicates compose
+   naturally with ``all_of`` / ``any_of`` / ``not_`` / ``xor_``.
 
 DSL usage::
 
@@ -24,6 +30,15 @@ DSL usage::
     trace.bisect(good="step:1", bad="step:12",
                  predicate=compile_predicate(
                      "kind == 'tool_call' and 'GB99' in str(outputs)"))
+
+Typed factory usage::
+
+    from stepback.predicates import threshold, regex_match, policy_check, callback
+
+    p = threshold("total_cost_usd", ">", 0.10)
+    q = regex_match(r"GB\\d{2}", field="outputs")
+    r = policy_check()
+    s = callback(lambda step: step.kind == "tool_call", name="is_tool_call")
 
 DSL safe subset (frozen):
 
@@ -43,13 +58,21 @@ DSL safe subset (frozen):
 * Attribute:    ``x.y`` (attribute names starting with ``_`` are
                 rejected)
 * Subscript:    ``x[k]`` (no slice steps)
-* Calls:        ``len(...)``, ``str(...)``, ``any_step(...)``,
-                ``all_step(...)``. Method calls (``x.y(...)``) are
-                rejected.
+* Calls:        ``len(...)``, ``str(...)``, ``re_match(pat, text)``,
+                ``re_search(pat, text)``, ``policy_blocked()``,
+                ``any_step(...)``, ``all_step(...)``.
+                Method calls (``x.y(...)``) are rejected.
 
 ``any_step`` / ``all_step`` are sugar — they bind ``step`` over
 ``result.steps`` and evaluate the body. The textual surface never
 admits ``GeneratorExp`` or ``Lambda``.
+
+``re_match(pat, text)`` returns a truthy match object when ``pat``
+matches at the beginning of ``str(text)``, otherwise ``None``.
+``re_search(pat, text)`` scans the whole string.
+``policy_blocked()`` evaluates to ``True`` if the current step's
+``outputs`` look like a policy-denial (matches ``error_class`` /
+``__error__.type`` containing ``"policy"`` or ``blocked: true``).
 
 Names that don't resolve in the active context evaluate to ``None``
 rather than raising — so a single predicate string may target both
@@ -60,13 +83,24 @@ from __future__ import annotations
 
 import ast
 import functools
+import operator
+import re as _re
 from typing import Any, Callable, Dict, Optional
 
 __all__ = [
+    # combinators
     "all_of",
     "any_of",
     "not_",
     "xor_",
+    # typed DSL
+    "TypedPredicate",
+    "threshold",
+    "regex_match",
+    "regex_search",
+    "policy_check",
+    "callback",
+    # string DSL
     "compile_predicate",
     "parse_predicate",
     "PredicateSyntaxError",
@@ -129,6 +163,249 @@ def xor_(a: Callable[[Any], bool], b: Callable[[Any], bool]) -> Callable[[Any], 
     return _xor
 
 
+# ----------------------------------------------------- typed predicate DSL
+
+
+class TypedPredicate:
+    """A named, described predicate wrapping any ``Callable[[Any], bool]``.
+
+    All factory functions (``threshold``, ``regex_match``, ``regex_search``,
+    ``policy_check``, ``callback``) return a ``TypedPredicate``.  Instances
+    compose naturally with ``all_of`` / ``any_of`` / ``not_`` / ``xor_``
+    because they are themselves callable.
+
+    Attributes:
+        name: Short human-readable identifier (auto-generated if not given).
+        description: Longer prose explaining intent (defaults to ``""``).
+        source: Optional source string for display / reporting (e.g. the
+            DSL expression that produced this predicate, or a repr).
+    """
+
+    def __init__(
+        self,
+        fn: Callable[[Any], bool],
+        *,
+        name: str,
+        description: str = "",
+        source: Optional[str] = None,
+    ) -> None:
+        if not callable(fn):
+            raise TypeError("fn must be callable")
+        self._fn = fn
+        self.name = name
+        self.description = description
+        self.source = source
+
+    def __call__(self, value: Any) -> bool:
+        return bool(self._fn(value))
+
+    def __repr__(self) -> str:
+        return f"TypedPredicate({self.name!r})"
+
+
+# ---------------------------------------------------------------- _METRIC_OPS
+
+_METRIC_OPS: Dict[str, Any] = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "==": operator.eq,
+    "!=": operator.ne,
+}
+
+
+def threshold(
+    metric: str,
+    op: str,
+    value: float,
+    *,
+    name: Optional[str] = None,
+    description: str = "",
+) -> TypedPredicate:
+    """Return a typed predicate that tests ``getattr(x, metric) <op> value``.
+
+    ``metric`` is an attribute name resolved on the input value via
+    ``getattr`` (falls back to dict-key lookup for plain dicts).  ``op``
+    must be one of ``">"``, ``">="``, ``"<"``, ``"<="``, ``"=="``, ``"!="``.
+
+    Example::
+
+        p = threshold("total_cost_usd", ">", 0.10)
+        p(result)  # True when result.total_cost_usd > 0.10
+
+    Raises ``ValueError`` for unknown ``op``.
+    """
+    if op not in _METRIC_OPS:
+        raise ValueError(
+            f"op {op!r} not recognised; use one of {sorted(_METRIC_OPS)}"
+        )
+    cmp_fn = _METRIC_OPS[op]
+    _name = name or f"{metric} {op} {value}"
+    _source = f"threshold({metric!r}, {op!r}, {value!r})"
+
+    def _check(x: Any) -> bool:
+        try:
+            lhs = getattr(x, metric, None)
+            if lhs is None and isinstance(x, dict):
+                lhs = x.get(metric)
+        except Exception:
+            return False
+        if lhs is None:
+            return False
+        try:
+            return bool(cmp_fn(lhs, value))
+        except TypeError:
+            return False
+
+    return TypedPredicate(_check, name=_name, description=description, source=_source)
+
+
+def _resolve_field(value: Any, field: Optional[str]) -> Any:
+    """Extract *field* from *value*, or return *value* itself when field is None."""
+    if field is None:
+        return value
+    resolved = getattr(value, field, None)
+    if resolved is None and isinstance(value, dict):
+        resolved = value.get(field)
+    return resolved
+
+
+def regex_match(
+    pattern: str,
+    field: Optional[str] = None,
+    *,
+    flags: int = 0,
+    name: Optional[str] = None,
+    description: str = "",
+) -> TypedPredicate:
+    """Return a typed predicate that tests ``re.match(pattern, str(field_value))``.
+
+    When *field* is ``None`` the whole input value is stringified and
+    matched.  Matching is anchored at the start of the string (same as
+    ``re.match``).
+
+    Example::
+
+        p = regex_match(r"GB\\d{2}", field="outputs")
+        p(step)  # True when str(step.outputs) starts with "GB" + 2 digits
+    """
+    compiled = _re.compile(pattern, flags)
+    _name = name or f"re_match({pattern!r})"
+    _source = f"regex_match({pattern!r}, field={field!r})"
+
+    def _check(x: Any) -> bool:
+        target = _resolve_field(x, field)
+        return bool(compiled.match(str(target) if target is not None else ""))
+
+    return TypedPredicate(_check, name=_name, description=description, source=_source)
+
+
+def regex_search(
+    pattern: str,
+    field: Optional[str] = None,
+    *,
+    flags: int = 0,
+    name: Optional[str] = None,
+    description: str = "",
+) -> TypedPredicate:
+    """Return a typed predicate that tests ``re.search(pattern, str(field_value))``.
+
+    Like :func:`regex_match` but scans the entire string rather than
+    anchoring at the start.
+
+    Example::
+
+        p = regex_search(r"\\bPASSWORD\\b", field="outputs", flags=re.IGNORECASE)
+        p(step)  # True when "PASSWORD" (any case) appears anywhere in outputs
+    """
+    compiled = _re.compile(pattern, flags)
+    _name = name or f"re_search({pattern!r})"
+    _source = f"regex_search({pattern!r}, field={field!r})"
+
+    def _check(x: Any) -> bool:
+        target = _resolve_field(x, field)
+        return bool(compiled.search(str(target) if target is not None else ""))
+
+    return TypedPredicate(_check, name=_name, description=description, source=_source)
+
+
+def _is_policy_blocked(outputs: Any) -> bool:
+    """True if *outputs* looks like a policy-denial step output.
+
+    Recognises the same three shapes as ``policy_audit.is_policy_blocked``
+    (kept in sync by convention; that function delegates here in tests).
+    """
+    if not isinstance(outputs, dict):
+        return False
+    ec = outputs.get("error_class")
+    if isinstance(ec, str) and "policy" in ec.lower():
+        return True
+    err = outputs.get("__error__")
+    if isinstance(err, dict):
+        t = err.get("type")
+        if isinstance(t, str) and "policy" in t.lower():
+            return True
+    if outputs.get("blocked") is True:
+        return True
+    return False
+
+
+def policy_check(
+    *,
+    name: Optional[str] = None,
+    description: str = "",
+) -> TypedPredicate:
+    """Return a typed predicate that fires when a step's outputs are policy-blocked.
+
+    The predicate accepts a ``StepView``-like value and returns ``True``
+    when ``outputs`` matches any of the policy-denial shapes (same logic
+    as ``policy_audit.is_policy_blocked``):
+
+    * ``error_class`` contains ``"policy"`` (case-insensitive);
+    * ``__error__.type`` contains ``"policy"`` (case-insensitive);
+    * ``blocked: True`` is present.
+
+    Example::
+
+        p = policy_check()
+        bad_steps = [s for s in result.steps if p(s)]
+    """
+    _name = name or "policy_blocked"
+
+    def _check(x: Any) -> bool:
+        outputs = getattr(x, "outputs", x)
+        return _is_policy_blocked(outputs)
+
+    return TypedPredicate(_check, name=_name, description=description, source="policy_check()")
+
+
+def callback(
+    fn: Callable[[Any], bool],
+    *,
+    name: Optional[str] = None,
+    description: str = "",
+) -> TypedPredicate:
+    """Wrap an arbitrary Python callable as a named :class:`TypedPredicate`.
+
+    This is the escape hatch for logic too complex for the string DSL.
+    The callable receives the same value (``StepView`` or
+    ``ReplayResult``) as all other predicates.
+
+    Example::
+
+        p = callback(
+            lambda step: step.cost_usd > 0 and step.kind == "llm_call",
+            name="expensive_llm",
+            description="LLM calls that incurred real cost",
+        )
+    """
+    if not callable(fn):
+        raise TypeError("fn must be callable")
+    _name = name or getattr(fn, "__name__", repr(fn))
+    return TypedPredicate(fn, name=_name, description=description)
+
+
 # ------------------------------------------------------------- DSL: errors
 
 
@@ -163,7 +440,7 @@ class PredicateRuntimeError(RuntimeError):
 
 
 _QUANT_NAMES = ("any_step", "all_step")
-_BUILTIN_NAMES = ("len", "str")  # plus the two quantifiers, handled specially
+_BUILTIN_NAMES = ("len", "str", "re_match", "re_search", "policy_blocked")  # plus quantifiers
 _MAX_LITERAL_LEN = 1024
 _STEPVIEW_SHORTCUTS = (
     "kind",
@@ -363,6 +640,20 @@ class _SafeVisitor(ast.NodeVisitor):
             for a in node.args:
                 if isinstance(a, ast.Starred):
                     raise self._err("star-args not allowed", node)
+            # Arity checks for fixed-arity builtins.
+            if node.func.id in ("re_match", "re_search"):
+                if len(node.args) != 2:
+                    raise self._err(
+                        f"{node.func.id}(...) takes exactly two positional arguments "
+                        "(pattern, text)",
+                        node,
+                    )
+            if node.func.id == "policy_blocked":
+                if len(node.args) != 0:
+                    raise self._err(
+                        "policy_blocked() takes no arguments",
+                        node,
+                    )
         # Recurse.
         for child in ast.iter_child_nodes(node):
             self.visit(child)
@@ -371,7 +662,32 @@ class _SafeVisitor(ast.NodeVisitor):
 # ----------------------------------------------------------- DSL: eval
 
 
-_BUILTINS_DISPATCH: dict[str, Callable[..., Any]] = {"len": len, "str": str}
+def _dsl_re_match(pattern: Any, text: Any) -> Any:
+    """DSL builtin: ``re_match(pattern, text)`` — anchored match."""
+    if pattern is None or text is None:
+        return None
+    try:
+        return _re.match(str(pattern), str(text))
+    except _re.error:
+        return None
+
+
+def _dsl_re_search(pattern: Any, text: Any) -> Any:
+    """DSL builtin: ``re_search(pattern, text)`` — full-string scan."""
+    if pattern is None or text is None:
+        return None
+    try:
+        return _re.search(str(pattern), str(text))
+    except _re.error:
+        return None
+
+
+_BUILTINS_DISPATCH: dict[str, Callable[..., Any]] = {
+    "len": len,
+    "str": str,
+    "re_match": _dsl_re_match,
+    "re_search": _dsl_re_search,
+}
 
 
 def _resolve_name(name: str, scope_stack: list, default_ctx: dict) -> Any:
@@ -460,6 +776,10 @@ def _eval(node: ast.AST, scope_stack: list, default_ctx: dict) -> Any:
         assert isinstance(node.func, ast.Name)
         fn_name = node.func.id
         args = [_eval(a, scope_stack, default_ctx) for a in node.args]
+        # policy_blocked() is zero-arg and reads 'outputs' from scope.
+        if fn_name == "policy_blocked":
+            outputs = _resolve_name("outputs", scope_stack, default_ctx)
+            return _is_policy_blocked(outputs)
         try:
             fn = _BUILTINS_DISPATCH[fn_name]
             return fn(*args)

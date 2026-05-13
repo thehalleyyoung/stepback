@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/spec/canonical/differential.py
+# hypothesis_version: 6.148.7
+
+[b'\n', '--batch', '--bin', '--cap', '--no-rust', '--no-ts', '--release', '-p', '__main__', 'ascii', 'bindings', 'build', 'canonical.js', 'canonicalize', 'cargo', 'dist', 'dotnet', 'esm', 'go', 'jvm', 'node', 'python', 'release', 'rust', 'sb-canonical', 'stepback-core', 'store_true', 'target', 'typescript', 'utf-8']

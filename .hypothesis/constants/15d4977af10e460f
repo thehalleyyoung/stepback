@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/cli_l1_trace_writer_features.py
+# hypothesis_version: 6.148.7
+
+['--include-temporal', '--json', '--max-frames', '--writer-id', '1', 'SCHEMA_VERSION', 'add_subparser', 'cmd', 'frame_index', 'frames_observed', 'input .sb trace path', 'latest', 'schema_version', 'store_true', 'temporal', 'trace', 'trace_path', 'values', 'wallclock_ns', 'window_counts', 'writer_id']

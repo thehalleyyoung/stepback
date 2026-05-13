@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/worker_lease.py
+# hypothesis_version: 6.148.7
+
+[0.0, 300.0, '.lease', '.lease.tmp', '/', 'WorkerLease', '\\', '__', 'claimed', 'claimed_at', 'expired', 'expires_at', 'lease_id', 'r', 'released', 'utf-8', 'w', 'work_unit_id', 'worker_id', 'x']

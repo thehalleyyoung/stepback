@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/integrations/mcp_proxy.py
+# hypothesis_version: 6.148.7
+
+[1000000, 'MCPProxyError', 'MCPRecorderProxy', 'arguments', 'call_tool', 'decision', 'duration_ms', 'error', 'events', 'id', 'import_mcp_log', 'mcp', 'mcp_log', 'name', 'outputs', 'r', 'result', 'router', 'tool_call', 'tools/call', 'type', 'unknown', 'unknown_tool', 'utf-8']

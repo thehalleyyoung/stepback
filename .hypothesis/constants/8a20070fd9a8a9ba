@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/minimize.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1e-09, 1.0, 49373, 49374, 'BruteForceStrategy', 'BudgetExhausted', 'DDMinStrategy', 'LinearShrinkStrategy', 'MinimizationResult', 'MinimizeOptions', 'ParetoEntry', 'Strategy', 'Trace', 'TraceObjectives', 'binary', 'brute', 'ddmin', 'ddmin_substitutions', 'extract_objectives', 'find_all_minimal', 'linear', 'llm_call', 'policy_blocked', 'shapley']

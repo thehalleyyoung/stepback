@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/predicates.py
+# hypothesis_version: 6.148.7
+
+[128, 1024, '!=', '<', '<=', '==', '>', '>=', 'PredicateSyntaxError', 'TypedPredicate', '^', '_', '__error__', '__name__', 'all_of', 'all_step', 'any_of', 'any_step', 'blocked', 'body', 'cache_hit', 'cache_hit_count', 'callback', 'col_offset', 'compile_predicate', 'cost', 'cost_usd', 'dirty', 'dirty_count', 'end_col_offset', 'end_lineno', 'error_class', 'eval', 'fn must be callable', 'inputs', 'kind', 'len', 'lineno', 'name', 'not_', 'outputs', 'parent_step_id', 'parse_predicate', 'policy', 'policy_blocked', 'policy_check', 'policy_check()', 're_match', 're_search', 'real_executions', 'regex_match', 'regex_search', 'result', 'step', 'step_id', 'steps', 'str', 'threshold', 'total_cost_usd', 'type', 'value', 'xor_']

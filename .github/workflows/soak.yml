@@ -1,0 +1,80 @@
+name: soak
+
+on:
+  schedule:
+    # Mondays at 06:13 UTC. Off-peak; daily would be wasteful for
+    # an aggregate-only job whose digest changes only on real drift.
+    - cron: "13 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      n_traces:
+        description: "Number of synthetic traces in the fleet"
+        default: "10000"
+        required: false
+      n_steps:
+        description: "Approximate steps per trace"
+        default: "10"
+        required: false
+      seed:
+        description: "Base RNG seed"
+        default: "0"
+        required: false
+
+jobs:
+  soak:
+    name: record + replay synthetic fleet (aggregates only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Soak — 10,000 traces (aggregates only)
+        env:
+          N_TRACES: ${{ github.event.inputs.n_traces || '10000' }}
+          N_STEPS: ${{ github.event.inputs.n_steps || '10' }}
+          SEED: ${{ github.event.inputs.seed || '0' }}
+        run: |
+          mkdir -p bench-results/soak
+          python -m stepback.cli bench soak \
+            --n-traces "$N_TRACES" \
+            --n-steps "$N_STEPS" \
+            --seed "$SEED" \
+            --progress-every 1000 \
+            --track-memory \
+            --out bench-results/soak/soak-${{ github.run_id }}.json
+          echo "--- aggregate JSON ---"
+          cat bench-results/soak/soak-${{ github.run_id }}.json
+
+      - name: Sanity-check aggregate JSON
+        run: |
+          python - <<'PY'
+          import json, os, glob, sys
+          path = sorted(glob.glob("bench-results/soak/soak-*.json"))[-1]
+          with open(path) as f:
+              j = json.load(f)
+          assert j["errors"] == 0, j["error_kinds"]
+          assert j["n_traces"] >= 1
+          assert len(j["digest"]) == 64
+          # Cap the artifact size: aggregate-only stays tiny.
+          size = os.path.getsize(path)
+          assert size < 8192, f"aggregate JSON unexpectedly large: {size} bytes"
+          print(f"ok: {path} ({size} bytes)")
+          PY
+
+      - name: Upload soak aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-aggregate-${{ github.run_id }}
+          path: bench-results/soak/
+          retention-days: 90

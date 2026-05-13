@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/case_studies/model_migration.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.3, 'N/A', 'assistant', 'choices', 'completion_tokens', 'content', 'cost_usd', 'dirty_count_mean', 'dirty_fraction_mean', 'fetch_data', 'finish_reason', 'gpt-4o-2024-11-20', 'id', 'index', 'key', 'llm_call', 'llm_steps_per_trace', 'message', 'model', 'model-a', 'model-b', 'model_a', 'model_b', 'n_steps_per_trace', 'n_traces', 'outputs', 'prompt_tokens', 'result', 'role', 'sb-migration-', 'step_id', 'step_kind', 'stop', 'system', 'tool', 'total_cost_a_usd', 'total_cost_b_usd', 'total_tokens', 'usage', 'user', '|']

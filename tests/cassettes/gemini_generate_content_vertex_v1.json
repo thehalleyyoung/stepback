@@ -1,0 +1,34 @@
+{
+  "_meta": {
+    "source": "vertexai>=1.71.0 GenerativeModel.generate_content",
+    "api_version": "v1",
+    "model": "gemini-2.5-pro-2025-03-25",
+    "notes": "Vertex AI GenerativeModel responses include grounding_metadata and citation_metadata fields not present in AI Studio responses. The content shape is otherwise identical."
+  },
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {"text": "Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed."}
+        ]
+      },
+      "finish_reason": "STOP",
+      "index": 0,
+      "safety_ratings": [
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "probability": "NEGLIGIBLE", "severity": "HARM_SEVERITY_NEGLIGIBLE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "probability": "NEGLIGIBLE", "severity": "HARM_SEVERITY_NEGLIGIBLE"},
+        {"category": "HARM_CATEGORY_HARASSMENT", "probability": "NEGLIGIBLE", "severity": "HARM_SEVERITY_NEGLIGIBLE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "probability": "NEGLIGIBLE", "severity": "HARM_SEVERITY_NEGLIGIBLE"}
+      ],
+      "citation_metadata": {"citations": []}
+    }
+  ],
+  "usage_metadata": {
+    "prompt_token_count": 12,
+    "candidates_token_count": 29,
+    "total_token_count": 41
+  },
+  "model_version": "gemini-2.5-pro-2025-03-25",
+  "response_id": "resp-0005qrst"
+}

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/model_swap.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1e-300, 3e-14, 0.05, 0.5, 0.85, 1.0, 2.0, 1000000.0, 200, 1000, 2000, '!', 'A', 'A:', 'B', 'B:', 'C', 'args', 'assistant', 'bench-model-a-v1', 'bench-model-b-v1', 'cache_hit_count_mean', 'choices', 'ci_95_lower', 'ci_95_upper', 'completion_tokens', 'content', 'digest', 'dirty_count_mean', 'effect_size', 'finish_reason', 'id', 'index', 'inf', 'llm_call', 'lookup', 'mean_length_a', 'mean_length_b', 'message', 'model', 'model_a_name', 'model_agreement_rate', 'model_b_name', 'n_llm_steps', 'n_steps', 'n_steps must be >= 1', 'n_trials', 'ns', 'output_length_ratio', 'outputs', 'p_value', 'prompt_tokens', 'q', 'replay_fidelity_rate', 'role', 'sig', 'step_id', 'step_kind', 'stepback-bench-ms-', 'stop', 'system', 't_stat', 'tool', 'total_tokens', 'trace.sb', 'trace_a.sb', 'trace_b.sb', 'usage', 'user', 'wall_time_ms', '|']

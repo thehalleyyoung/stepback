@@ -1,0 +1,87 @@
+{
+  "format": "stepback_native_json_v1",
+  "header": {
+    "recorder_version": "stepback/test-fixture",
+    "note": "Frozen golden fixture for backward-compatibility tests (step 108). Fields that vary per recording (step_id, wallclock_ns, *_hash) are set to stable sentinel values."
+  },
+  "steps": [
+    {
+      "step_id": "01HGOLDEN0000000000000STEP1",
+      "step_kind": "llm_call",
+      "name": "gpt-4o-2024-11-20",
+      "parent_step_id": null,
+      "inputs": {
+        "kind": "llm_call",
+        "model": "gpt-4o-2024-11-20",
+        "messages": [
+          {"role": "system", "content": "You are a payments agent."},
+          {"role": "user",   "content": "Pay invoice INV-001."}
+        ],
+        "temperature": 0.0,
+        "seed": 42,
+        "tools": null,
+        "response_format": null
+      },
+      "outputs": {
+        "id": "chatcmpl-golden001",
+        "model": "gpt-4o-2024-11-20",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {"role": "assistant", "content": "Processing payment for INV-001."}
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 10,
+          "total_tokens": 40
+        }
+      },
+      "inputs_hash":  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "outputs_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "wallclock_ns": 1700000000000000000,
+      "cost_usd": 0.000600,
+      "llm_request": {
+        "model": "gpt-4o-2024-11-20",
+        "messages": [
+          {"role": "system", "content": "You are a payments agent."},
+          {"role": "user",   "content": "Pay invoice INV-001."}
+        ],
+        "temperature": 0.0,
+        "seed": 42,
+        "tools": null,
+        "response_format": null
+      },
+      "llm_response": {
+        "id": "chatcmpl-golden001",
+        "model": "gpt-4o-2024-11-20",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {"role": "assistant", "content": "Processing payment for INV-001."}
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 10,
+          "total_tokens": 40
+        }
+      }
+    },
+    {
+      "step_id": "01HGOLDEN0000000000000STEP2",
+      "step_kind": "tool_call",
+      "name": "make_payment",
+      "parent_step_id": "01HGOLDEN0000000000000STEP1",
+      "tool_name": "make_payment",
+      "inputs": {"invoice_id": "INV-001", "amount": 500.00, "currency": "USD"},
+      "outputs": {"status": "ok", "transaction_id": "TXN-000001"},
+      "inputs_hash":  "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "outputs_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "wallclock_ns": 1700000001000000000,
+      "cost_usd": 0.0
+    }
+  ]
+}

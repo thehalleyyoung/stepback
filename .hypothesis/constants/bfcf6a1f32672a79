@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/comet_sigma_l1_trace_writer.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 0.95, 0.99, 1000.0, 200, 1000, 4096, 5000, '1', 'SCHEMA_VERSION', 'ab', 'bench-off', 'bench-on', 'bench-on-temporal', 'blob', 'deadbeef', 'format_version', 'gpt-4o-2024-11-20', 'header', 'i', 'id', 'kind', 'len', 'llm_call', 'magic', 'max_us', 'mean_us', 'min_us', 'model', 'n_frames', 'n_samples', 'off', 'on', 'on_minus_off', 'on_temporal', 'p50_us', 'p95_us', 'p99_us', 'prompt_hash', 'regimes', 'run', 'run_and_save', 'schema_version', 'sha256', 'step', 'stepback/.sb', 'tail', 'tool_call', 'type', 'utf-8', 'w', 'wallclock_ns', 'warmup_frames']

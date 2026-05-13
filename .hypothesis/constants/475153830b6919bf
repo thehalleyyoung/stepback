@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/spec/canonical/bounded.py
+# hypothesis_version: 6.148.7
+
+['\x01', '"', ',', ':', 'DEFAULT_ALPHABET', 'DEFAULT_DEPTH', 'DEFAULT_INT_MAX', 'DEFAULT_KEY_ALPHABET', 'DEFAULT_STR_LEN', 'DEFAULT_WIDTH', '[', '\\', '\\"', '\\\\', '\\b', '\\f', '\\n', '\\r', '\\t', ']', 'a', 'b', 'enumerate_bounded', 'false', 'iter_default_corpus', 'null', 'true', 'utf-8', '{', '}', 'ä', 'é']

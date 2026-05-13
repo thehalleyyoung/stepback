@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/streaming.py
+# hypothesis_version: 6.148.7
+
+['StreamedLLMResponse', 'T']

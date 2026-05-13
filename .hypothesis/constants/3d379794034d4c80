@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/predicates.py
+# hypothesis_version: 6.148.7
+
+[128, 1024, 'PredicateSyntaxError', '^', '_', 'all_of', 'all_step', 'any_of', 'any_step', 'body', 'cache_hit', 'cache_hit_count', 'col_offset', 'compile_predicate', 'cost', 'cost_usd', 'dirty', 'dirty_count', 'end_col_offset', 'end_lineno', 'error_class', 'eval', 'inputs', 'kind', 'len', 'lineno', 'name', 'not_', 'outputs', 'parent_step_id', 'parse_predicate', 'real_executions', 'result', 'step', 'step_id', 'steps', 'str', 'total_cost_usd', 'value', 'xor_']

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/attestation.py
+# hypothesis_version: 6.148.7
+
+[0.0, '+00:00', 'AttestationEntry', 'AttestationPack', 'PACK_FORMAT_VERSION', 'PACK_MAGIC', 'Z', 'ascii', 'attestor_public_key', 'body_hash', 'builder_version', 'divergent_traces', 'ed25519:', 'entries', 'error', 'fail', 'format_version', 'magic', 'ok', 'policy_version_pin', 'produced_at', 'r', 'recorder_version', 'replayed_error', 'replayed_ok', 'sha256:', 'signature', 'skipped', 'stepback/.pack', 'stepback/0.1', 'substitutions', 'summary', 'total_cost_delta_usd', 'total_dirty_steps', 'trace_count', 'utf-8', 'verified_fail', 'verified_ok', 'w']

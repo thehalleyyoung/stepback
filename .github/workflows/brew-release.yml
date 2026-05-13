@@ -1,0 +1,231 @@
+# Bump the Homebrew tap (https://github.com/stepback/homebrew-tap) whenever
+# a new release tag is pushed (e.g. v0.2.0).
+#
+# The workflow:
+#   1. Builds + publishes the Python wheel/sdist and the Rust binaries (via
+#      build-release job, which calls other workflows).
+#   2. Computes SHA-256 of every release asset.
+#   3. Renders the formula templates with the new version + shas.
+#   4. Opens a PR against stepback/homebrew-tap with the updated formulae.
+#
+# Required secrets:
+#   TAP_BUMP_TOKEN — a fine-grained PAT with repo write access to
+#                    stepback/homebrew-tap.  Generate at
+#                    https://github.com/settings/tokens?type=beta  and add it
+#                    as a repository secret named TAP_BUMP_TOKEN.
+
+name: Bump Homebrew tap
+
+on:
+  release:
+    types: [published]
+  # Allow manual trigger for testing.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without leading v (e.g. 0.2.0)"
+        required: true
+
+jobs:
+  bump-tap:
+    name: Render formulae + open tap PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout stepback
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: ver
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"           # strip leading v
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # Fetch release assets and compute SHA-256 digests.
+      # We expect the following assets on the GitHub release:
+      #   stepback-<ver>.tar.gz                    (Python sdist)
+      #   sb-<ver>-aarch64-apple-darwin.tar.gz
+      #   sb-<ver>-x86_64-apple-darwin.tar.gz
+      #   sb-<ver>-aarch64-unknown-linux-gnu.tar.gz
+      #   sb-<ver>-x86_64-unknown-linux-gnu.tar.gz
+      #   stepback-viewer-<ver>.html
+      # -----------------------------------------------------------------------
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          mkdir -p /tmp/assets
+
+          _dl() {
+            local name="$1"
+            echo "Downloading ${name} ..."
+            gh release download "${TAG}" \
+              --repo "${REPO}" \
+              --pattern "${name}" \
+              --dir /tmp/assets
+          }
+
+          _dl "stepback-${VERSION}.tar.gz"
+          _dl "sb-${VERSION}-aarch64-apple-darwin.tar.gz"
+          _dl "sb-${VERSION}-x86_64-apple-darwin.tar.gz"
+          _dl "sb-${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
+          _dl "sb-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          _dl "stepback-viewer-${VERSION}.html"
+
+      - name: Fetch cryptography sdist SHA
+        id: crypto
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          # Read the cryptography version from pyproject.toml and fetch its sdist
+          # from PyPI.
+          set -euo pipefail
+          CRYPTO_VER=$(python3 - <<'EOF'
+          import tomllib, pathlib, re
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          deps = data.get("project", {}).get("dependencies", [])
+          for d in deps:
+              m = re.match(r"cryptography>=(\S+)", d)
+              if m:
+                  print(m.group(1))
+                  break
+          EOF
+          )
+          echo "crypto_ver=${CRYPTO_VER}" >> "$GITHUB_OUTPUT"
+
+          # Fetch sdist URL from PyPI JSON API.
+          PYPI_JSON=$(curl -fsSL "https://pypi.org/pypi/cryptography/${CRYPTO_VER}/json")
+          CRYPTO_URL=$(echo "${PYPI_JSON}" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          urls = [u for u in d['urls'] if u['packagetype'] == 'sdist']
+          print(urls[0]['url'])
+          ")
+          CRYPTO_SHA=$(echo "${PYPI_JSON}" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          urls = [u for u in d['urls'] if u['packagetype'] == 'sdist']
+          print(urls[0]['digests']['sha256'])
+          ")
+          echo "crypto_url=${CRYPTO_URL}" >> "$GITHUB_OUTPUT"
+          echo "crypto_sha=${CRYPTO_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute asset SHA-256 digests
+        id: shas
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
+
+          _sha() { sha256sum "/tmp/assets/$1" | awk '{print $1}'; }
+
+          echo "sdist_sha=$(_sha "stepback-${VERSION}.tar.gz")"           >> "$GITHUB_OUTPUT"
+          echo "macos_arm64_sha=$(_sha "sb-${VERSION}-aarch64-apple-darwin.tar.gz")" >> "$GITHUB_OUTPUT"
+          echo "macos_x86_sha=$(_sha "sb-${VERSION}-x86_64-apple-darwin.tar.gz")"   >> "$GITHUB_OUTPUT"
+          echo "linux_aarch64_sha=$(_sha "sb-${VERSION}-aarch64-unknown-linux-gnu.tar.gz")" >> "$GITHUB_OUTPUT"
+          echo "linux_x86_sha=$(_sha "sb-${VERSION}-x86_64-unknown-linux-gnu.tar.gz")"     >> "$GITHUB_OUTPUT"
+          echo "wasm_sha=$(_sha "stepback-viewer-${VERSION}.html")"       >> "$GITHUB_OUTPUT"
+
+          echo "sdist_url=${BASE}/stepback-${VERSION}.tar.gz"             >> "$GITHUB_OUTPUT"
+          echo "macos_arm64_url=${BASE}/sb-${VERSION}-aarch64-apple-darwin.tar.gz"   >> "$GITHUB_OUTPUT"
+          echo "macos_x86_url=${BASE}/sb-${VERSION}-x86_64-apple-darwin.tar.gz"     >> "$GITHUB_OUTPUT"
+          echo "linux_aarch64_url=${BASE}/sb-${VERSION}-aarch64-unknown-linux-gnu.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "linux_x86_url=${BASE}/sb-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"     >> "$GITHUB_OUTPUT"
+          echo "wasm_url=${BASE}/stepback-viewer-${VERSION}.html"         >> "$GITHUB_OUTPUT"
+
+      - name: Render formula templates
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 packaging/homebrew/bump_formulae.py \
+            --version "${VERSION}" \
+            --sdist-url             "${{ steps.shas.outputs.sdist_url }}" \
+            --sdist-sha256          "${{ steps.shas.outputs.sdist_sha }}" \
+            --cryptography-url      "${{ steps.crypto.outputs.crypto_url }}" \
+            --cryptography-sha256   "${{ steps.crypto.outputs.crypto_sha }}" \
+            --macos-arm64-url       "${{ steps.shas.outputs.macos_arm64_url }}" \
+            --macos-arm64-sha256    "${{ steps.shas.outputs.macos_arm64_sha }}" \
+            --macos-x86-64-url      "${{ steps.shas.outputs.macos_x86_url }}" \
+            --macos-x86-64-sha256   "${{ steps.shas.outputs.macos_x86_sha }}" \
+            --linux-aarch64-url     "${{ steps.shas.outputs.linux_aarch64_url }}" \
+            --linux-aarch64-sha256  "${{ steps.shas.outputs.linux_aarch64_sha }}" \
+            --linux-x86-64-url      "${{ steps.shas.outputs.linux_x86_url }}" \
+            --linux-x86-64-sha256   "${{ steps.shas.outputs.linux_x86_sha }}" \
+            --wasm-viewer-url       "${{ steps.shas.outputs.wasm_url }}" \
+            --wasm-viewer-sha256    "${{ steps.shas.outputs.wasm_sha }}" \
+            --output-dir /tmp/formulae
+
+      # -----------------------------------------------------------------------
+      # Clone the tap repo, copy rendered formulae, and open a PR.
+      # -----------------------------------------------------------------------
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: stepback/homebrew-tap
+          token: ${{ secrets.TAP_BUMP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Copy rendered formulae into tap
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cp /tmp/formulae/*.rb homebrew-tap/Formula/
+
+      - name: Open PR against homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd homebrew-tap
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="bump-stepback-${VERSION}"
+          git checkout -b "${BRANCH}"
+          git add Formula/
+          git diff --cached --stat
+
+          if git diff --cached --quiet; then
+            echo "No formula changes — nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: bump stepback formulae to ${VERSION}
+
+          Auto-generated by stepback release workflow.
+          Source: https://github.com/${{ github.repository }}/releases/tag/v${VERSION}
+
+          Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+          git push origin "${BRANCH}"
+
+          gh pr create \
+            --repo stepback/homebrew-tap \
+            --base main \
+            --head "${BRANCH}" \
+            --title "chore: bump stepback formulae to ${VERSION}" \
+            --body "Automated bump from https://github.com/${{ github.repository }}/releases/tag/v${VERSION}.
+
+          Changes:
+          - \`stepback.rb\` → ${VERSION}
+          - \`stepback-core.rb\` → ${VERSION}
+          - \`stepback-wasm-viewer.rb\` → ${VERSION}
+
+          Please review the SHA-256 values and merge once CI passes." \
+            --label "automated"

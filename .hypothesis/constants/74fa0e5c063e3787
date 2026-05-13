@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/packaging/homebrew/bump_formulae.py
+# hypothesis_version: 6.148.7
+
+['--bottle-block', '--cryptography-url', '--linux-aarch64-url', '--linux-x86-64-url', '--macos-arm64-sha256', '--macos-arm64-url', '--macos-x86-64-url', '--output-dir', '--sdist-sha256', '--sdist-url', '--version', '--wasm-viewer-sha256', '--wasm-viewer-url', '.', 'BOTTLE_BLOCK', 'CRYPTOGRAPHY_SHA256', 'CRYPTOGRAPHY_URL', 'LINUX_AARCH64_SHA256', 'LINUX_AARCH64_URL', 'LINUX_X86_64_SHA256', 'LINUX_X86_64_URL', 'MACOS_ARM64_SHA256', 'MACOS_ARM64_URL', 'MACOS_X86_64_SHA256', 'MACOS_X86_64_URL', 'SDIST_SHA256', 'SDIST_URL', 'VERSION', 'WASM_VIEWER_SHA256', 'WASM_VIEWER_URL', '\\{\\{[A-Z0-9_]+\\}\\}', '__main__', 'stepback-core.rb', 'stepback-core.rb.tpl', 'stepback.rb', 'stepback.rb.tpl', 'store_true', 'utf-8', '{{', '}}']

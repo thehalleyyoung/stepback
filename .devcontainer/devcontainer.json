@@ -1,0 +1,48 @@
+{
+  // VS Code devcontainer / GitHub Codespaces configuration for stepback.
+  // Opens with Python 3.12, stepback installed in editable mode (with all
+  // dev extras), and the proxy port forwarded so the HTML viewer is reachable
+  // from the browser.
+  "name": "stepback",
+
+  // Use the official Microsoft Python image so we get a clean, reproducible
+  // Python 3.12 environment without needing a custom Dockerfile.
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+
+  // Install stepback (editable) plus every optional extra the dev workflow
+  // needs.  The postCreateCommand runs once after the container is first built.
+  "postCreateCommand": "pip install -e '.[dev,quickstart]' --quiet",
+
+  // Forward the stepback-proxy HTTP port so `stepback proxy` is reachable
+  // from the host browser in Codespaces.
+  "forwardPorts": [4319],
+  "portsAttributes": {
+    "4319": {
+      "label": "stepback proxy",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // VS Code extensions that make the Python dev experience pleasant.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter"
+        }
+      }
+    }
+  },
+
+  // Run the quickstart in non-interactive demo mode so a new contributor
+  // immediately sees a recorded trace in their terminal.
+  "onCreateCommand": "echo 'Run `stepback quickstart --non-interactive` to record your first demo trace.'"
+}

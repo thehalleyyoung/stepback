@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/author_corpora.py
+# hypothesis_version: 6.148.5
+
+[b':', b'hmac:', b'sign:', b'stepback-author-corpora-v1', '1.0', 'Apache-2.0', 'code-review', 'corpora', 'corpus_id', 'description', 'evaluation', 'hmac_key_hex', 'inputs', 'license', 'line_number', 'manifest.json', 'payments-policy', 'prompt', 'raw', 'sb_path', 'schema_version', 'source_path', 'split', 'stepback.bench', 'support-agent', 'task_count', 'task_id', 'tasks', 'test', 'utf-8', 'w']

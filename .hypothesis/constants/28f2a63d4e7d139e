@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/testing/agent.py
+# hypothesis_version: 6.148.7
+
+[50000, 'Acme Bolts', 'Acme Bolts Inc', 'Acme Bolts Ltd UK', 'GB99-9999-9999', 'UK', 'US', 'US12-3456-7890', 'acme-uk', 'acme-us', 'amount', 'amount=50000', 'amount_usd', 'assistant', 'checking', 'choices', 'completion_tokens', 'content', 'country', 'echo', 'finish_reason', 'gpt-4o-2024-11-20', 'iban', 'id', 'index', 'lookup', 'lookup ok', 'lookup_customer', 'message', 'model', 'name', 'ok', 'outputs', 'payment.transfer', 'prompt_tokens', 'ready', 'result', 'role', 'status', 'stop', 'system', 'text', 'total_tokens', 'usage', 'user', 'wire to', 'wire_to_iban']

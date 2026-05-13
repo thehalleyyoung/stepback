@@ -14,14 +14,23 @@ The gRPC service is implemented "by hand" against
 :mod:`grpc.GenericRpcHandler` so we don't need to ship generated stubs
 in the wheel — every method is a JSON-encoded unary RPC matching the
 HTTP shape, with fields named after the proto.
+
+Unary RPCs (StartTrace, RecordStep, EndTrace, VerifyTrace) use
+``unary_unary_rpc_method_handler`` and send JSON-encoded dicts.
+
+The ``ReplayTrace`` RPC uses ``unary_stream_rpc_method_handler`` and
+yields one JSON-encoded :class:`~stepback.replay.ReplayEvent` dict per
+step, then a final summary dict.
 """
 from __future__ import annotations
 
 import json
 import logging
 from concurrent import futures
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
+from ..replay import replay as load_trace, replay_events, Executor
+from ..substitutions import SubstitutionSet, ToolOutputSubstitution
 from ..trace_reader import TraceVerificationError, verify_trace
 from ..trace_writer import FORMAT_VERSION, RECORDER_VERSION
 from .server import PROXY_VERSION
@@ -125,6 +134,69 @@ def _verify_trace(state: ProxyState, req: dict) -> dict:
     }
 
 
+def _build_substitution_set(subs_spec: list) -> SubstitutionSet:
+    """Parse the substitution list from the gRPC request dict."""
+    subs = SubstitutionSet()
+    for spec in subs_spec or []:
+        step_id = spec.get("step_id", "")
+        kind = spec.get("kind", "")
+        if not step_id or not kind:
+            raise ProxyError("each substitution must have 'step_id' and 'kind'")
+        if kind == "tool_output":
+            value_json = spec.get("value_json")
+            if isinstance(value_json, (bytes, bytearray)):
+                value = json.loads(value_json.decode("utf-8"))
+            else:
+                value = spec.get("value")
+            subs.add(ToolOutputSubstitution(at_step=step_id, fake_response=value))
+        else:
+            raise ProxyError(f"unsupported substitution kind: {kind!r}; use 'tool_output'")
+    return subs
+
+
+def _replay_trace_stream(state: ProxyState, req: dict) -> Iterator[dict]:
+    """Server-streaming handler for ReplayTrace.
+
+    Yields one event dict per step, then the final summary dict.
+    Errors are yielded as ``{"event": "error", "error": "..."}``.
+    """
+    path = req.get("path")
+    if not path:
+        yield {"event": "error", "error": "ReplayTrace requires 'path'"}
+        return
+
+    hmac_key: Optional[bytes] = None
+    hmac_key_raw = req.get("hmac_key")
+    if isinstance(hmac_key_raw, (bytes, bytearray)) and hmac_key_raw:
+        hmac_key = bytes(hmac_key_raw)
+    elif isinstance(hmac_key_raw, str) and hmac_key_raw:
+        try:
+            hmac_key = bytes.fromhex(hmac_key_raw)
+        except ValueError as e:
+            yield {"event": "error", "error": f"invalid hmac_key: {e}"}
+            return
+
+    try:
+        subs = _build_substitution_set(req.get("substitutions") or [])
+    except ProxyError as e:
+        yield {"event": "error", "error": str(e)}
+        return
+
+    fallback_recorded = bool(req.get("fallback_recorded", True))
+
+    try:
+        trace = load_trace(path, hmac_key=hmac_key)
+    except TraceVerificationError as e:
+        yield {"event": "error", "error": str(e)}
+        return
+    except FileNotFoundError as e:
+        yield {"event": "error", "error": str(e)}
+        return
+
+    executor = Executor(fallback_recorded=fallback_recorded)
+    yield from replay_events(trace.recorded_steps, subs, executor)
+
+
 _DISPATCH = {
     "StartTrace": _start_trace,
     "RecordStep": _record_step,
@@ -162,6 +234,21 @@ def _make_handler(state: ProxyState):
             _make(), request_deserializer=_deserializer,
             response_serializer=_serializer,
         )
+
+    # Server-streaming handler for ReplayTrace.
+    def _replay_impl(request, context):
+        try:
+            yield from _replay_trace_stream(state, request)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.exception("grpc ReplayTrace error")
+            yield {"event": "error", "error": str(e)}
+
+    method_handlers["ReplayTrace"] = grpc.unary_stream_rpc_method_handler(
+        _replay_impl,
+        request_deserializer=_deserializer,
+        response_serializer=_serializer,
+    )
+
     return grpc.method_handlers_generic_handler(GRPC_SERVICE, method_handlers)
 
 

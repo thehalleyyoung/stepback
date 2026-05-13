@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/kitchensink/comet_sigma/__init__.py
+# hypothesis_version: 6.148.7
+
+['AuditableArtifact', 'ProvenanceChain', 'ProvenanceEntry', 'Receipt', 'all_flags', 'extend_provenance', 'is_enabled', 'new_artifact']

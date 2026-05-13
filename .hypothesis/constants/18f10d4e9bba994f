@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/jsonpatch.py
+# hypothesis_version: 6.148.7
+
+['-', '/', '0', 'add', 'cannot remove root', 'copy', 'from', 'move', 'op', 'path', 'remove', 'replace', 'test', 'value', '~', '~0', '~1']

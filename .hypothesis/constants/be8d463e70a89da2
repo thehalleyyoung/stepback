@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/policy_audit.py
+# hypothesis_version: 6.148.7
+
+[0.0, '## Aggregate', '## Inputs', '## Per-trace summary', 'PolicyImpactReport', 'StepImpact', 'TraceImpact', '__error__', 'audit_policy_change', 'baseline_blocked', 'baseline_cost_usd', 'blocked', 'classification', 'cost_delta_usd', 'diverged_from_cache', 'divergent', 'divergent_step_count', 'error', 'error_class', 'is_policy_blocked', 'kind', 'name', 'newly_allowed', 'newly_blocked', 'policy', 'policy_id', 'policy_path', 'policy_version_pin', 'reason', 'replayed_blocked', 'replayed_cost_usd', 'step:0', 'step_count', 'step_id', 'step_impacts', 'substitution_kinds', 'total_cost_delta_usd', 'trace_count', 'trace_impacts', 'trace_path', 'traces_with_error', 'type', 'unchanged', '| --- | ---: |', '| metric | value |']

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/l1_trace_writer_temporal.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 1.0, 2.0, 1000000000, 10000000000, 60000000000, 600000000000, '10m', '10s', '1m', '1s', 'AGGREGATES', 'AggregateSpec', 'FLAG_NAME', 'L1', 'MODULE_LABEL', 'ProjectionRecord', 'ProjectionState', 'RECEIPT_SCHEMA_ID', 'WINDOWS_NS', 'artifacts_for', 'ewma', 'feature', 'fields', 'float', 'frame_index', 'get_state', 'id', 'install_hook', 'int', 'is_active', 'known_writers', 'last_minus_first', 'last_minus_mean_prev', 'latest_projection', 'mean', 'n_frames_in_window', 'project', 'projection_history', 'projection_name', 'projection_names', 'range', 'receipts_for', 'reset', 'slope', 'std', 'str', 'uninstall_hook', 'value', 'window', 'window_ns']

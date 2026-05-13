@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/canonical_cbor.py
+# hypothesis_version: 6.148.7
+
+[b'\xf9', b'\xf9|\x00', b'\xf9~\x00', b'\xf9\xfc\x00', b'\xfa', b'\xfb', 127, 255, 256, 65536, 8388607, 4294967296, 18446744073709551616, '-inf', '2-cbor-experimental', '>H', '>I', '>d', '>f', 'big', 'canonical_cbor', 'inf', 'sha256:', 'sha256_hex_cbor', 'strict', 'utf-8']

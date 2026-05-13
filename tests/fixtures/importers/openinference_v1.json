@@ -1,0 +1,46 @@
+[
+  {
+    "span_id": "span-agent-root",
+    "parent_span_id": null,
+    "name": "AgentExecutor",
+    "attributes": {
+      "openinference.span.kind": "AGENT",
+      "input.value": "Pay invoice INV-9001 to Acme Bolts Ltd",
+      "output.value": "Payment of $1250.00 confirmed"
+    },
+    "start_time_unix_nano": 1736935200000000000
+  },
+  {
+    "span_id": "span-llm-1",
+    "parent_span_id": "span-agent-root",
+    "name": "gpt-4o-2024-11-20",
+    "attributes": {
+      "openinference.span.kind": "LLM",
+      "llm.model_name": "gpt-4o-2024-11-20",
+      "llm.invocation_parameters.temperature": 0.0,
+      "llm.invocation_parameters.seed": 42,
+      "llm.input_messages.0.message.role": "system",
+      "llm.input_messages.0.message.content": "You are a payments agent.",
+      "llm.input_messages.1.message.role": "user",
+      "llm.input_messages.1.message.content": "Pay invoice INV-9001 to Acme Bolts Ltd",
+      "llm.output_messages.0.message.role": "assistant",
+      "llm.output_messages.0.message.content": "I need to look up the customer first.",
+      "llm.token_count.prompt": 45,
+      "llm.token_count.completion": 12,
+      "llm.token_count.total": 57
+    },
+    "start_time_unix_nano": 1736935201000000000
+  },
+  {
+    "span_id": "span-tool-lookup",
+    "parent_span_id": "span-agent-root",
+    "name": "lookup_customer",
+    "attributes": {
+      "openinference.span.kind": "TOOL",
+      "tool.name": "lookup_customer",
+      "tool.parameters": "{\"name\": \"Acme Bolts Ltd\"}",
+      "output.value": "{\"id\": \"acme-uk\", \"name\": \"Acme Bolts Ltd UK\", \"iban\": \"GB99-0000-0000-0001\", \"credit_limit_usd\": 50000}"
+    },
+    "start_time_unix_nano": 1736935202000000000
+  }
+]

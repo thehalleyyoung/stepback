@@ -1,0 +1,39 @@
+{
+  "comet_sigma_available": true,
+  "n_frames": 5000,
+  "overhead_us_per_frame": {
+    "on_minus_off": 25.82719229166667,
+    "on_temporal_minus_off": 20641.838147083334
+  },
+  "regimes": {
+    "off": {
+      "max_us": 9.834,
+      "mean_us": 0.702433125,
+      "min_us": 0.583,
+      "n_samples": 4800,
+      "p50_us": 0.667,
+      "p95_us": 0.791,
+      "p99_us": 0.875
+    },
+    "on": {
+      "max_us": 2098.709,
+      "mean_us": 26.52962541666667,
+      "min_us": 23.292,
+      "n_samples": 4800,
+      "p50_us": 25.292,
+      "p95_us": 28.584,
+      "p99_us": 38.292
+    },
+    "on_temporal": {
+      "max_us": 74871.625,
+      "mean_us": 20642.540580208333,
+      "min_us": 3846.875,
+      "n_samples": 4800,
+      "p50_us": 22186.083,
+      "p95_us": 30100.917,
+      "p99_us": 31526.708
+    }
+  },
+  "schema_version": "comet_sigma_l1_trace_writer_latency.v1",
+  "warmup_frames": 200
+}

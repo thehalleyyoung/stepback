@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/api_snapshot.py
+# hypothesis_version: 6.148.7
+
+['<factory>', '<unrepr>', '_', '__call__', '__init__', '__module__', '__name__', '__qualname__', 'annotation', 'bases', 'breaking', 'builtins', 'class', 'compatible', 'default', 'deprecated', 'encoding', 'enum_members', 'fields', 'format_version', 'frame_kinds', 'frozenset', 'function', 'has_default', 'header_optional', 'header_required', 'is_dataclass', 'is_enum', 'is_exception', 'kind', 'list', 'magic', 'mapping', 'methods', 'missing', 'module', 'name', 'package', 'package_version', 'parameters', 'qualname', 'return_annotation', 'signature', 'step_kinds', 'step_optional', 'step_required', 'stepback', 'symbols', 'tuple', 'type', 'typing', 'value', 'wire_encodings', 'wire_version', 'wire_version_info', 'wrapper_required']

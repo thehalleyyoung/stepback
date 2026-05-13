@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/Documents/div/mathdivergence/halley-labs/wasserstein-bounds/src/audit.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.05, 1.0, 'Computed from data', 'DKW+Massart', 'Lemma 1', 'Lemma 1 (paper)', 'McDiarmid (1989)', 'SOUND', 'Samples are i.i.d.', 'Theorem 3', 'User assertion', 'Z', 'assumptions', 'asymptotic_validity', 'bootstrap_ci', 'bound_value', 'bounded support', 'concentration_backed', 'data_hash_a', 'data_hash_b', 'delta', 'derivation', 'dkw', 'estimated_distance', 'finite_sample_reason', 'finite_second_moment', 'heuristic', 'hoeffding', 'i.i.d. samples', 'margin', 'method', 'sample_size_a', 'sample_size_b', 'soundness', 'support_diameter', 'timestamp', 'variance_estimates', 'variance_upper_bound', 'variance_used']

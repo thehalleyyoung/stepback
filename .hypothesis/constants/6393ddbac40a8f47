@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/integrations/toolwarden.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1000000000, 'WardenRecorderShim', 'allow', 'args', 'arguments', 'channel', 'decision_id', 'deny', 'dry_run', 'entries', 'kind', 'matched_rules', 'name', 'outcome', 'parent_decision_id', 'policy_version', 'policy_version_id', 'principal', 'reasons', 'redact', 'request', 'require_approval', 'result', 'sandbox', 'tool', 'tool_call', 'toolwarden@unknown', 'toolwarden_audit', 'ts', 'tw_args_rewritten', 'tw_channel', 'tw_outcome', 'tw_principal', 'unknown', 'value']

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/quickstart.py
+# hypothesis_version: 6.148.7
+
+[' (default)', ' [Y/n]', ' [y/N]', 'AIza...', 'ANTHROPIC_API_KEY', 'API key', 'AWS_ACCESS_KEY_ID', 'GEMINI_API_KEY', 'OPENAI_API_KEY', 'This wizard will:', 'anthropic', 'api_key', 'bedrock', 'boto3', 'content', 'demo', 'gemini', 'gemini-1.5-flash', 'google-genai', 'google.genai', 'openai', 'quickstart.html', 'quickstart.sb', 'role', 'sk-...', 'sk-ant-...', 'stepback quickstart', 'stepback-anthropic', 'stepback-bedrock', 'stepback-gemini', 'stepback-openai', 'stepback-quickstart-', 'user', 'y', 'yes', '━', '✓ Trace recorded.']

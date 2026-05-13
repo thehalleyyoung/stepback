@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/step_cache.py
+# hypothesis_version: 6.148.7
+
+['.tmp', '1', '404', 'Body', 'Code', 'Error', 'NoSuchKey', 'StepCacheEntry', 'application/json', 'cache_schema_version', 'cached_at', 'corpus_id', 'inputs_hash', 'org_id', 'outputs', 'r', 's3', 'sha256:', 'step_kind', 'utf-8']

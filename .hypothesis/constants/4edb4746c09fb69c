@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/html_view.py
+# hypothesis_version: 6.148.7
+
+[0.0, 160, ',', ':', '<!doctype html>', '</', '</body></html>', '</head><body>', '</header>', '</main>', '</script>', '<\\/', '<header>', '<main>', '?', 'TraceViewSummary', 'args', 'arguments', 'by_kind', 'content', 'cost_usd', 'cpu_ns', 'error', 'error_class', 'exc', 'exception', 'fork', 'format_version', 'header', 'inputs', 'inputs_hash', 'join', 'kind', 'kind_badge', 'llm', 'llm_call', 'llm_request', 'magic', 'messages', 'model', 'name', 'nondeterminism_hash', 'outputs_hash', 'parallel_branch_join', 'parallel_branch_open', 'parent_step_id', 'price_list_version', 'public_key', 'raw', 'recorder_version', 'render_trace_html', 'router', 'rt', 'sha256:', 'step_count', 'step_id', 'step_kind', 'stepback trace', 'steps', 'summary', 'text', 'tool', 'tool_args', 'tool_call', 'total_cost_usd', 'utf-8', 'w', 'wallclock_ns', 'write_trace_html']

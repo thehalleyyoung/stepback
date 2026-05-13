@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/threshold_sig.py
+# hypothesis_version: 6.148.7
+
+['ThresholdPolicy', 'WitnessSignature', 'WitnessSpec', 'body_hash', 'ed25519:', 'identity', 'm_required', 'public_key', 'signature', 'threshold-signing', 'type', 'witness_identity', 'witness_public_key', 'witnesses']

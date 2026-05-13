@@ -93,6 +93,39 @@ Endpoints
 
         {"ok": false, "error": "<TraceVerificationError message>"}
 
+``POST /v1/replay`` — **ReplayTrace**
+    Submit a closed trace and optional substitutions; receive replay events
+    as newline-delimited JSON (NDJSON) streamed in the response body.
+
+    Request body::
+
+        {
+          "path":             "/abs/path/to/file.sb",
+          "hmac_key_hex":     "<64 hex chars>",
+          "substitutions":    [
+            {"step_id": "step:3", "kind": "tool_output", "value": {"result": 42}}
+          ],
+          "fallback_recorded": true
+        }
+
+    ``hmac_key_hex`` is optional; if omitted the trace is loaded without
+    HMAC verification (useful for inspection).  ``substitutions`` defaults
+    to ``[]``.  ``fallback_recorded`` defaults to ``true``.
+
+    Response — one JSON object per line, ``Content-Type:
+    application/x-ndjson``::
+
+        {"event": "step_complete", "step_id": "...", "step_kind": "...",
+         "dirty": false, "cache_hit": true, "cost_usd": 0.0,
+         "current_inputs_hash": "...", "recorded_inputs_hash": "...",
+         "output_changed": false}
+        ...
+        {"event": "replay_done", "step_count": N, "dirty_count": N,
+         "cache_hit_count": N, "total_cost_usd": 0.0, "real_executions": 0}
+
+    On error a single line ``{"event": "error", "error": "..."}`` is
+    written and the connection closes.
+
 Error model
 ~~~~~~~~~~~
 
@@ -118,6 +151,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from ..trace_reader import verify_trace, TraceVerificationError
 from ..trace_writer import FORMAT_VERSION, RECORDER_VERSION
+from ..replay import replay as load_trace, replay_events, Executor
+from ..substitutions import SubstitutionSet, ToolOutputSubstitution
 from .storage import ProxyError, ProxyState, TraceHandle, UnknownTraceError
 
 PROXY_VERSION = "0.1.0"
@@ -246,6 +281,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/v1/verify":
             self._post_verify()
+            return
+        if path == "/v1/replay":
+            self._post_replay()
             return
         # /v1/traces/{trace_id}/steps and /v1/traces/{trace_id}/end
         prefix = "/v1/traces/"
@@ -390,6 +428,76 @@ class _Handler(BaseHTTPRequestHandler):
                 "hmac_key_id": header.get("hmac_key_id"),
             },
         )
+
+    # ---------------------------------------------------- ReplayTrace
+    def _post_replay(self) -> None:
+        """Stream replay events as NDJSON for a closed ``.sb`` file."""
+        body, err = self._read_json()
+        if err is not None:
+            self._send_error(*err)
+            return
+        assert body is not None
+        path = body.get("path")
+        if not path:
+            self._send_error(400, "BadRequest", "'path' is required")
+            return
+        hmac_key_hex = body.get("hmac_key_hex")
+        hmac_key: Optional[bytes] = None
+        if hmac_key_hex is not None:
+            try:
+                hmac_key = bytes.fromhex(hmac_key_hex)
+            except ValueError as e:
+                self._send_error(400, "BadRequest", f"invalid hmac_key_hex: {e}")
+                return
+        fallback_recorded = bool(body.get("fallback_recorded", True))
+
+        # Build substitution set from caller-supplied list.
+        subs = SubstitutionSet()
+        for spec in body.get("substitutions") or []:
+            step_id = spec.get("step_id")
+            kind = spec.get("kind")
+            if not step_id or not kind:
+                self._send_error(
+                    400, "BadRequest",
+                    "each substitution must have 'step_id' and 'kind'"
+                )
+                return
+            if kind == "tool_output":
+                value = spec.get("value")
+                subs.add(ToolOutputSubstitution(at_step=step_id, fake_response=value))
+            else:
+                self._send_error(
+                    400, "BadRequest",
+                    f"unsupported substitution kind: {kind!r}; use 'tool_output'"
+                )
+                return
+
+        try:
+            trace = load_trace(path, hmac_key=hmac_key)
+        except TraceVerificationError as e:
+            self._send_error(400, "VerificationFailed", str(e))
+            return
+        except FileNotFoundError as e:
+            self._send_error(404, "NotFound", str(e))
+            return
+
+        executor = Executor(fallback_recorded=fallback_recorded)
+
+        # Collect all events into NDJSON bytes, then send with Content-Length.
+        # Using chunked encoding in BaseHTTPRequestHandler requires explicit
+        # chunk framing which complicates client compatibility; buffering is
+        # fine because individual events are small and traces are bounded.
+        lines = []
+        for event in replay_events(trace.recorded_steps, subs, executor):
+            lines.append(json.dumps(event, sort_keys=True) + "\n")
+        payload = "".join(lines).encode("utf-8")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("X-Stepback-Proxy", PROXY_VERSION)
+        self.end_headers()
+        self.wfile.write(payload)
 
 
 class ProxyHTTPServer(ThreadingHTTPServer):

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/canonical.py
+# hypothesis_version: 6.148.7
+
+[',', '1', ':', '__bytes_hex__', 'sha256:', 'utf-8']

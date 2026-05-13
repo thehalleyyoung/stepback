@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/case_studies/redacted_publication.py
+# hypothesis_version: 6.148.7
+
+['+1 (800) 555-0100', '+1-555-867-5309', '+44 20 7946 0958', '+49 30 12345678', '<temp>', 'account_id', 'acct-00123', 'acct-00456', 'acct-00789', 'acct-01011', 'active', 'assistant', 'attestation_verified', 'choices', 'completion_tokens', 'content', 'customer_id', 'dave.black@demo.io', 'ed25519:', 'email', 'finish_reason', 'gpt-4o-2024-11-20', 'id', 'index', 'lookup_customer', 'message', 'model', 'n_steps', 'ok', 'original.sb', 'original_path', 'phone', 'prompt_tokens', 'rb', 'redacted.sb', 'redacted_path', 'redaction_matches', 'result', 'role', 'sb-redact-', 'scan_matches', 'status', 'stop', 'system', 'total_tokens', 'usage', 'user']

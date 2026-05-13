@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/spec/canonical/smt_equivalence.py
+# hypothesis_version: 6.148.7
+
+['--no-z3', '--rust', '--ts', '__main__', 'big', 'python', 'rust', 'store_true', 'typescript', 'utf-8']

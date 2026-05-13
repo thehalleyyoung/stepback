@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/witness_cosigning.py
+# hypothesis_version: 6.148.7
+
+['+00:00', 'WitnessCommitment', 'Z', '^[0-9a-f]{64}$', 'committed_at', 'corpus_id', 'ed25519:', 'sha256:', 'signature', 'trace_pack_sha256', 'type', 'witness-cosigning', 'witness_identity', 'witness_public_key']

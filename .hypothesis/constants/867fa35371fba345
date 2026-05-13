@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/l1_trace_writer.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, 10000, 'BASE_FEATURES', 'BaseFeatureSpec', 'FLAG_NAME', 'FRAME_NAME_PREFIX', 'FrameRecord', 'L1', 'MAX_RECENT_FRAMES', 'MODULE_LABEL', 'OBSERVE_HOOKS', 'RECEIPT_SCHEMA_ID', 'WriterState', 'artifacts_for', 'blob', 'feature', 'feature_history', 'fields', 'float', 'frame_index', 'frame_type', 'get_state', 'header', 'id', 'int', 'is_active', 'known_writers', 'last_wallclock_ns', 'observe_frame', 'receipts_for', 'reset', 'step', 'str', 'trace_writer_l1_v1', 'trace_writer_sb_v1', 'type', 'value', 'wallclock_ns']

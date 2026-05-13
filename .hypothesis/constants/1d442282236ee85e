@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/case_studies/evidence_packs.py
+# hypothesis_version: 6.148.7
+
+[250, 600, 700, 5000, 10000, '<temp>', 'amount', 'application_id', 'approved', 'assistant', 'attestor_public_key', 'band', 'choices', 'completion_tokens', 'content', 'finish_reason', 'gpt-4o-2024-11-20', 'id', 'index', 'lending_decisions.sb', 'message', 'model', 'n_entries', 'n_steps', 'pack_path', 'pack_signature_valid', 'pack_verified', 'policy_check', 'policy_version', 'policy_version_pin', 'prime', 'produced_at', 'prompt_tokens', 'reasons', 'result', 'role', 'sb-evidence-', 'score', 'score_application', 'stop', 'subprime', 'system', 'tool', 'total_tokens', 'trace_path', 'usage', 'user', 'v2.3.1', '|']

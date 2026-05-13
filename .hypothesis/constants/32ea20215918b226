@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/examples/rag_pipeline/../../examples/multi_step_planner/../../examples/batch_worker/agent.py
+# hypothesis_version: 6.148.7
+
+[0.95, '..', 'Amazing! Five stars!', 'Done.', 'Recording…', '__main__', 'approve', 'assistant', 'chatcmpl-override', 'choices', 'classify_post', 'commercial', 'completion_tokens', 'confidence', 'content', 'decision', 'finish_reason', 'gpt-4o-2024-11-20', 'id', 'index', 'inputs', 'labels', 'llm_call', 'message', 'messages', 'model', 'negative_sentiment', 'neutral', 'outputs', 'p1', 'p2', 'p3', 'p4', 'p5', 'positive_sentiment', 'post_id', 'potential_violation', 'prompt_tokens', 'record_decision', 'record_id', 'reject', 'review', 'role', 'spam', 'step_id', 'step_kind', 'stop', 'stored', 'system', 'text', 'total_tokens', 'trace.sb', 'unknown', 'usage', 'user']

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/proxy/server.py
+# hypothesis_version: 6.148.7
+
+[200, 201, 400, 404, 409, 413, 500, 1024, 4319, '%s - - ', '/', '/end', '/healthz', '/steps', '/v1/info', '/v1/traces', '/v1/traces/', '/v1/verify', '0.1.0', '127.0.0.1', '2026-04-01', 'BadRequest', 'Content-Length', 'Content-Type', 'InternalError', 'NotFound', 'PayloadTooLarge', 'ProxyError', 'TraceStillOpen', 'UnknownTrace', 'X-Stepback-Proxy', '_BoundHandler', 'blob_min_reuse', 'blob_threshold', 'compression', 'error', 'filename', 'format_version', 'hmac_key_hex', 'hmac_key_id', 'max_body_bytes', 'max_open_traces', 'message', 'ok', 'open_traces', 'path', 'price_list_version', 'proxy_version', 'public_key_hex', 'recorder_version', 'schema', 'signing_key_hex', 'state', 'step', 'step_count', 'stepback-proxy/1', 'stepback.proxy', 'trace_id', 'traces', 'utf-8', 'write_dir']

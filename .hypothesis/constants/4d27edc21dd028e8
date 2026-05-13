@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/l1_trace_writer_prometheus.py
+# hypothesis_version: 6.148.7
+
+[0.0, '"', '.', 'FLAG_NAME', 'GAUGES', 'GAUGE_LABEL', 'GAUGE_NAME_PREFIX', 'L1', 'MODULE_LABEL', 'RECEIPT_SCHEMA_ID', '\\', '\\"', '\\\\', '\\n', '_FallbackGauge', '_label_value', '_parent', 'artifact', 'feature', 'fields', 'float', 'frame_index', 'gauge_for', 'gauges', 'id', 'install_hook', 'int', 'is_active', 'receipts', 'registry', 'render_text', 'reset', 'str', 'uninstall_hook', 'utf-8', 'value', 'writer_id']

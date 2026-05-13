@@ -1,342 +1,243 @@
 # stepback
 
-**The open reversible debugger and counterfactual evaluation substrate for LLM agents.** stepback records a real agent run as a content-addressed, signed `.sb` trace, then lets you replay it deterministically, branch at any step, substitute prompts / tool outputs / policies / models, and re-execute *only the steps affected by the substitution*. Every other step is served from a per-step content-addressed cache.
-
-This is not meant to be just a Python library. The goal is the runtime layer the field adopts: the rr / Pernosco / DDT for the agent era. The `.sb` trace is the standardization point: an open SB-Trace specification on a public RFC track, independent implementations, conformance fixtures, and a versioning policy strict enough for production incident records and research benchmarks.
-
-The core technical claim remains: **counterfactual debugging of an N-step agent trace costs O(dirty_set) LLM calls instead of O(N)**. `stepback/divergence.py` implements dirty-set propagation, `stepback/replay.py` implements replay, `stepback/minimize.py` implements trace minimization, `stepback/sweep.py` amortizes parameter sweeps, and `trace_writer.py` / `attestation.py` provide signed trace evidence.
-
-License: **Apache-2.0.** The target home is neutral infrastructure: SB-Trace in the OpenTelemetry standards conversation, a Linux Foundation project when governance is ready, and a CNCF sandbox application once the proxy/runtime has production users.
-
----
-
-## Why this exists
-
-Existing tools fall into two camps:
-
-- **Observability**: LangSmith, LangFuse, Arize Phoenix, Helicone, PromptLayer, Datadog APM. They tell you *what happened*, often with a single-call edit-and-rerun panel. They do not chain a substitution forward through the rest of the agent run, bisect a regression, or cache unaffected downstream steps by semantic content hash.
-- **HTTP cassettes**: pytest-vcr, pytest-recording. They replay bytes, not agent semantics. They cannot replace one tool result mid-trace, let the LLM react, and then distinguish the affected suffix from the reusable suffix.
-
-stepback is the missing systems layer. The unit of execution is an agent step: LLM call, tool call, router decision, policy check, MCP call, or parallel branch. The trick is to turn recorded LLM calls into cached pure functions of canonicalized inputs.
-
-If agents are going to make code changes, payments, safety decisions, and regulated workflow decisions, "what happened" is too weak. We need reversible traces, counterfactual replay, model-swap differential testing, incident minimization, provenance, policy audit, and cryptographic evidence that the trace was not rewritten after the fact.
-
----
-
-## What's novel (and publishable)
-
-### 1. SB-Trace: an open `.sb` trace specification
-
-The `.sb` format is the headline claim. v1 is an append-only stream of length-prefixed canonical JSON frames, HMAC-chained and signed per frame. The header pins `format_version`, `recorder_version`, `canonicalisation_version`, `price_list_version`, signer public key, and HMAC key id. A deterministic CBOR encoding is a candidate for `format_version=2`, not a claim about v1.
-
-The public track should look IETF-style: RFCs for byte layout, semantic model, canonicalization, security, versioning, and OpenTelemetry semantic conventions for `agent.step`. Multiple independent implementations should pass the same conformance suite.
-
-### 2. Multi-language recorders and replay engines
-
-The Python implementation is the seed. The intended architecture is:
-
-- `stepback-core`: Rust trace writer/reader, canonicalizer, dirty-set engine, replay planner, verifier, and sharded cache client.
-- Native bindings for Python, TypeScript/Node, Go, JVM, and .NET.
-- WASM replay and verification for in-browser inspection.
-- `stepback-proxy` / `sb`: HTTP and gRPC sidecar so Go, Rust, JVM, Node, and legacy stacks can record without a Python dependency.
-
-### 3. LLM-aware step caching with dirty-set propagation
-
-Given a trace and a substitution at step k, `divergence.py` computes downstream steps whose canonical inputs would hash differently and therefore must be re-executed. Every other step is replayed from cache. The formal artifact is a Coq/Lean mechanization of the soundness theorem: under substitution sigma, every non-dirty replayed step is observationally equivalent to full re-execution.
-
-The systems artifact is a distributed dirty-set engine over a worker pool: sharded step cache on object storage, Kafka-backed event bus, ClickHouse trace warehouse, and distributed bisect across parallel replay workers.
-
-### 4. Delta-debugging for stochastic traces
-
-`minimize.py` adapts ddmin to traces where steps are stochastic, expensive, and not freely droppable. The ambitious version adds multi-objective minimization, predicate stability metrics, repeated dirty-step re-execution when needed, and incremental bisect across multiple regressions.
-
-### 5. Trace-level differential testing and counterfactual sweeps
-
-`trace_diff.py` and `sweep.py` compare model swaps, prompt edits, policy changes, retrieval changes, and parameter grids. The target is not a three-model demo; it is what-if exploration over grids of size one million plus, with statistical tests for whether a difference is real or stochastic noise.
-
-### 6. Cryptographic replay evidence
-
-Ed25519 is the current signature path. The roadmap adds post-quantum signatures with ML-DSA / SLH-DSA, threshold signing for long-lived recorders, witness cosigning for public benchmark traces, transparency-log integration, and CycloneDX-AI / SLSA / in-toto interop.
-
-### 7. A benchmark consortium
-
-The benchmark program should look more like MLPerf than a one-off chart: submission rules, hosted leaderboard, scheduled frontier-model re-evaluations, signed trace packs, hardware manifests, and public validators. Corpora should cover SWE-bench-Verified, GAIA, tau-bench, AgentBench, OSWorld, WebArena, and at least three author-original redistributable trace corpora.
-
-Metrics: replay-caching cost reduction, dirty-set distribution on anonymized production traces, minimization stability under stochasticity, model-swap differential fidelity, recorder overhead, trace-reader throughput, and storage compression.
-
-### 8. Paper outputs
-
-The natural paper sequence is four or five artifacts: an MLSys / NeurIPS systems paper on dirty-set replay, an OSDI / ASPLOS systems paper on distributed replay, an ICSE / ISSTA paper on stochastic minimization and regression localization, a NeurIPS-Datasets benchmark paper, and a FAccT / industry case-study paper on incident debugging and auditability.
-
----
-
-## Install
-
-Today, use pipx or a virtualenv. Distro and Homebrew Pythons enforce PEP 668 and may reject a bare install into the system environment.
+**Time-travel debugger for AI agents.** Record LLM-agent runs as signed `.sb`
+traces, replay counterfactuals with dirty-set propagation, and bisect
+regressions — re-executing only the steps whose inputs actually changed.
 
 ```bash
-pipx install stepback
-# or
-python -m venv .venv && source .venv/bin/activate
 pip install stepback
 ```
 
-Source install:
+```python
+from stepback import record, replay, Executor, RecorderKey
+from stepback.substitutions import ToolOutputSubstitution
+
+llm = lambda m, msgs: {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}}
+tool = lambda n, a: {"country": "GB"}
+key = RecorderKey.fresh()
+with record("agent.sb", key=key) as r:
+    r.llm_call("gpt-4o-mini", [{"role": "user", "content": "help c1"}], executor=llm)
+    r.tool_call("fetch", {"id": "c1"}, executor=tool)
+trace = replay("agent.sb", hmac_key=key.hmac_key)
+print(trace.replay_forward().real_executions)   # → 0  (all cache hits)
+trace.substitute(ToolOutputSubstitution(at_step="step:2", fake_response={"country": "US"}))
+changed = trace.replay_forward(Executor(llm=llm, tool=tool))
+culprit = trace.bisect("step:1", "step:2", predicate=lambda s: "US" in str(s.outputs))
+```
+
+> After one tool substitution, `changed.real_executions` is 1 — only the
+> downstream LLM step re-ran; unaffected steps are served from recorded
+> outputs with zero executor calls.
+
+---
+
+## Motivation
+
+Agent debugging usually starts from an execution trace: the prompt, tool inputs, tool outputs, routing decisions, model responses, costs, and failures that occurred in one real run. Observability systems are good at showing that history, but a debugger also needs to ask counterfactual questions: what if one tool result had been different, a system prompt changed, a router picked another branch, or a policy file had blocked a later action?
+
+Re-running the whole agent is expensive and often changes unrelated steps. HTTP cassette tools avoid live calls, but they replay raw requests rather than agent-step semantics. stepback's model is to treat each recorded step as a content-addressed computation over canonical inputs. If a substitution changes only part of the trace, the replay engine can propagate that change through the dependency graph and re-execute only the affected dirty set.
+
+That makes local debugging, incident write-ups, policy audits, model-swap checks, and corpus sweeps cheaper than full re-execution while still exposing where the counterfactual run diverged from the recorded run. The current implementation is code-first: the Python package is the reference implementation, and the repository includes tests and conformance fixtures for the trace format.
+
+## Technical ideas
+
+### `.sb` trace format
+
+The v1 `.sb` format is implemented by `stepback/trace_writer.py` and `stepback/trace_reader.py`. On disk it is a sequence of frames:
+
+```text
+| 4-byte big-endian length | canonical-JSON wrapper |
+```
+
+Each wrapper contains a frame body plus `prev_hmac`, `hmac`, and `sig` fields. The HMAC is `HMAC-SHA256(hmac_key, prev_hmac || canonical_json(body))`; the signature is Ed25519 over the frame HMAC. The first frame is a header with `magic`, `format_version`, `recorder_version`, `canonicalisation_version`, `price_list_version`, `public_key`, and `hmac_key_id`. Step frames store `step_id`, `step_kind`, parent links, canonical input/output hashes, optional LLM request/response data, timing, cost, and nondeterminism metadata. Tail, blob, capability, and Merkle summary frames are supported.
+
+`stepback/spec.py` defines the package-independent SB-Trace wire version (`1.0.0`, canonical JSON) and a schema/conformance API. `spec/sbtrace-v1.md` documents the v1 byte layout and fixtures live under `stepback-core/fixtures/v1/`.
+
+### Canonicalization and hashes
+
+`stepback/canonical.py` is the cache-safety boundary. It emits deterministic UTF-8 JSON with sorted keys and no extra whitespace, rejects unsupported values, and computes `sha256:<hex>` hashes. Tests cover round-trips, Unicode, bytes, non-finite floats, nesting/size limits, and property-based cases. `stepback/canonical_cbor.py` and `stepback/semantic_hash.py` contain experimental v2 work, but v1 traces written by the Python package are canonical JSON.
+
+### Recording
+
+`stepback/recorder.py` provides the public `record()` context manager and `Recorder` primitives:
+
+- `llm_call(model, messages, executor=...)`
+- `tool_call(name, arguments, executor=...)`
+- `router(name, choice, options)`
+- `exception(error_class, message)`
+- `parallel(name, branches, join=...)`
+
+The recorder computes input/output hashes, records parent-step dependencies through `context` hashes, records branch fan-out/fan-in metadata, computes costs via `stepback/pricing.py`, and writes signed frames through `TraceWriter`. `arecord()` and `get_current_recorder()` use `contextvars` for async code. `stepback/autorecord.py` and `stepback/shims.py` add optional SDK/framework adapters.
+
+### Provider and framework shims
+
+`stepback/shims.py` contains duck-typed wrappers and replay executors for OpenAI, Anthropic, Bedrock, Gemini, Azure OpenAI, LangChain tools, and MCP sessions. The shim layer normalizes provider-native responses into a shared chat-completion shape before hashing. The repo also contains tests and compatibility cassettes for provider response shapes.
+
+### Dirty-set propagation
+
+`stepback/divergence.py` implements `compute_dirty_set(trace, substitutions)`, a pure classifier that walks recorded steps in topological order and marks a step dirty when:
+
+- a substitution targets it directly,
+- its recomputed canonical input hash differs,
+- a parent it depends on is dirty,
+- recorded nondeterminism metadata requires re-execution.
+
+The algorithm understands single-parent `context` dependencies and multi-parent `parallel_branch_join` dependencies via `branch_tail_hashes`. `stepback/distributed_dirty.py` partitions branch regions and computes the same summary over a worker pool. `docs/dirty-set.md`, `docs/dirty-set-soundness.md`, `docs/dirty-set-completeness.md`, and `proofs/lean/Stepback/Soundness.lean` describe and mechanize the core soundness argument for the modeled DAG.
+
+### Replay engine
+
+`stepback/replay.py` is the executable replay engine. `replay(path)` returns a `Trace`; `Trace.replay_forward()`, `Trace.run_replay()`, `Trace.step_back()`, `Trace.branch_at()`, `Trace.compare_branches()`, and `Trace.bisect()` are part of the public API. Clean steps are served from recorded outputs. Dirty LLM/tool/router steps call an `Executor`, unless a substitution supplies the output or `Executor(fallback_recorded=True)` is used for offline analysis.
+
+Replay results include per-step dirty/cache state, cost summaries, executor-call counts, and provenance fields. The engine has sequential execution, branch-parallel execution via `workers=N`, a `distributed=True` convenience mode backed by the same local planner, and an event stream (`replay_events`) used by the proxy replay endpoint.
+
+### Step cache
+
+`stepback/step_cache.py` implements a content-addressed cache keyed by `(step_kind, inputs_hash)`. `DiskStepCache` is the local implementation and stores JSON entries under sharded directories. `S3StepCache`, `GCSStepCache`, and `AzureStepCache` are dependency-gated object-store implementations. Replay consults the cache for dirty steps whose new inputs match a cached output and avoids executor calls on hits. Nondeterminism-forced steps, tool-output substitutions, and fallback-recorded outputs bypass or avoid polluting the cache.
+
+### Substitutions, diffs, minimization, and sweeps
+
+`stepback/substitutions.py` defines typed substitutions for prompts, messages, tool outputs, fields, JSON patches, models, sampling, routers, policies, and exceptions. `stepback/branch_io.py` persists substitution sets as `.sbb` branch files. `stepback/trace_diff.py` and `stepback/branch_io.py` compare replays and traces.
+
+`stepback/minimize.py` implements replay-backed minimization over substitution sets. It includes ddmin, linear shrink, binary halving, brute force, Shapley attribution, multi-objective minimization, branch-aware minimization, and imported-trace handling when some executors are unavailable. `stepback/minimize_report.py` renders self-contained HTML minimization reports.
+
+`stepback/sweep.py` applies substitutions across a corpus of `.sb` traces and aggregates cost deltas, dirty counts, cache-hit ratios, divergent-step counts, and failures. `stepback/sweep_checkpoint.py` adds disk checkpoints and leases for resumable sweeps.
+
+### Attestation, verification, reports, and import/export
+
+`stepback/attestation.py` builds and verifies signed `.pack` attestation files over one or more traces. `stepback/verify_policy.py`, `stepback/redact.py`, and `stepback/policy_audit.py` add strict verification, redaction scans/rewrites, and counterfactual policy reports.
+
+`stepback/html_view.py`, `stepback/report.py`, and `stepback/minimize_report.py` render self-contained HTML/Markdown/JSON reports. `stepback/importers.py` imports OpenAI chat logs, LangSmith JSONL, OpenInference/OTel spans, Phoenix, Helicone, Langfuse, Datadog APM, native JSON, and CycloneDX-AI. `stepback/exporters.py` exports to OpenAI chat log, LangSmith JSONL, OpenInference/OTel spans, native JSON, HTML, and CycloneDX-AI, with lossiness reporting.
+
+### Other components in the repo
+
+The Python package is the most complete implementation. The repository also contains:
+
+- `stepback/proxy/`: HTTP and optional gRPC sidecar for start/record/end/verify and replay events.
+- `stepback/bench/`: synthetic replay-caching, dirty-set-distribution, minimization, model-swap, storage-compression, microbenchmark, soak, submission, leaderboard, and frontier-reevaluation utilities.
+- `stepback-core/`: Rust crates for v1 format parsing, canonicalization, verification, a partial dirty-set kernel, replay-planner traits, and a WASM verifier/summarizer.
+- `bindings/`: Python/PyO3, TypeScript, Go, JVM, and .NET read/verify bindings with fixture tests.
+- `wasm/`: a demo page and build instructions for the Rust WASM verifier/summarizer; generated bundles are gitignored.
+- `proofs/`: Lean and TLA+ artifacts for the modeled dirty-set and HMAC-chain properties.
+- `docker/`: Dockerfiles and proxy smoke-test support.
+
+## How to use
+
+### Install from this checkout
+
+Use a virtual environment rather than installing into the system Python:
 
 ```bash
-git clone https://github.com/stepback-dev/stepback && cd stepback
-python -m venv .venv && source .venv/bin/activate
+git clone https://github.com/your-org/stepback
+cd stepback
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-pytest
 ```
 
-Future installs should look like normal ecosystem packages:
+Optional extras in `pyproject.toml` are `shims`, `bench`, `proxy-grpc`, and `quickstart`:
 
 ```bash
-cargo install stepback-cli
-npm install @stepback/recorder
-pip install stepback[shims,bench]
-go get github.com/stepback-dev/stepback-go
-sb proxy --listen :4319 --write ./traces
+pip install -e ".[dev,shims,bench,proxy-grpc,quickstart]"
 ```
 
-Python is first. The target is multi-language. Recorder coverage starts with OpenAI, Anthropic, Bedrock, and Gemini, then expands to Vertex, Azure OpenAI, Cohere, Mistral, Together, Fireworks, Groq, Cerebras, NVIDIA NIM, vLLM, TGI, llama.cpp, and Ollama. Framework recorders should cover LangChain, LangGraph, LlamaIndex, DSPy, Haystack, AutoGen, CrewAI, Semantic Kernel, MCP, Strands, Pydantic-AI, and Inspect-AI.
+The installed console script is `stepback` (`stepback.cli:main`).
 
----
+For extended Python examples used by the test suite, see `stepback/testing/` and `tests/test_e2e_replay.py`.
 
-## 60-second tour
+### CLI examples
 
-```python
-from stepback import record, replay
-
-with record("./traces/incident-2026-04-12.sb"):
-    agent.invoke({"input": "Pay invoice INV-118 to vendor 'Acme Bolts'."})
-
-trace = replay("./traces/incident-2026-04-12.sb")
-
-counterfactual = (trace
-    .step_back(to="step:tool_call:lookup_customer")
-    .substitute(prompt="System: be paranoid about PII")
-    .replay_forward())
-
-counterfactual.diff(trace).open_in_browser()
-bad_step = trace.bisect(predicate=lambda s: s.cost_usd > 0.50)
-
-sweep = trace.sweep(model=["gpt-4o", "claude-4.5", "gemini-2.5-pro"])
-sweep.report().write("./sweep.html")
-```
-
-Target distributed use:
-
-```python
-from stepback import replay
-from stepback.spec import SBTraceSpec
-
-SBTraceSpec.load("sbtrace-v1.0.rfc.yaml").assert_conformant("./traces/*.sb")
-
-trace = replay("s3://agent-traces/prod/2026/04/12/run.sb")
-(trace.surgery()
-    .graft(from_trace="s3://bench/golden/customer_lookup.sb",
-           source="step:tool_call:lookup_customer",
-           target="step:tool_call:lookup_customer")
-    .sweep(model=["gpt-4o", "claude-4.5", "mistral-large"],
-           temperature=[0, 0.2, 0.7],
-           policy=["pci-strict", "pci-baseline"])
-    .run(distributed=True, max_points=1_000_000))
-```
-
-CLI:
-
-```text
-stepback record -- python my_agent.py             record a run
-stepback replay <trace.sb>                        deterministic replay
-stepback inspect <trace.sb>                       step-by-step viewer
-stepback bisect <trace.sb> --predicate cost_gt:0.5
-stepback minimize <trace.sb> --predicate failed   delta-debug to minimal failing trace
-stepback diff <a.sb> <b.sb>                       structural trace diff
-stepback sweep <trace.sb> --model gpt-4o,claude-4.5
-stepback bench replay-caching                     reproduce the seed benchmark
-stepback report <trace.sb>                        HTML report
-sb proxy --listen :4319 --write ./traces          sidecar recorder for non-Python stacks
-```
-
-The web UI roadmap adds a time-travel debugger, causal-graph viewer, multi-step simultaneous substitutions, automatic regression localization, trace-level differential testing, and trace surgery APIs that graft a subtrace from one run into another.
-
----
-
-## The `.sb` trace format
-
-Append-only, content-addressed, signed. In v1, each frame is a length-prefixed canonical JSON object preceded by a per-frame HMAC chained to the previous frame's HMAC. Tampering, reordering, and truncation are detectable. The header pins recorder version, canonicalization version, format version, price-list version, signer public key, and HMAC key id.
-
-Each step records:
-
-| Field | Purpose |
-| --- | --- |
-| `step_id` | ULID, monotonic per trace |
-| `step_kind` | `llm_call`, `tool_call`, `router`, `policy_check`, `mcp_call`, `parallel_branch_open`, `parallel_branch_join`, `exception` |
-| `parent_step_id` | edge in the call tree or DAG |
-| `inputs` / `outputs` | canonical JSON plus content hash |
-| `nondeterminism_hash` | hash of non-deterministic inputs consumed by the step |
-| `llm_request` / `llm_response` | exact bytes, model id, messages, sampling params, tool spec, response |
-| `policy_decision` | enforcement or audit decision when flowwarden/toolwarden is present |
-| `wallclock_ns`, `cpu_ns`, `cost_usd` | timing and cost from pinned price-list version |
-| `receipt` | Ed25519 signature chained via `prev_hmac` |
-
-Canonicalization (`canonical.py`) is the cache-safety boundary. The roadmap requires SMT-checked canonicalizer equivalence across implementations, differential fuzzing across recorders, and conformance fixtures every implementation must pass before claiming `.sb` support.
-
-Versioning is strict: old readers reject unknown mandatory fields; new readers read v1 forever; v2 features are negotiated via capability frames rather than guessed from optional blobs.
-
----
-
-## The dirty-set algorithm (`divergence.py`)
-
-```text
-Given:
-  trace T = [s0, s1, ..., sN]
-  substitution sigma at step sk
-
-Compute dirty-set D:
-  D := {sk}
-  for i in k..N:
-    inputs_prime_i := apply sigma and propagate D to recompute si inputs
-    if hash(inputs_prime_i) != hash(inputs_i):
-      D := D union {si}
-      mark si outputs as to-be-recomputed
-    else:
-      reuse cached outputs(si)
-
-Replay cost: number of dirty steps that require real LLM/tool execution.
-Correctness target: assuming canonical input hashing is sound, replay is
-observationally equivalent to full re-execution under sigma on every
-non-dirty step.
-```
-
-The production engine generalizes this from a list to a DAG with parallel branches, joins, policy decisions, tool calls, and imported spans. The distributed version shards dirty-set computation across workers, stores content-addressed outputs on object storage, indexes traces in ClickHouse, and schedules independent branch replay in parallel.
-
-Formal artifacts are part of scope: Coq/Lean proof for dirty-set soundness, TLA+ spec of the append-only HMAC chain, and oracle tests comparing dirty-set replay against full re-execution on generated traces.
-
----
-
-## Trace-minimization for stochastic traces (`minimize.py`)
-
-Classical ddmin assumes deterministic programs and freely droppable input chunks. LLM traces are neither. stepback's minimizer:
-
-1. Treats removal as a substitution.
-2. Uses dirty-set propagation to compute the affected suffix.
-3. Re-executes only dirty steps against real executors.
-4. Evaluates the failure predicate on the resulting trace.
-5. Continues ddmin over the remaining steps.
-
-The ambitious version supports multi-objective minimization, stochastic confidence intervals, predicate DSL extensions, incremental bisect across multiple regressions, and automatic regression localization over a fleet of traces.
-
----
-
-## Repository layout
-
-```text
-stepback/
-├── stepback/
-│   ├── recorder.py        # capture from shimmed clients
-│   ├── shims.py           # OpenAI / Anthropic / Bedrock / Gemini shims today
-│   ├── trace_writer.py    # .sb v1 writer, canonical JSON frames
-│   ├── trace_reader.py    # .sb v1 reader / verifier
-│   ├── canonical.py       # canonical input hashing
-│   ├── replay.py          # deterministic replay engine
-│   ├── divergence.py      # dirty-set propagation
-│   ├── substitutions.py   # typed substitution builder
-│   ├── minimize.py        # delta-debugging for traces
-│   ├── sweep.py           # parameter sweeps amortized via cache
-│   ├── trace_diff.py      # structural diff between two traces
-│   ├── predicates.py      # predicate DSL for bisect / minimize
-│   ├── attestation.py     # Ed25519 signing + attestation packs
-│   ├── policy_audit.py    # replay-time policy checks
-│   ├── pricing.py         # cost computation from pinned price lists
-│   ├── importers.py       # LangSmith / OpenInference today; Phoenix/OTel roadmap
-│   ├── exporters.py       # export to OTel, JSON, HTML
-│   ├── html_view.py / report.py
-│   └── cli.py
-├── scripts/
-│   ├── bench_record_overhead.py
-│   └── bench_replay_caching.py
-├── tests/                 # 605 collected in the audit snapshot
-├── GROUNDING.md
-└── README.md
-```
-
-Target layout adds `stepback-core/`, `bindings/python/`, `bindings/typescript/`, `bindings/go/`, `bindings/jvm/`, `bindings/dotnet/`, `wasm/`, `proxy/`, `spec/`, `bench/`, and `ui/`.
-
----
-
-## Reproducing the bench
-
-Current seed benchmark:
+Record a Python script with ambient autorecording:
 
 ```bash
-git clone https://github.com/<org>/stepback && cd stepback
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[bench]"
-PYTHONPATH=. python scripts/bench_replay_caching.py
+stepback record --output trace.sb -- python my_agent.py
 ```
 
-Target benchmark CLI:
+Inspect, replay, and save a counterfactual branch:
 
 ```bash
-stepback bench replay-caching --suite swe-bench-verified --n 50
-stepback bench dirty-set --suite production-anon-2026q2 --substitutions 10000
-stepback bench model-swap --suite gaia --from gpt-4o --to claude-4.5
-stepback bench overhead --recorder openai --p50-budget-us 50
+stepback inspect trace.sb
+stepback replay trace.sb --json
+stepback replay trace.sb \
+  --substitute 'tool_output@step:2=:inline:{"customer_id":"c1","country":"US"}' \
+  --branch-out fixed.sbb \
+  --json
+stepback diff trace.sb --a-branch fixed.sbb
 ```
 
-The consortium benchmark covers replay-caching cost reduction, dirty-set distribution on anonymized production traces, minimization stability under stochasticity, model-swap differential fidelity, recorder overhead, reader throughput, and storage compression. Submissions include trace packs, attestation receipts, hardware manifests, recorder versions, model versions, price-list versions, and a reproducibility script.
+Verify a trace when you have the HMAC key:
 
----
+```bash
+stepback verify trace.sb --hmac-key-hex "$STEPBACK_HMAC_KEY_HEX"
+```
 
-## What this is not
+Render local reports and viewers:
 
-- **Not an observability dashboard.** stepback ingests LangSmith / LangFuse / Phoenix / Helicone / Datadog traces, but its native surface is counterfactual replay.
-- **Not a single-call prompt playground.** Substitutions chain forward through every affected step.
-- **Not an HTTP cassette layer.** Canonicalization works at LLM-call and agent-step semantics, not raw bytes.
-- **Not a policy enforcer.** toolwarden and flowwarden can enforce. stepback records decisions, replays them, audits them, and packages evidence.
-- **Not a closed hosted product.** Hosted viewers and leaderboards may exist, but `.sb`, the conformance suite, and the core replay machinery stay open.
+```bash
+stepback view trace.sb --output trace.html
+stepback debug trace.sb --output debug.html --sub 'model@step:1=gpt-4o-mini-2024-07-18'
+stepback report trace.sb --substitute 'router@step:3=alternate' --output report.md
+stepback trace-diff before.sb after.sb --format markdown
+```
 
----
+Run analysis commands:
 
-## Project status
+```bash
+stepback bisect trace.sb --good step:1 --bad step:12 --predicate 'step.cost_usd > 0.50'
+stepback minimize trace.sb \
+  --substitute 'model@step:1=gpt-4o-mini-2024-07-18' \
+  --predicate 'result.total_cost_usd > 0.01'
+stepback sweep traces/*.sb --substitute 'policy@step:7=policies/strict.json' --format json
+stepback divergence trace.sb --hmac-key-hex "$STEPBACK_HMAC_KEY_HEX" --executor-recorded
+```
 
-Substantial but early. The audit snapshot found about 25,448 lines of Python across `stepback/` and `tests/`, 605 tests passing on Python 3.14, `.sb` writing with canonical JSON frames, HMAC chaining, Ed25519 signatures, attestation packs, four provider shims, importers, exporters, dirty-set propagation, replay, minimization, parameter sweeps, policy audit, and parallel-branch tests.
+Import/export and redaction:
 
-Also true: no CI yet, no public benchmark consortium, no multi-language core, no formal proof, no independent implementation, and the current runnable benchmark is a script rather than the full CLI benchmark suite. That is the roadmap.
+```bash
+stepback import --format langsmith_jsonl --input runs.jsonl --output imported.sb
+stepback export --format native_json --input trace.sb --output trace.json --hmac-key-hex "$STEPBACK_HMAC_KEY_HEX"
+stepback redact-scan trace.sb --hmac-key-hex "$STEPBACK_HMAC_KEY_HEX" --json
+stepback redact trace.sb --output redacted.sb --hmac-key-hex "$STEPBACK_HMAC_KEY_HEX" --policy standard
+```
 
----
+Attestation and conformance:
 
-## Contributing
+```bash
+stepback attest trace.sb --hmac-key-hex "$STEPBACK_HMAC_KEY_HEX" --out trace.pack
+stepback verify-pack trace.pack
+stepback spec test -- ./path/to/verifier
+```
 
-PRs welcome. The areas where outside contribution moves the needle most:
+Benchmarks and health checks:
 
-- independent `.sb` readers/writers and conformance fixtures,
-- provider shims and framework recorders,
-- importers from LangSmith, Phoenix, Helicone, Langfuse, OpenTelemetry/OpenInference, and Datadog APM,
-- benchmark corpora and leaderboard submissions,
-- formal artifacts: Coq/Lean, TLA+, SMT canonicalizer checks,
-- production reports of dirty-set distributions on anonymized traces,
-- integrations with ragdoctor, flowwarden, toolwarden, CycloneDX-AI, SLSA, and in-toto.
+```bash
+stepback bench replay-caching --n-steps 200 --n-trials 10 --out replay-caching.json
+stepback bench dirty-set-distributions --out dirty-set-distributions.json
+stepback bench record-overhead --n-steps 1000
+stepback doctor
+stepback diagnose --all
+```
 
-`pytest` must stay green. Public APIs in `stepback/__init__.py` are covered by semver from v0.1 onward; SB-Trace gets its own wire-format semver and compatibility policy.
+Run the HTTP proxy sidecar:
 
----
+```bash
+stepback proxy --listen 127.0.0.1:4319 --write ./traces
+# add --grpc-listen 127.0.0.1:4320 when the proxy-grpc extra is installed
+```
+
+### Tests
+
+The repository uses pytest:
+
+```bash
+python3 -m pytest
+```
+
+The test tree covers record/replay, trace verification and corruption rejection, dirty-set propagation, parallel branches, substitutions, minimization, sweeps, shims, import/export, proxy endpoints, benchmarks, bindings, and spec/conformance invariants.
+
+## Status / scope
+
+stepback is alpha software. The Python recorder/replay/minimization stack is the reference implementation and has broad in-repo test coverage. The Rust, WASM, and language-binding directories contain real read/verify and conformance work, but they are not complete replacements for the Python recorder and replay engine. Hosted services, public benchmark leaderboards, upstream standards adoption, package-manager releases, production governance, and third-party operational guarantees are outside the current implemented scope unless their code is present in this repository.
 
 ## License
 
 Apache-2.0. See `LICENSE`.
-
-## Citation
-
-If you use stepback, SB-Trace, or the benchmark suite in academic work:
-
-```bibtex
-@software{stepback,
-  title  = {stepback: reversible debugging and counterfactual evaluation for LLM agents via SB-Trace and dirty-set replay},
-  year   = {2026},
-  url    = {https://github.com/<org>/stepback}
-}
-```

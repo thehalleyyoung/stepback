@@ -1,0 +1,93 @@
+{
+  "corpus_id": "code-review",
+  "schema_version": "1.0",
+  "description": "Author-original corpus: a code-review bot identifying five canonical defect categories in Python snippets. All traces are author-original and redistributable under the Apache-2.0 licence.",
+  "license": "Apache-2.0",
+  "tasks": [
+    {
+      "task_id": "sql-injection",
+      "prompt": "Review the following Python function for security issues:\n\ndef get_user(username):\n    query = f\"SELECT * FROM users WHERE name = '{username}'\"\n    return db.execute(query).fetchall()\n",
+      "inputs": {
+        "language": "python",
+        "file": "db_helpers.py",
+        "defect_category": "security"
+      },
+      "evaluation": {
+        "expected_issues": [
+          "sql_injection"
+        ],
+        "severity": "critical",
+        "fix": "use parameterized queries"
+      },
+      "hmac_key_hex": "f2965f04d49ccb3e56c35ab694cbebdb0caaff19f7835e91603e41479073dc3b"
+    },
+    {
+      "task_id": "off-by-one",
+      "prompt": "Review the following Python function for correctness:\n\ndef slice_last_n(items, n):\n    return items[len(items) - n:len(items) + 1]\n",
+      "inputs": {
+        "language": "python",
+        "file": "utils.py",
+        "defect_category": "logic"
+      },
+      "evaluation": {
+        "expected_issues": [
+          "off_by_one"
+        ],
+        "severity": "medium",
+        "fix": "use items[-n:] instead"
+      },
+      "hmac_key_hex": "3f131d0b61b51a18ef10e191abfaa8a3552c27b9c057f8764b85d7acf22fda26"
+    },
+    {
+      "task_id": "race-condition",
+      "prompt": "Review the following Python function for thread safety:\n\nimport threading\n_counter = 0\n\ndef increment():\n    global _counter\n    tmp = _counter\n    _counter = tmp + 1\n",
+      "inputs": {
+        "language": "python",
+        "file": "worker.py",
+        "defect_category": "concurrency"
+      },
+      "evaluation": {
+        "expected_issues": [
+          "race_condition"
+        ],
+        "severity": "high",
+        "fix": "use threading.Lock or threading.local"
+      },
+      "hmac_key_hex": "ce69e7cb04246af33ee47136bec45a4a0ec531f6268285c5256a849fc1879cb5"
+    },
+    {
+      "task_id": "missing-error-handling",
+      "prompt": "Review the following Python function for robustness:\n\nimport urllib.request\n\ndef fetch_config(url):\n    with urllib.request.urlopen(url) as r:\n        return r.read().decode()\n",
+      "inputs": {
+        "language": "python",
+        "file": "config_loader.py",
+        "defect_category": "error_handling"
+      },
+      "evaluation": {
+        "expected_issues": [
+          "missing_error_handling"
+        ],
+        "severity": "medium",
+        "fix": "wrap in try/except for URLError and timeout"
+      },
+      "hmac_key_hex": "2669bbdf99be31699fc6dfdaf83963e9d4770e2a8dccb8f5585c59de779bd284"
+    },
+    {
+      "task_id": "resource-leak",
+      "prompt": "Review the following Python function for resource management:\n\ndef read_lines(path):\n    f = open(path)\n    lines = f.readlines()\n    return lines\n",
+      "inputs": {
+        "language": "python",
+        "file": "file_utils.py",
+        "defect_category": "resource_management"
+      },
+      "evaluation": {
+        "expected_issues": [
+          "resource_leak"
+        ],
+        "severity": "medium",
+        "fix": "use 'with open(path) as f:' context manager"
+      },
+      "hmac_key_hex": "df90c41f4d1bd4a35997ad9dccb1f9bc280b3373f20bac135a168bb89cff7197"
+    }
+  ]
+}

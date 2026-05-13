@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/l1_trace_writer_store.py
+# hypothesis_version: 6.148.7
+
+['.tmp', 'ARTIFACTS_SUBDIR', 'BASE_RECEIPTS_FILE', 'FLAG_NAME', 'L1', 'META_FILENAME', 'MODULE_LABEL', 'RECEIPTS_SUBDIR', 'STORE_DIR_ENV', 'a', 'artifact_name', 'artifact_path', 'artifacts', 'artifacts_written', 'base', 'base.jsonl', 'base_receipts', 'base_receipts_path', 'flag', 'get_store_dir', 'install_hook', 'is_active', 'module', 'persist_all', 'persist_writer', 'projection', 'projection.jsonl', 'projection_receipts', 'r', 'receipts', 'reset', 'schema_version', 'set_store_dir', 'uninstall_hook', 'utf-8', 'w', 'watermark_snapshot', 'writer_dir', 'writer_id', 'writer_id_hash', 'writer_meta.json', 'writers']

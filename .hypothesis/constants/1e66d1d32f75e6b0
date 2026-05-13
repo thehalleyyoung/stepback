@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/leaderboard.py
+# hypothesis_version: 6.148.7
+
+[-1.0, '.json', '1.0', '; ', 'FAILED', 'Leaderboard', '_parse_error', 'accepted', 'accepted_count', 'audit', 'bench_results', 'cache', 'cache_hit_rate', 'code', 'corpus_id', 'cost', 'development_count', 'errors', 'generated_at', 'git_dirty', 'inf', 'is_development', 'latency', 'measured_hit_rate', 'metrics', 'public_count', 'rejected', 'rejected_count', 'run_id', 'schema_version', 'source', 'stepback_version', 'submission_date', 'submission_id', 'submitter_name', 'total_submitted', 'trace_count', 'unknown', 'utf-8', 'validator_output', 'wall_time_ms', 'warnings', '–']

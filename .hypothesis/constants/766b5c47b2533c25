@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/kitchensink/comet_sigma/audit.py
+# hypothesis_version: 6.148.7
+
+['L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'ProvenanceChain', 'artifact_name', 'at', 'blame-render', 'calibration', 'doc', 'feature', 'id', 'kind', 'move', 'name', 'override', 'partition', 'payload', 'payload_sha256', 'posterior', 'prediction-set', 'provenance', 'receipt_schema', 'router-decision', 'schema_id', 'src', 'src_sha256', 'utf-8', 'weight']

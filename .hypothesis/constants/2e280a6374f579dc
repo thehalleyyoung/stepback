@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/stability.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 0.95, 1.0, 2.0, 4.0, 'FlakyClass', 'StabilityConfig', 'StabilityResult', 'Trace', 'flaky', 'stable_false', 'stable_true']

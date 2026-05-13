@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/Documents/div/mathdivergence/halley-labs/wasserstein-bounds/src/drift_characterization.py
+# hypothesis_version: 6.148.7
+
+[-1.0, -0.3, 0.0, 1e-12, 1e-10, 1e-08, 0.05, 0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 1.0, 2.0, 100, ' + ', 'Continue monitoring.', 'No quality change', 'Quality DEGRADED', 'Quality IMPROVED', 'ambiguous', 'beneficial', 'bernstein', 'certified', 'chi2_test', 'harmful', 'interpretation', 'ks_test', 'location', 'mean_shift', 'mean_threshold', 'neutral', 'psi', 'scale', 'shape', 'stderr', 'tail']

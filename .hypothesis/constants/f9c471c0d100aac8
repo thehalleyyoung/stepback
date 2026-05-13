@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/recorder.py
+# hypothesis_version: 6.148.7
+
+[0.0, 'Recorder', 'RecorderKey', 'arguments', 'branch_count', 'branch_names', 'branch_tail_hashes', 'branch_tails', 'branches', 'choice', 'context', 'cost_usd', 'drop', 'error_class', 'exception', 'inputs', 'inputs_hash', 'kind', 'llm_call', 'llm_request', 'llm_response', 'message', 'messages', 'model', 'name', 'nondeterminism', 'nondeterminism_hash', 'open_step_id', 'options', 'outputs', 'outputs_hash', 'parallel_branch_join', 'parallel_branch_open', 'parent_step_id', 'parent_step_ids', 'response_format', 'result', 'router', 'safety_settings', 'seed', 'step_id', 'step_kind', 'stepback_parent_step', 'stepback_recorder', 'temperature', 'tool_call', 'tools', 'usage', 'wallclock_ns']

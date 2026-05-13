@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/trace_reader.py
+# hypothesis_version: 6.148.7
+
+[b'\x00', 1024, '$blob', ',', ', ', '>I', 'Trace_', 'Unknown', 'ascii', 'auto', 'blob', 'body', 'capability', 'core', 'data', 'ed25519:', 'empty trace', 'encoding', 'frame_index', 'gzip+base64', 'header', 'hmac', 'id', 'json', 'kind', 'mandatory', 'name', 'params', 'prev_hmac', 'prev_hmac mismatch', 'public_key', 'python', 'rb', 'rust', 'sig', 'step', 'tail', 'truncated frame body', 'type', 'utf-8']

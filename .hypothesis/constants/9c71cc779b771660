@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/l1_canonical.py
+# hypothesis_version: 6.148.7
+
+[b'__bytes_hex__', 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10000, 'BASE_FEATURES', 'BaseFeatureSpec', 'CanonicalEvent', 'DEFAULT_NAMESPACE', 'FLAG_NAME', 'FRAME_NAME_PREFIX', 'L1', 'MAX_RECENT_EVENTS', 'MODULE_LABEL', 'NamespaceState', 'OBSERVE_HOOKS', 'RECEIPT_SCHEMA_ID', '__wrapped__', 'artifacts_for', 'canonical_l1_v1', 'canonical_v1', 'default', 'duration_ns', 'event_index', 'feature', 'feature_history', 'fields', 'float', 'get_state', 'id', 'install', 'int', 'is_active', 'known_namespaces', 'last_wallclock_ns', 'namespace', 'receipts_for', 'reset', 'str', 'uninstall', 'value', 'wallclock_ns']

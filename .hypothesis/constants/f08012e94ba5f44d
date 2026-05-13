@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/minimization.py
+# hypothesis_version: 6.148.7
+
+[1.0, 1000000.0, 1000, 'UNSTABLE', 'binary_halving', 'cache_hits', 'causal', 'content', 'ddmin', 'final_subs', 'inputs', 'isolated_causal', 'linear_shrink', 'llm_call', 'llm_calls_spent', 'marker', 'messages', 'n_noisy', 'n_noisy must be >= 0', 'n_steps', 'n_steps must be >= 1', 'n_trials', 'name', 'original_subs', 'outputs', 'predicate_stable', 'probes', 'role', 'stable', 'step_id', 'step_kind', 'strategy_name', 'strategy_results', 'tool', 'tool_call', 'unknown', 'user', 'wall_time_ms']

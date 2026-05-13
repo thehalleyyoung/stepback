@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1.7
+#
+# stepback slim image — minimal CLI for offline replay, inspect, and verify.
+#
+# This image includes ONLY the base `stepback` package (cryptography runtime
+# dep). No provider SDKs (OpenAI, Anthropic, Bedrock, Gemini) are bundled,
+# making it roughly 3–4× smaller than the full image.
+#
+# Suitable for:
+#   * replaying already-recorded traces (no live provider calls needed)
+#   * inspecting, verifying, diffing, and bisecting recorded .sb files
+#   * CI pipelines that only need trace analysis, not new recordings
+#
+# NOT suitable for:
+#   * recording live agent runs (no provider shims)
+#   * quickstart wizard or bench subcommands requiring optional extras
+#
+# Build:
+#   docker build -f docker/Dockerfile.slim \
+#     --build-arg VERSION=$(python -c "import stepback; print(stepback.__version__)") \
+#     -t ghcr.io/stepback-dev/stepback:0.1.0-slim .
+#
+# Run (inspect a recorded trace):
+#   docker run --rm \
+#     -v "$PWD/traces:/traces:ro" \
+#     ghcr.io/stepback-dev/stepback:0.1.0-slim \
+#     inspect /traces/run.sb
+#
+# Run (verify a trace's HMAC chain):
+#   docker run --rm \
+#     -v "$PWD/traces:/traces:ro" \
+#     -e SB_HMAC_KEY_HEX="<hex>" \
+#     ghcr.io/stepback-dev/stepback:0.1.0-slim \
+#     verify /traces/run.sb
+
+ARG PYTHON_VERSION=3.11
+ARG VERSION=0.1.0
+
+# ---------- Stage 1: builder ----------
+FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_ROOT_USER_ACTION=ignore
+
+WORKDIR /src
+
+COPY pyproject.toml MANIFEST.in README.md LICENSE CITATION.cff ./
+COPY stepback/ ./stepback/
+
+# Install base package only — no shims, no quickstart, no grpc extras.
+RUN python -m pip install --upgrade pip build \
+ && python -m build --wheel --outdir /wheels . \
+ && python -m pip install --prefix=/install --no-compile \
+        "/wheels/stepback-*.whl"
+
+# ---------- Stage 2: runtime ----------
+FROM python:${PYTHON_VERSION}-slim-bookworm
+
+ARG VERSION=0.1.0
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Non-root account matching the distroless nonroot UID/GID (65532).
+RUN groupadd --system --gid 65532 stepback \
+ && useradd  --system --uid 65532 --gid 65532 \
+             --home /home/stepback --shell /bin/bash stepback \
+ && mkdir -p /home/stepback /traces \
+ && chown -R stepback:stepback /home/stepback /traces
+
+COPY --from=builder /install/lib/python3.11/site-packages/ \
+     /usr/local/lib/python3.11/site-packages/
+COPY --from=builder /install/bin/ /usr/local/bin/
+
+VOLUME ["/traces"]
+
+LABEL org.opencontainers.image.title="stepback-slim" \
+      org.opencontainers.image.description="Minimal stepback CLI for offline replay, inspect, and verify (no provider shims)." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/stepback-dev/stepback" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.documentation="https://github.com/stepback-dev/stepback#readme"
+
+USER stepback
+WORKDIR /home/stepback
+
+ENTRYPOINT ["stepback"]
+CMD ["--help"]

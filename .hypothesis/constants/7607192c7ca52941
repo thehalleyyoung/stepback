@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/proxy/grpc_server.py
+# hypothesis_version: 6.148.7
+
+[4320, '127.0.0.1', '2026-04-01', 'EndTrace', 'RecordStep', 'StartTrace', 'VerifyTrace', 'blob_min_reuse', 'blob_threshold', 'compression', 'error', 'filename', 'format_version', 'hmac_key', 'hmac_key_hex', 'hmac_key_id', 'ok', 'path', 'price_list_version', 'proxy_version', 'public_key_hex', 'recorder_version', 'signing_key_hex', 'step', 'step_count', 'step_json', 'stepback.proxy.grpc', 'trace_id', 'utf-8']

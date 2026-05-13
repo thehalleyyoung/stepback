@@ -831,3 +831,363 @@ def redact_trace_file_streaming(
     manifest.n_steps = n
     return manifest
 
+
+
+# ======================================================================
+# § Production-trace ingestion rules
+# ======================================================================
+
+import datetime
+import json as _json
+
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+        Ed25519PublicKey,
+    )
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from cryptography.exceptions import InvalidSignature as _InvalidSignature
+
+    _CRYPTO_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _CRYPTO_AVAILABLE = False  # type: ignore[assignment]
+
+
+def _file_sha256(path: str) -> str:
+    """Return ``sha256:<hex>`` for the bytes at *path*."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def _policy_fingerprint(policy: "RedactionPolicy") -> str:
+    """Return a stable ``sha256:…`` fingerprint for *policy*."""
+    dets = []
+    for d in policy.detectors:
+        pat = d.pattern if isinstance(d.pattern, str) else getattr(d, "name", repr(d.pattern))
+        dets.append({"name": d.name, "pattern": pat, "strategy": d.strategy})
+    salt_id = policy.salt.hex() if policy.salt else ""
+    allowlist = sorted(policy.allowlist) if policy.allowlist else []
+    body = {
+        "name": policy.name,
+        "detectors": dets,
+        "salt_id": salt_id,
+        "allowlist": allowlist,
+    }
+    return sha256_hex(canonical_json(body))
+
+
+class AttestationVerificationError(Exception):
+    """Raised when a :class:`RedactionAttestation` fails verification."""
+
+
+@dataclass
+class RedactionAttestation:
+    """Signed record of a redaction operation."""
+
+    magic: str
+    format_version: int
+    original_trace_hash: str
+    redacted_trace_hash: str
+    policy_name: str
+    policy_fingerprint: str
+    n_steps: int
+    n_redactions: int
+    per_detector: Dict[str, int]
+    redacted_at: str
+    attestor_public_key: str
+    body_hash: str
+    signature: str
+
+    _UNSIGNED = frozenset({"body_hash", "signature"})
+
+    def to_dict(self) -> dict:
+        return {
+            "magic": self.magic,
+            "format_version": self.format_version,
+            "original_trace_hash": self.original_trace_hash,
+            "redacted_trace_hash": self.redacted_trace_hash,
+            "policy_name": self.policy_name,
+            "policy_fingerprint": self.policy_fingerprint,
+            "n_steps": self.n_steps,
+            "n_redactions": self.n_redactions,
+            "per_detector": dict(self.per_detector),
+            "redacted_at": self.redacted_at,
+            "attestor_public_key": self.attestor_public_key,
+            "body_hash": self.body_hash,
+            "signature": self.signature,
+        }
+
+    @classmethod
+    def _body_dict(cls, d: dict) -> dict:
+        return {k: v for k, v in d.items() if k not in cls._UNSIGNED}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "RedactionAttestation":
+        return cls(
+            magic=d["magic"],
+            format_version=d["format_version"],
+            original_trace_hash=d["original_trace_hash"],
+            redacted_trace_hash=d["redacted_trace_hash"],
+            policy_name=d["policy_name"],
+            policy_fingerprint=d["policy_fingerprint"],
+            n_steps=d["n_steps"],
+            n_redactions=d["n_redactions"],
+            per_detector=dict(d["per_detector"]),
+            redacted_at=d["redacted_at"],
+            attestor_public_key=d["attestor_public_key"],
+            body_hash=d["body_hash"],
+            signature=d["signature"],
+        )
+
+
+def sign_redaction_attestation(
+    original_path: str,
+    redacted_path: str,
+    manifest: "RedactionManifest",
+    policy: "RedactionPolicy",
+    signing_key: "Ed25519PrivateKey",
+) -> RedactionAttestation:
+    """Build and sign a :class:`RedactionAttestation`.
+
+    Parameters
+    ----------
+    original_path:
+        Path to the original (pre-redaction) trace file.
+    redacted_path:
+        Path to the redacted output file.
+    manifest:
+        :class:`RedactionManifest` produced by the redaction step.
+    policy:
+        The :class:`RedactionPolicy` that was applied.
+    signing_key:
+        Ed25519 private key to sign with.
+    """
+    orig_hash = _file_sha256(original_path)
+    red_hash = _file_sha256(redacted_path)
+    pub_hex = signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    redacted_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    body: dict = {
+        "magic": "stepback/redaction-attestation",
+        "format_version": 1,
+        "original_trace_hash": orig_hash,
+        "redacted_trace_hash": red_hash,
+        "policy_name": policy.name,
+        "policy_fingerprint": _policy_fingerprint(policy),
+        "n_steps": manifest.n_steps,
+        "n_redactions": manifest.n_redactions,
+        "per_detector": dict(manifest.per_detector),
+        "redacted_at": redacted_at,
+        "attestor_public_key": f"ed25519:{pub_hex}",
+    }
+    body_hash = sha256_hex(canonical_json(body))
+    sig_bytes = signing_key.sign(body_hash.encode())
+    sig_hex = "ed25519:" + sig_bytes.hex()
+    body["body_hash"] = body_hash
+    body["signature"] = sig_hex
+    return RedactionAttestation.from_dict(body)
+
+
+def verify_redaction_attestation(
+    attestation: "Union[RedactionAttestation, dict]",
+    *,
+    expected_public_key: Optional[str] = None,
+) -> dict:
+    """Verify a :class:`RedactionAttestation`.
+
+    Parameters
+    ----------
+    attestation:
+        Either a :class:`RedactionAttestation` instance or a plain dict.
+    expected_public_key:
+        Optional ``ed25519:<hex>`` string; if given, the attestation's
+        ``attestor_public_key`` must match.
+
+    Returns
+    -------
+    dict
+        The body dict (excludes ``body_hash`` and ``signature``).
+
+    Raises
+    ------
+    AttestationVerificationError
+        On any verification failure.
+    """
+    if isinstance(attestation, RedactionAttestation):
+        d = attestation.to_dict()
+    else:
+        d = dict(attestation)
+
+    magic = d.get("magic", "")
+    if magic != "stepback/redaction-attestation":
+        raise AttestationVerificationError(
+            f"unexpected magic {magic!r}; expected 'stepback/redaction-attestation'"
+        )
+    fv = d.get("format_version", 0)
+    if fv != 1:
+        raise AttestationVerificationError(
+            f"unsupported format_version {fv}; expected 1"
+        )
+
+    body = RedactionAttestation._body_dict(d)
+    expected_hash = sha256_hex(canonical_json(body))
+    claimed_hash = d.get("body_hash", "")
+    if claimed_hash != expected_hash:
+        raise AttestationVerificationError(
+            f"body_hash mismatch: claimed {claimed_hash!r} != recomputed {expected_hash!r}"
+        )
+
+    pub_str: str = d.get("attestor_public_key", "")
+    if not pub_str.startswith("ed25519:"):
+        raise AttestationVerificationError(
+            f"attestor_public_key must start with 'ed25519:'; got {pub_str!r}"
+        )
+    pub_hex = pub_str.removeprefix("ed25519:")
+
+    if expected_public_key is not None:
+        exp_hex = expected_public_key.removeprefix("ed25519:")
+        if pub_hex.lower() != exp_hex.lower():
+            raise AttestationVerificationError(
+                f"attestor_public_key mismatch: expected {exp_hex!r}, got {pub_hex!r}"
+            )
+
+    sig_str: str = d.get("signature", "")
+    if not sig_str.startswith("ed25519:"):
+        raise AttestationVerificationError("signature must start with 'ed25519:'")
+    sig_hex = sig_str.removeprefix("ed25519:")
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        pub_key = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
+        sig_bytes = bytes.fromhex(sig_hex)
+        pub_key.verify(sig_bytes, claimed_hash.encode())
+    except _InvalidSignature:
+        raise AttestationVerificationError("ed25519 signature verification failed")
+    except Exception as exc:
+        raise AttestationVerificationError(
+            f"signature verification error: {exc}"
+        ) from exc
+
+    return body
+
+
+class PrivacyReviewRequired(Exception):
+    """Raised by :func:`ingest_trace_file` when PII findings exceed the threshold."""
+
+    def __init__(self, message: str, scan_report: "ScanReport") -> None:
+        super().__init__(message)
+        self.scan_report = scan_report
+
+
+@dataclass
+class IngestionRules:
+    """Controls how :func:`ingest_trace_file` handles redaction and attestation.
+
+    Parameters
+    ----------
+    policy:
+        :class:`RedactionPolicy` to apply.
+    require_attestation:
+        If ``True``, an ``attestation_key`` must be provided and
+        :func:`sign_redaction_attestation` is called.
+    attestation_key:
+        Ed25519 private key for signing.  Required when
+        ``require_attestation=True``.
+    block_if_any_findings:
+        If ``True``, raises :exc:`PrivacyReviewRequired` when the scan
+        returns any findings.
+    max_findings_before_block:
+        If set, raises :exc:`PrivacyReviewRequired` when
+        ``scan_report.n_findings > max_findings_before_block``.
+    """
+
+    policy: "RedactionPolicy"
+    require_attestation: bool = False
+    attestation_key: Optional["Ed25519PrivateKey"] = None
+    block_if_any_findings: bool = False
+    max_findings_before_block: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.require_attestation and self.attestation_key is None:
+            raise ValueError(
+                "attestation_key must be supplied when require_attestation=True"
+            )
+
+
+@dataclass
+class IngestionResult:
+    """Result returned by :func:`ingest_trace_file`."""
+
+    redacted_path: str
+    original_trace_hash: str
+    scan_report: "ScanReport"
+    manifest: "RedactionManifest"
+    attestation: Optional[RedactionAttestation] = None
+
+
+def ingest_trace_file(
+    in_path: str,
+    out_path: str,
+    *,
+    in_hmac_key: bytes,
+    rules: "IngestionRules",
+    out_key: Optional[RecorderKey] = None,
+) -> IngestionResult:
+    """Scan, redact, optionally attest, and write a production trace.
+
+    Parameters
+    ----------
+    in_path:
+        Path to the original trace file.
+    out_path:
+        Destination for the redacted trace.
+    in_hmac_key:
+        HMAC key for ``in_path``.
+    rules:
+        :class:`IngestionRules` controlling the pipeline.
+    out_key:
+        :class:`RecorderKey` for the output trace.  A fresh key is
+        generated if not provided.
+    """
+    orig_hash = _file_sha256(in_path)
+
+    scan_report = scan_trace_file(in_path, in_hmac_key=in_hmac_key, policy=rules.policy)
+
+    if rules.block_if_any_findings and scan_report.n_findings > 0:
+        raise PrivacyReviewRequired(
+            f"trace scan found {scan_report.n_findings} PII findings; "
+            "review required before ingestion",
+            scan_report=scan_report,
+        )
+
+    if rules.max_findings_before_block is not None:
+        if scan_report.n_findings > rules.max_findings_before_block:
+            raise PrivacyReviewRequired(
+                f"scan findings {scan_report.n_findings} exceed threshold "
+                f"{rules.max_findings_before_block}",
+                scan_report=scan_report,
+            )
+
+    manifest = redact_trace_file_streaming(
+        in_path, out_path,
+        in_hmac_key=in_hmac_key,
+        policy=rules.policy,
+        out_key=out_key,
+    )
+
+    attestation: Optional[RedactionAttestation] = None
+    if rules.require_attestation and rules.attestation_key is not None:
+        attestation = sign_redaction_attestation(
+            in_path, out_path, manifest, rules.policy, rules.attestation_key
+        )
+
+    return IngestionResult(
+        redacted_path=out_path,
+        original_trace_hash=orig_hash,
+        scan_report=scan_report,
+        manifest=manifest,
+        attestation=attestation,
+    )

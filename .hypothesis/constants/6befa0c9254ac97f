@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/nondeterminism.py
+# hypothesis_version: 6.148.7
+
+[0.0, 'algorithm', 'class', 'clock', 'controlled', 'default', 'endpoint', 'env', 'model_sampling', 'network', 'observed', 'observed_ns', 'rng', 'seed', 'sources', 'temperature']

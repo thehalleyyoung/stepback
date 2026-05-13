@@ -1,0 +1,89 @@
+{
+  "_description": "Compatibility matrix mapping cassette files to real SDK versions whose response shapes they represent. Each entry also records the API version / feature flags that distinguish this shape from others.",
+  "bedrock": {
+    "sdk": "boto3",
+    "sdk_min_version": "1.34.0",
+    "api_version": "bedrock-runtime/2023-09-30",
+    "cassettes": {
+      "bedrock_converse_text_v1.json": {
+        "description": "Simple text completion from Bedrock Converse API (Claude on Bedrock)",
+        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "stop_reason": "end_turn",
+        "content_types": ["text"],
+        "boto3_response_class": "dict"
+      },
+      "bedrock_converse_tool_use_v1.json": {
+        "description": "Tool-use response from Bedrock Converse API (toolUse content block)",
+        "model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "stop_reason": "tool_use",
+        "content_types": ["text", "toolUse"],
+        "boto3_response_class": "dict"
+      },
+      "bedrock_converse_native_llama_v1.json": {
+        "description": "Native Bedrock model (Meta Llama 3.1 70B) text completion",
+        "model_id": "meta.llama3-1-70b-instruct-v1:0",
+        "stop_reason": "end_turn",
+        "content_types": ["text"],
+        "boto3_response_class": "dict"
+      },
+      "bedrock_converse_max_tokens_v1.json": {
+        "description": "Response truncated by max_tokens (stopReason=max_tokens)",
+        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "stop_reason": "max_tokens",
+        "content_types": ["text"],
+        "boto3_response_class": "dict"
+      },
+      "bedrock_converse_guardrail_v1.json": {
+        "description": "Response blocked by a Bedrock guardrail (stopReason=guardrail_intervened)",
+        "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "stop_reason": "guardrail_intervened",
+        "content_types": ["text"],
+        "boto3_response_class": "dict"
+      }
+    }
+  },
+  "gemini": {
+    "sdk": "google-genai",
+    "sdk_min_version": "0.8.0",
+    "api_version": "v1beta",
+    "cassettes": {
+      "gemini_generate_content_text_v1.json": {
+        "description": "Simple text completion from Gemini generate_content",
+        "model": "gemini-2.5-flash-2025-04-09",
+        "finish_reason": "STOP",
+        "content_types": ["text"],
+        "sdk_response_class": "dict"
+      },
+      "gemini_generate_content_function_call_v1.json": {
+        "description": "Function-call response from Gemini (function_call part)",
+        "model": "gemini-2.5-flash-2025-04-09",
+        "finish_reason": "MALFORMED_FUNCTION_CALL",
+        "content_types": ["text", "function_call"],
+        "sdk_response_class": "dict"
+      },
+      "gemini_generate_content_cached_tokens_v1.json": {
+        "description": "Response with cached_content_token_count in usage_metadata",
+        "model": "gemini-2.5-pro-2025-03-25",
+        "finish_reason": "STOP",
+        "content_types": ["text"],
+        "sdk_response_class": "dict",
+        "notes": "cached_content_token_count appears in usage_metadata when context caching is active"
+      },
+      "gemini_generate_content_safety_blocked_v1.json": {
+        "description": "Response blocked by safety filter (finish_reason=SAFETY)",
+        "model": "gemini-2.5-flash-2025-04-09",
+        "finish_reason": "SAFETY",
+        "content_types": [],
+        "sdk_response_class": "dict"
+      },
+      "gemini_generate_content_vertex_v1.json": {
+        "description": "Vertex AI GenerativeModel shape (slightly different metadata keys)",
+        "model": "gemini-2.5-pro-2025-03-25",
+        "finish_reason": "STOP",
+        "content_types": ["text"],
+        "sdk_response_class": "dict",
+        "notes": "Vertex AI responses may include grounding_metadata and safety_ratings"
+      }
+    }
+  }
+}

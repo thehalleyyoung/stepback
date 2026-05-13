@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "source": "boto3>=1.34.0 bedrock-runtime ConversationAPI",
+    "api_version": "bedrock-runtime/2023-09-30",
+    "model_id": "meta.llama3-1-70b-instruct-v1:0",
+    "request": {
+      "messages": [
+        {"role": "user", "content": [{"text": "Explain gravity in one sentence."}]}
+      ],
+      "inferenceConfig": {"temperature": 0.0, "maxTokens": 128}
+    }
+  },
+  "ResponseMetadata": {
+    "RequestId": "1a2b3c4d-dead-beef-cafe-000000000003",
+    "HTTPStatusCode": 200,
+    "HTTPHeaders": {
+      "date": "Mon, 01 Jan 2025 00:00:00 GMT",
+      "content-type": "application/json",
+      "content-length": "287"
+    },
+    "RetryAttempts": 0
+  },
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {"text": "Gravity is a fundamental force that attracts objects with mass toward one another, keeping planets in orbit and objects on Earth's surface."}
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {
+    "inputTokens": 19,
+    "outputTokens": 28,
+    "totalTokens": 47
+  },
+  "metrics": {
+    "latencyMs": 1204
+  }
+}

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/sandbox.py
+# hypothesis_version: 6.148.7
+
+[30.0, 256, 512, 1024, '--', '/dev/kvm', ': ', 'FIRECRACKER', 'GVISOR', 'RLIMIT_AS', 'RLIMIT_CPU', 'Replayed', 'SandboxConfig', 'SandboxError', 'SandboxMode', 'SandboxResourceError', 'SandboxTimeoutError', 'SandboxedExecutor', 'arguments', 'branch_count', 'branch_names', 'branches', 'choice', 'create_sandbox', 'error', 'error_class', 'exception', 'firecracker', 'fork', 'gvisor', 'linux', 'llm_call', 'message', 'messages', 'model', 'name', 'none', 'ok', 'options', 'parallel_branch_join', 'parallel_branch_open', 'replace', 'result', 'router', 'run', 'runsc', 'subprocess', 'tool_call']

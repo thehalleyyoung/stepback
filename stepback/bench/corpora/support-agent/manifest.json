@@ -1,0 +1,73 @@
+{
+  "corpus_id": "support-agent",
+  "schema_version": "1.0",
+  "description": "Author-original corpus: a customer-support bot handling five canonical service scenarios. All traces are author-original and redistributable under the Apache-2.0 licence.",
+  "license": "Apache-2.0",
+  "tasks": [
+    {
+      "task_id": "order-status-delayed",
+      "prompt": "Customer email: 'My order #1234 was supposed to arrive 3 days ago but I haven't received it yet. Can you help?'",
+      "inputs": {
+        "order_id": "1234",
+        "customer_id": "cust-001"
+      },
+      "evaluation": {
+        "expected_action": "escalate_to_shipping",
+        "expected_outcome": "escalated"
+      },
+      "hmac_key_hex": "5f6ce86b2d82abdb0a2ca09e8d4bff3987f334a5871acf3ea96aeed3584982d7"
+    },
+    {
+      "task_id": "refund-eligible",
+      "prompt": "Customer email: 'I would like to return order #5678 and get a refund. The product was defective.'",
+      "inputs": {
+        "order_id": "5678",
+        "customer_id": "cust-002"
+      },
+      "evaluation": {
+        "expected_action": "approve_refund",
+        "expected_outcome": "refund_approved"
+      },
+      "hmac_key_hex": "a4a23a43b05aa636412faa51cd885cdcc475f686c7a9f846fd065f5b10873a80"
+    },
+    {
+      "task_id": "account-unlock",
+      "prompt": "Customer email: 'I cannot log in to my account. It says my account is locked. Please help me unlock it.'",
+      "inputs": {
+        "customer_id": "cust-003",
+        "email": "user@example.com"
+      },
+      "evaluation": {
+        "expected_action": "unlock_account",
+        "expected_outcome": "account_unlocked"
+      },
+      "hmac_key_hex": "8494739acad2078322b1bd47401a086039ef303820b3289ddcee74c9f7bbb19e"
+    },
+    {
+      "task_id": "wrong-item",
+      "prompt": "Customer email: 'I received the wrong item in my order #9012. I ordered a blue widget but received a red one. Please send the correct item.'",
+      "inputs": {
+        "order_id": "9012",
+        "customer_id": "cust-004"
+      },
+      "evaluation": {
+        "expected_action": "initiate_replacement",
+        "expected_outcome": "replacement_initiated"
+      },
+      "hmac_key_hex": "a0eab943db4139997b89368ca4c8281007d59410ec20969196350e7ad80f2b6c"
+    },
+    {
+      "task_id": "subscription-cancel",
+      "prompt": "Customer email: 'I would like to cancel my monthly subscription. Please process the cancellation effective immediately.'",
+      "inputs": {
+        "customer_id": "cust-005",
+        "subscription_id": "sub-999"
+      },
+      "evaluation": {
+        "expected_action": "cancel_subscription",
+        "expected_outcome": "subscription_cancelled"
+      },
+      "hmac_key_hex": "35b43cc9b6506ce280dc480e1fd0d0bb39aadf1f7a995c757815e64cc30da597"
+    }
+  ]
+}

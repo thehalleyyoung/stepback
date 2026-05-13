@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/kitchensink/comet_sigma/flags.py
+# hypothesis_version: 6.148.7
+
+['1', 'COMET_SIGMA_L1_DELTA', 'COMET_SIGMA_L1_OVMD', 'COMET_SIGMA_L1_TTT', 'COMET_SIGMA_L2_GATE', 'COMET_SIGMA_L2_MDL', 'COMET_SIGMA_L3', 'COMET_SIGMA_L3_CALIB', 'COMET_SIGMA_L3_POST', 'COMET_SIGMA_L4', 'COMET_SIGMA_L4_DRIFT', 'COMET_SIGMA_L4_TYPED', 'COMET_SIGMA_L5', 'COMET_SIGMA_L6', 'COMET_SIGMA_L6_BLAME', 'on', 'true', 'yes']

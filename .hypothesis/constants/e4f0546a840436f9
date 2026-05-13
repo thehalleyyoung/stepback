@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/seeding.py
+# hypothesis_version: 6.148.7
+
+[0.0, 'anthropic', 'bedrock', 'best_effort', 'cerebras', 'error', 'fireworks', 'full', 'gemini', 'groq', 'langchain', 'llamacpp', 'mcp', 'none', 'nvidia_nim', 'ollama', 'openai', 'silent', 'tgi', 'together', 'tool', 'vertex', 'vllm', 'warn']

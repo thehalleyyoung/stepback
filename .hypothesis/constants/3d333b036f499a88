@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/_deprecation.py
+# hypothesis_version: 6.148.7
+
+['F', '__doc__', '__qualname__', 'deprecated', 'deprecated_alias', 'warn_deprecated']

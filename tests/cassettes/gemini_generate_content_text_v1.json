@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "source": "google-genai>=0.8.0 Client.models.generate_content",
+    "api_version": "v1beta",
+    "model": "gemini-2.5-flash-2025-04-09",
+    "request": {
+      "contents": [
+        {
+          "role": "user",
+          "parts": [{"text": "What is the capital of France?"}]
+        }
+      ],
+      "config": {
+        "system_instruction": "You are a helpful assistant. Be concise.",
+        "temperature": 0.0,
+        "max_output_tokens": 256
+      }
+    }
+  },
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {"text": "Paris is the capital of France."}
+        ]
+      },
+      "finish_reason": "STOP",
+      "index": 0,
+      "safety_ratings": [
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "probability": "NEGLIGIBLE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "probability": "NEGLIGIBLE"},
+        {"category": "HARM_CATEGORY_HARASSMENT", "probability": "NEGLIGIBLE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "probability": "NEGLIGIBLE"}
+      ]
+    }
+  ],
+  "usage_metadata": {
+    "prompt_token_count": 22,
+    "candidates_token_count": 8,
+    "total_token_count": 30
+  },
+  "model_version": "gemini-2.5-flash-2025-04-09",
+  "response_id": "resp-0001abcd"
+}

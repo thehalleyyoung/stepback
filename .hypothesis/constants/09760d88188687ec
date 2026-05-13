@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/proxy/storage.py
+# hypothesis_version: 6.148.7
+
+[1024, '-', '.', '..', '.sb', '2026-04-01', '_', 'blob_min_reuse', 'blob_threshold', 'closed', 'compression', 'hmac_key', 'inputs_hash', 'opened_at_ns', 'outputs_hash', 'path', 'price_list_version', 'public_key_hex', 'signing_key', 'step_count', 'step_id', 'step_kind', 'trace_id']

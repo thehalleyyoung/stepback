@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/Documents/div/mathdivergence/halley-labs/wasserstein-bounds/src/regression.py
+# hypothesis_version: 6.148.7
+
+[0.05, 'bernstein']

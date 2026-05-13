@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stepback.dev/schema/v1/native_json_export.json",
+  "title": "stepback_native_json_v1",
+  "description": "Stable schema for the stepback native JSON export format produced by stepback.export_native_json. The format is a single JSON object carrying a format tag, an optional recorder-metadata header, and a lossless array of recorded step dicts.",
+  "type": "object",
+  "required": ["format", "steps"],
+  "additionalProperties": true,
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "stepback_native_json_v1",
+      "description": "Format discriminator. Must be exactly 'stepback_native_json_v1' for v1 files."
+    },
+    "header": {
+      "type": "object",
+      "description": "Optional recorder metadata copied verbatim from the .sb trace header. All fields are advisory and consumers must tolerate unknown keys.",
+      "additionalProperties": true
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered array of recorded step dicts. Each entry is a verbatim canonical-JSON step as recorded in the .sb trace.",
+      "items": {
+        "$ref": "#/definitions/step"
+      }
+    }
+  },
+  "definitions": {
+    "step": {
+      "type": "object",
+      "description": "One recorded step. Contains at minimum step_id and step_kind; all other fields are optional and preserved verbatim from the trace.",
+      "required": ["step_id", "step_kind"],
+      "additionalProperties": true,
+      "properties": {
+        "step_id": {
+          "type": "string",
+          "description": "ULID, monotonic per trace. Primary key for the step."
+        },
+        "step_kind": {
+          "type": "string",
+          "description": "Discriminator for the step payload. Known v1 values are listed in x-knownValues; unknown values are passed through for forward compatibility.",
+          "x-knownValues": [
+            "llm_call",
+            "tool_call",
+            "router",
+            "policy_check",
+            "mcp_call",
+            "parallel_branch_open",
+            "parallel_branch_join",
+            "exception"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable label (model id, tool name, …)."
+        },
+        "parent_step_id": {
+          "type": ["string", "null"],
+          "description": "Parent edge in the call tree. Null for the root step."
+        },
+        "parent_step_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Multi-parent edges; set only on parallel_branch_join steps."
+        },
+        "inputs": {
+          "description": "Canonical-JSON-encodable input payload. Structure varies by step_kind."
+        },
+        "outputs": {
+          "description": "Canonical-JSON-encodable output payload. Structure varies by step_kind."
+        },
+        "inputs_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "sha256:<hex> digest over canonical_json(inputs)."
+        },
+        "outputs_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "sha256:<hex> digest over canonical_json(outputs)."
+        },
+        "nondeterminism": {
+          "type": "object",
+          "description": "Recorded non-deterministic inputs (rng seeds, wallclock, env, network, model_provider).",
+          "additionalProperties": true
+        },
+        "nondeterminism_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "sha256:<hex> digest over canonical_json(nondeterminism)."
+        },
+        "wallclock_ns": {
+          "type": "integer",
+          "description": "Step wallclock at write time, ns since Unix epoch."
+        },
+        "cpu_ns": {
+          "type": "integer",
+          "description": "Cumulative CPU time consumed by this step, in ns."
+        },
+        "cost_usd": {
+          "type": "number",
+          "description": "Cost from pinned price_list_version, in USD."
+        },
+        "llm_request": {
+          "type": "object",
+          "description": "Exact LLM request dict (model, messages, sampling params, tool spec). Present on llm_call steps.",
+          "additionalProperties": true
+        },
+        "llm_response": {
+          "type": "object",
+          "description": "Exact LLM response dict. Present on llm_call steps.",
+          "additionalProperties": true
+        },
+        "tool_name": {
+          "type": "string",
+          "description": "Tool identifier. Present on tool_call and mcp_call steps."
+        },
+        "policy_decision": {
+          "type": "object",
+          "description": "Enforcement / audit decision payload. Present on policy_check steps.",
+          "additionalProperties": true
+        },
+        "router_decision": {
+          "type": "object",
+          "description": "Router decision payload. Present on router steps.",
+          "additionalProperties": true
+        },
+        "branch_id": {
+          "type": "string",
+          "description": "Identifier for parallel branches; set on parallel_branch_open and steps inside the branch."
+        },
+        "branch_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Branch ids being joined. Set on parallel_branch_join steps."
+        },
+        "exception": {
+          "type": "object",
+          "description": "Exception payload (type, message, traceback). Present on exception steps.",
+          "additionalProperties": true
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Free-form recorder metadata. Opaque to the spec.",
+          "additionalProperties": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Free-form string tags. Opaque to the spec."
+        }
+      }
+    }
+  }
+}

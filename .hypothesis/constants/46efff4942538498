@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/analytics.py
+# hypothesis_version: 6.148.7
+
+[0.0, 'ClickHouseAnalytics', 'DIRTY_SET_TABLE_DDL', 'DIRTY_SET_TABLE_NAME', 'DirtySetEntry', 'DirtySetRecord', 'DirtySetSummary', 'Substitution', 'TRACE_STEP_TABLE_DDL', 'TraceStepAnalytics', 'TraceStepRecord', 'agent_id', 'branch_count', 'calls_saved', 'canonical_hash', 'clean_count', 'cost_usd', 'dirty', 'dirty_count', 'dirty_reason', 'incident_id', 'inputs_hash', 'model', 'model_id', 'parallel_branch_open', 'policy_decision', 'record_from_summary', 'recorded_at', 'schema_version', 'step_count', 'step_id', 'step_index', 'step_kind', 'stepback_trace_steps', 'substitution_kind', 'trace_id']

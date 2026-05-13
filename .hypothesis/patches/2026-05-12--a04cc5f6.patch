@@ -1,0 +1,68 @@
+From HEAD Mon Sep 17 00:00:00 2001
+From: Hypothesis 6.148.7 <no-reply@hypothesis.works>
+Date: Tue, 12 May 2026 17:20:15
+Subject: [PATCH] Hypothesis: add explicit examples
+
+---
+--- ./tests/test_comet_sigma_l1_trace_writer_temporal_monotonicity.py
++++ ./tests/test_comet_sigma_l1_trace_writer_temporal_monotonicity.py
+@@ -196,6 +196,9 @@
+ 
+ @given(bodies=_arbitrary_bodies())
+ @_HSETTINGS
++@example(
++    bodies=[{"type": "step", "payload": ""}],  # or any other generated value
++).via("discovered failure")
+ def test_range_std_lmmp_are_nonnegative(bodies):
+     """``range``, ``std`` and ``last_minus_mean_prev`` are always ≥ 0."""
+     writer_id = "writer://universal-nonneg"
+@@ -216,6 +219,9 @@
+ 
+ @given(bodies=_arbitrary_bodies())
+ @_HSETTINGS
++@example(
++    bodies=[{"type": "step", "payload": ""}],  # or any other generated value
++).via("discovered failure")
+ def test_mean_and_ewma_within_minmax(bodies):
+     """``mean`` and ``ewma`` for each window are inside ``[min, max]``."""
+     writer_id = "writer://universal-bounds"
+@@ -247,6 +253,9 @@
+ 
+ @given(bodies=_arbitrary_bodies())
+ @_HSETTINGS
++@example(
++    bodies=[{"type": "step", "payload": ""}],  # or any other generated value
++).via("discovered failure")
+ def test_last_minus_first_sign_matches_endpoints(bodies):
+     """``last_minus_first`` has the same sign as ``frame[-1] - frame[0]``."""
+     writer_id = "writer://lmf-sign"
+@@ -311,6 +320,9 @@
+ 
+ @given(bodies=_monotone_inc_bodies())
+ @_HSETTINGS
++@example(
++    bodies=[{"type": "step", "payload": ""}],  # or any other generated value
++).via("discovered failure")
+ def test_monotone_inc_yields_nonnegative_slope_and_lmf(bodies):
+     writer_id = "writer://monotone-inc"
+     l1.reset(writer_id)
+@@ -339,6 +351,9 @@
+ 
+ @given(bodies=_monotone_dec_bodies())
+ @_HSETTINGS
++@example(
++    bodies=[{"type": "step", "payload": ""}],  # or any other generated value
++).via("discovered failure")
+ def test_monotone_dec_yields_nonpositive_slope_and_lmf(bodies):
+     writer_id = "writer://monotone-dec"
+     l1.reset(writer_id)
+@@ -361,6 +376,9 @@
+ 
+ @given(bodies=_arbitrary_bodies())
+ @_HSETTINGS
++@example(
++    bodies=[{"type": "step", "payload": ""}],  # or any other generated value
++).via("discovered failure")
+ def test_frame_depth_lmf_nondecreasing_across_projections(bodies):
+     """Across successive projections, ``frame_depth.last_minus_first`` cannot fall.
+ 

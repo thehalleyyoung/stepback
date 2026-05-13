@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/step_types.py
+# hypothesis_version: 6.148.7
+
+[0.0, ', ', ':', 'Receipt', 'RecordedStep', 'StepKind', 'StepKind | str', 'TraceHeader', '_data', 'blob_min_reuse', 'blob_threshold', 'body', 'compression', 'cost_usd', 'exception', 'format_version', 'hmac', 'hmac_key_id', 'inputs', 'inputs_hash', 'llm_call', 'llm_request', 'llm_response', 'magic', 'mcp_call', 'name', 'nondeterminism', 'nondeterminism_hash', 'none', 'outputs', 'outputs_hash', 'parallel_branch_join', 'parallel_branch_open', 'parent_step_id', 'parent_step_ids', 'policy_check', 'prev_hmac', 'price_list_version', 'public_key', 'recorder_version', 'router', 'sig', 'step_id', 'step_kind', 'tool_call', 'type', 'wallclock_ns']

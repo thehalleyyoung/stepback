@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/semantic_hash.py
+# hypothesis_version: 6.148.7
+
+[b'+0', b'+inf', b'-0', b'-inf', b':', b'b:0', b'b:1', b'f:', b'i:', b'l:', b'm:', b'n:', b'nan', b's:', b'y:', 0.0, 128, '-inf', '1', '>d', 'ascii', 'inf', 'semantic_hash', 'sha256:', 'utf-8']

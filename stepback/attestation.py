@@ -92,6 +92,7 @@ class AttestationEntry:
     total_cost_delta_usd: float = 0.0
     divergent_step_ids: List[str] = field(default_factory=list)
     substitutions: List[Dict[str, Any]] = field(default_factory=list)
+    merkle_root: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -135,12 +136,14 @@ def _attest_one(
     recorder_version = None
     canon_version = None
     step_count = 0
+    merkle_root_hex: Optional[str] = None
     try:
         v = verify_trace(trace_path, hmac_key)
         recorder_pub = v.public_key_hex
         recorder_version = v.header.get("recorder_version")
         canon_version = v.header.get("canonicalisation_version")
         step_count = len(v.steps)
+        merkle_root_hex = v.merkle_root
     except TraceVerificationError as e:
         return AttestationEntry(
             trace_path=trace_path,
@@ -196,6 +199,7 @@ def _attest_one(
             total_cost_delta_usd=delta,
             divergent_step_ids=divergent_ids,
             substitutions=[substitution_to_dict(s) for s in substitutions.items],
+            merkle_root=merkle_root_hex,
         )
     except Exception as e:  # pragma: no cover - replay errors are rare
         return AttestationEntry(
@@ -209,6 +213,7 @@ def _attest_one(
             replay_status="error",
             replay_error=f"{type(e).__name__}: {e}",
             substitutions=[substitution_to_dict(s) for s in substitutions.items],
+            merkle_root=merkle_root_hex,
         )
 
 
@@ -223,9 +228,10 @@ class AttestationPack:
     policy_version_pin: Optional[str] = None
     pack_format_version: int = PACK_FORMAT_VERSION
     builder_version: str = "stepback/0.1"
+    threshold_policy: Optional[Any] = None  # ThresholdPolicy | None
 
     def body_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "magic": PACK_MAGIC,
             "format_version": self.pack_format_version,
             "builder_version": self.builder_version,
@@ -235,6 +241,9 @@ class AttestationPack:
             "summary": self.summary,
             "entries": [e.to_dict() for e in self.entries],
         }
+        if self.threshold_policy is not None:
+            d["threshold_policy"] = self.threshold_policy.to_dict()
+        return d
 
 
 def _summarise(entries: List[AttestationEntry]) -> Dict[str, Any]:
@@ -249,6 +258,9 @@ def _summarise(entries: List[AttestationEntry]) -> Dict[str, Any]:
             sum(e.total_cost_delta_usd for e in entries), 8
         ),
         "total_dirty_steps": sum(e.dirty_step_count for e in entries),
+        "merkle_summarised_traces": sum(
+            1 for e in entries if e.merkle_root is not None
+        ),
     }
 
 
@@ -260,6 +272,7 @@ def build_attestation_pack(
     policy_version_pin: Optional[str] = None,
     attestor_signing_key: Optional[Ed25519PrivateKey] = None,
     executor: Optional[Executor] = None,
+    threshold_policy: Optional[Any] = None,
 ) -> AttestationPack:
     """Build an attestation pack over ``traces``.
 
@@ -306,6 +319,7 @@ def build_attestation_pack(
         entries=entries,
         summary=summary,
         policy_version_pin=policy_version_pin,
+        threshold_policy=threshold_policy,
     )
 
 
@@ -314,6 +328,7 @@ def write_attestation_pack(
     path: str,
     *,
     signing_key: Ed25519PrivateKey,
+    threshold_signing_keys: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Serialise + sign + write ``pack`` to ``path``. Returns body sha256.
 
@@ -322,6 +337,11 @@ def write_attestation_pack(
     ``signature`` (Ed25519 over the body hash bytes). The attestor
     public key inside the body MUST match ``signing_key`` — passing
     a mismatched key raises ``ValueError``.
+
+    If ``threshold_signing_keys`` is provided and the pack carries a
+    ``threshold_policy``, the witnesses sign the body hash and their
+    signatures are appended as an unsigned envelope field
+    ``threshold_signatures``.
     """
     pub = signing_key.public_key().public_bytes_raw().hex()
     expected = _public_key_fingerprint(pub)
@@ -337,6 +357,25 @@ def write_attestation_pack(
     out = dict(body)
     out["body_hash"] = body_hash
     out["signature"] = "ed25519:" + sig.hex()
+    if threshold_signing_keys is not None and pack.threshold_policy is not None:
+        from .threshold_sig import collect_witness_signatures
+        witness_sigs = collect_witness_signatures(
+            body_hash, pack.threshold_policy, threshold_signing_keys
+        )
+        out["threshold_signatures"] = [
+            {"identity": ws.identity, "signature": ws.signature}
+            for ws in witness_sigs
+        ]
+    elif threshold_signing_keys is not None and pack.threshold_policy is None:
+        raise ValueError(
+            "threshold_signing_keys provided but pack has no threshold_policy; "
+            "pass threshold_policy= to build_attestation_pack"
+        )
+    elif threshold_signing_keys is None and pack.threshold_policy is not None:
+        raise ValueError(
+            "pack has a threshold_policy but no threshold_signing_keys provided; "
+            "pass threshold_signing_keys= to write_attestation_pack"
+        )
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f, sort_keys=True, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -362,15 +401,19 @@ def verify_attestation_pack(
     path: str,
     *,
     expected_public_key: Optional[str] = None,
+    verify_threshold: bool = True,
 ) -> Dict[str, Any]:
     """Verify the attestation pack at ``path`` and return its parsed body.
 
     Checks:
       * magic + format_version
       * body_hash matches sha256 of the canonical body (everything
-        except ``body_hash`` and ``signature``)
+        except ``body_hash`` and unsigned envelope fields)
       * signature verifies under the attestor public key embedded
         in the body
+      * if the body contains a ``threshold_policy`` and
+        ``verify_threshold`` is True, verifies the ``threshold_signatures``
+        envelope field meets the policy's ``m_required`` threshold
       * if ``expected_public_key`` is given, it matches the embedded
         attestor key (so an auditor can pin the attestor)
 
@@ -381,7 +424,11 @@ def verify_attestation_pack(
     body_hash = data.get("body_hash", "")
     if not sig_field.startswith("ed25519:") or not body_hash.startswith("sha256:"):
         raise AttestationVerificationError("missing or malformed signature/body_hash")
-    body = {k: v for k, v in data.items() if k not in ("signature", "body_hash")}
+    # Unsigned envelope fields are excluded from body-hash computation.
+    # ``transparency_log_proof`` and ``threshold_signatures`` are appended
+    # after signing so they must also be excluded here.
+    _UNSIGNED_FIELDS = {"signature", "body_hash", "transparency_log_proof", "threshold_signatures"}
+    body = {k: v for k, v in data.items() if k not in _UNSIGNED_FIELDS}
     recomputed = sha256_hex(canonical_json(body))
     if recomputed != body_hash:
         raise AttestationVerificationError(
@@ -404,6 +451,31 @@ def verify_attestation_pack(
         pub.verify(sig, body_hash.encode("ascii"))
     except InvalidSignature as e:
         raise AttestationVerificationError("Ed25519 signature invalid") from e
+
+    # Threshold-signature verification
+    threshold_policy_dict = body.get("threshold_policy")
+    if threshold_policy_dict is not None and verify_threshold:
+        from .threshold_sig import (
+            ThresholdPolicy,
+            ThresholdSignatureError,
+            WitnessSignature,
+            verify_threshold_signatures,
+        )
+        policy = ThresholdPolicy.from_dict(threshold_policy_dict)
+        raw_sigs = data.get("threshold_signatures")
+        if not raw_sigs:
+            raise AttestationVerificationError(
+                "pack has threshold_policy but threshold_signatures envelope "
+                "field is missing or empty"
+            )
+        witness_sigs = [WitnessSignature.from_dict(s) for s in raw_sigs]
+        try:
+            verify_threshold_signatures(body_hash, policy, witness_sigs)
+        except ThresholdSignatureError as e:
+            raise AttestationVerificationError(
+                f"threshold signature verification failed: {e}"
+            ) from e
+
     return data
 
 

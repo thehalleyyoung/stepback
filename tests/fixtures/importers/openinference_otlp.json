@@ -1,0 +1,63 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "payments-agent"}},
+          {"key": "service.version", "value": {"stringValue": "1.0.0"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "opentelemetry.instrumentation.openai"},
+          "spans": [
+            {
+              "spanId": "span-agent-root",
+              "parentSpanId": null,
+              "name": "AgentExecutor",
+              "startTimeUnixNano": "1736935200000000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "AGENT"}},
+                {"key": "input.value", "value": {"stringValue": "Pay invoice INV-9001 to Acme Bolts Ltd"}},
+                {"key": "output.value", "value": {"stringValue": "Payment of $1250.00 confirmed"}}
+              ]
+            },
+            {
+              "spanId": "span-llm-1",
+              "parentSpanId": "span-agent-root",
+              "name": "gpt-4o-2024-11-20",
+              "startTimeUnixNano": "1736935201000000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "LLM"}},
+                {"key": "llm.model_name", "value": {"stringValue": "gpt-4o-2024-11-20"}},
+                {"key": "llm.invocation_parameters.temperature", "value": {"doubleValue": 0.0}},
+                {"key": "llm.invocation_parameters.seed", "value": {"intValue": 42}},
+                {"key": "llm.input_messages.0.message.role", "value": {"stringValue": "system"}},
+                {"key": "llm.input_messages.0.message.content", "value": {"stringValue": "You are a payments agent."}},
+                {"key": "llm.input_messages.1.message.role", "value": {"stringValue": "user"}},
+                {"key": "llm.input_messages.1.message.content", "value": {"stringValue": "Pay invoice INV-9001 to Acme Bolts Ltd"}},
+                {"key": "llm.output_messages.0.message.role", "value": {"stringValue": "assistant"}},
+                {"key": "llm.output_messages.0.message.content", "value": {"stringValue": "I need to look up the customer first."}},
+                {"key": "llm.token_count.prompt", "value": {"intValue": 45}},
+                {"key": "llm.token_count.completion", "value": {"intValue": 12}},
+                {"key": "llm.token_count.total", "value": {"intValue": 57}}
+              ]
+            },
+            {
+              "spanId": "span-tool-lookup",
+              "parentSpanId": "span-agent-root",
+              "name": "lookup_customer",
+              "startTimeUnixNano": "1736935202000000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "TOOL"}},
+                {"key": "tool.name", "value": {"stringValue": "lookup_customer"}},
+                {"key": "tool.parameters", "value": {"stringValue": "{\"name\": \"Acme Bolts Ltd\"}"}},
+                {"key": "output.value", "value": {"stringValue": "{\"id\": \"acme-uk\", \"name\": \"Acme Bolts Ltd UK\", \"iban\": \"GB99-0000-0000-0001\", \"credit_limit_usd\": 50000}"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

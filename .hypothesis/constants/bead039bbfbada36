@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/trace_diff.py
+# hypothesis_version: 6.148.7
+
+[0.0, 200, '## Step pairs', '## Summary', '### Model changes', '- input diff:', '- output diff:', '_a', '_b', 'a', 'a_only', 'a_only_count', 'a_path', 'a_step_count', 'a_step_id', 'aligned_count', 'b', 'b_only', 'b_only_count', 'b_path', 'b_step_count', 'b_step_id', 'cost_a_usd', 'cost_b_usd', 'cost_delta_usd', 'cost_usd', 'divergence_step', 'divergent_count', 'from', 'identical', 'identical_count', 'index', 'input_diff', 'inputs', 'inputs_differ', 'inputs_hash', 'is_identical', 'json', 'kind', 'kind_differ', 'llm_call', 'markdown', 'md', 'model', 'model_change', 'model_changes', 'name', 'output_diff', 'outputs', 'outputs_differ', 'outputs_hash', 'router', 'shared_prefix_len', 'status', 'step_id', 'step_kind', 'step_pairs', 'to', 'tool_call', 'total_cost_delta_usd', 'unaligned_count', '…']

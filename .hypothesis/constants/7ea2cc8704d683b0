@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/testing/parallel_agent.py
+# hypothesis_version: 6.148.7
+
+[0.7, 0.8, 0.9, '; ', 'GDP 21T USD', 'answer', 'assistant', 'choices', 'completion_tokens', 'confidence', 'content', 'economics', 'finish_reason', 'founded 1789', 'gpt-4o-2024-11-20', 'history', 'id', 'index', 'lookup_', 'merged', 'message', 'model', 'n', 'outputs', 'politics', 'prompt_tokens', 'q', 'research_fanout', 'result', 'role', 'split_question', 'stop', 'synthesising', 'system', 'topic', 'topics', 'total_tokens', 'two-party', 'usage', 'user']

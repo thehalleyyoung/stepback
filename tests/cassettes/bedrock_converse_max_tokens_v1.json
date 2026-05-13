@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "source": "boto3>=1.34.0 bedrock-runtime ConversationAPI",
+    "api_version": "bedrock-runtime/2023-09-30",
+    "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "request": {
+      "messages": [
+        {"role": "user", "content": [{"text": "Write a long story."}]}
+      ],
+      "inferenceConfig": {"temperature": 0.0, "maxTokens": 5}
+    }
+  },
+  "ResponseMetadata": {
+    "RequestId": "1a2b3c4d-dead-beef-cafe-000000000004",
+    "HTTPStatusCode": 200,
+    "HTTPHeaders": {
+      "date": "Mon, 01 Jan 2025 00:00:00 GMT",
+      "content-type": "application/json",
+      "content-length": "198"
+    },
+    "RetryAttempts": 0
+  },
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {"text": "Once upon a"}
+      ]
+    }
+  },
+  "stopReason": "max_tokens",
+  "usage": {
+    "inputTokens": 11,
+    "outputTokens": 5,
+    "totalTokens": 16
+  },
+  "metrics": {
+    "latencyMs": 211
+  }
+}

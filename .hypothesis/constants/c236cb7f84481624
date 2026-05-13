@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/storage_compression.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, 1000.0, 'FormatResult', 'actual_step_count', 'blob', 'body', 'bytes_per_step', 'bytes_per_trace', 'cbor', 'content_key', 'cost_usd', 'deduped_index_bytes', 'deduped_json', 'encode_time_ms', 'formats', 'gzip_of_json', 'id', 'inputs_hash', 'lzma_of_json', 'n_steps_requested', 'n_traces', 'name', 'nondeterminism_hash', 'outputs_hash', 'parent_step_id', 'query_index_bytes', 'ratio_vs_raw_json', 'raw_json', 'sb_v1', 'sha256:', 'step', 'step_id', 'step_kind', 'total_bytes', 'total_wall_time_ms', 'type', 'wallclock_ns']

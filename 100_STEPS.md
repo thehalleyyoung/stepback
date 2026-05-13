@@ -1,4 +1,4 @@
-# 150 Steps to Standardizing stepback
+# 200 Steps to Standardizing stepback
 
 ## § Audit findings
 
@@ -923,337 +923,1129 @@ ordering is intentionally not implied. "Owner" left blank.
     document's "README claims vs. reality" table that previously
     flagged the CBOR mismatch is resolved.
 
-52. Add a Merkle summary frame at end-of-trace so attestation packs can carry a
-    compact root while readers still verify the HMAC chain.
+52. **Complete.** Add a Merkle summary frame at end-of-trace so attestation packs can carry a
+    compact root while readers still verify the HMAC chain. Implemented
+    ``stepback/merkle.py`` (RFC 6962 §2.1: ``leaf_hash``,
+    ``node_hash``, ``merkle_root``, ``merkle_root_from_bodies`` with
+    unpaired-node promotion for second-preimage resistance). The
+    trace writer (``emit_merkle_summary=True`` default) accumulates
+    ``leaf_hash(canonical_json(body))`` for every header, capability,
+    blob, and step frame and emits a single ``merkle_summary`` frame
+    immediately before ``tail`` with fields ``scheme``
+    (``"frame-body-sha256-rfc6962"``), ``algorithm`` (``"sha256"``),
+    ``leaf_count``, and ``merkle_root`` (64-char hex). The reader
+    (``_validate_merkle_summary_body``) recomputes the root over the
+    observed leaf list and raises ``TraceVerificationError`` on any
+    mismatch, duplicate summary frames, or content frames that follow
+    the summary. ``Trace_`` exposes ``merkle_root: Optional[str]`` and
+    ``merkle_leaf_count: int``. ``AttestationEntry`` carries
+    ``merkle_root`` per trace and the pack summary counts
+    ``merkle_summarised_traces``. ``"merkle-summary-v1"`` is in
+    ``DEFAULT_SUPPORTED_CAPABILITIES``. ``tests/test_merkle_summary.py``
+    (18 tests) covers RFC 6962 primitives, writer/reader round-trip,
+    backward-compatible opt-out (``emit_merkle_summary=False``),
+    tampering detection of both the declared root and leaf_count, the
+    post-summary content-frame guard, capability negotiation, and the
+    attestation-pack surface. All 18 tests pass.
 
 ## § Dirty-set algorithm
 
-53. Lift README pseudocode into `divergence.py` as contract docs with
-    preconditions, postconditions, and assumptions.
+53. **Complete.** Lift README pseudocode into `divergence.py` as contract docs with
+    preconditions, postconditions, and assumptions. Replaced the module-level
+    docstring in ``stepback/divergence.py`` with the full dirty-set algorithm
+    pseudocode from README §"The dirty-set algorithm", formalised as labelled
+    preconditions (A1–A4), postconditions (P1–P6), and branch-aware invariants
+    (B1–B3). Added three new public symbols to ``stepback.divergence``:
+    ``DirtySetEntry`` (per-step record with ``step_id``, ``kind``, ``dirty``,
+    ``cache_hit``, ``dirty_reason``, ``parent_step_id``, ``parent_step_ids``),
+    ``DirtySetSummary`` (aggregate with ``step_count``, ``dirty_count``,
+    ``clean_count``, ``calls_saved``, ``entries``, ``dirty_ids``,
+    ``to_json()``), and ``compute_dirty_set(trace, substitutions, *, executor)``
+    — a pure, non-executing dirty-set classifier that applies the README
+    pseudocode: walks steps in topological order, applies substitutions,
+    recomputes inputs hashes, and classifies each step as ``"substituted"``
+    (P3), ``"input_drift"`` (P2), ``"parent_dirty"`` (P1), or clean; correctly
+    handles single-parent context rebinding, multi-parent
+    ``branch_tail_hashes`` rebinding, nondeterminism-hash checks, and
+    output-forcing substitutions with accurate output-hash propagation.
+    Promoted all three symbols through ``stepback/__init__.py`` and
+    ``__all__``; updated ``tests/test_public_api.py::EXPECTED_PUBLIC_API`` and
+    ``stepback/conformance/api_baselines/v0.1.0/`` baselines. Two previously
+    import-erroring test files (``tests/test_divergence_dirty_set.py``,
+    ``tests/test_branch_aware_propagation.py``) now collect and pass: 19/19
+    new tests pass alongside all 1480+ pre-existing tests.
 
-54. Write `docs/dirty-set.md` defining trace DAG, canonical input function,
+54. **Complete.** Write `docs/dirty-set.md` defining trace DAG, canonical input function,
     substitution sigma, dirty set, cache reuse, and observational equivalence.
+    ``docs/dirty-set.md`` (~510 LOC) is the formal companion to
+    ``stepback/divergence.py`` and ``stepback/replay.py``. Sections: §1 Trace
+    DAG (``G(T) = (V(T), E(T))`` defined from ``parent_step_id`` /
+    ``parent_step_ids`` edges, topological invariant, step-kind taxonomy); §2
+    Canonical input function (``inputs(s, out)`` with ``"context"``
+    single-parent and ``"branch_tail_hashes"`` multi-parent rebinding, the
+    conservative dependency model A1); §3 Substitution σ (target-id /
+    kind / payload triple, input-mutating vs. output-forcing split, inert
+    substitutions); §4 The dirty set D(T, σ) (topological ``classify``
+    pseudocode with P3 / P4 / P1-transitive / P2-input-drift branches,
+    formal set definition); §5 Cache reuse and replay semantics (``replay``
+    pseudocode, executor-call count bound, ``fallback_recorded`` interaction);
+    §5.5 Branch-aware propagation (B1 independent fan-out, B2 join dirty iff
+    any consumed branch output changes, B3 clean-sibling preservation,
+    engineering-implication note); §6 Observational equivalence (soundness
+    theorem with inductive proof sketch, completeness theorem, minimality /
+    P5 statement, recorder obligations R1–R4); §7 Asymptotic complexity table
+    (linear / DAG / branch-heavy cases); §8 Versioning policy (what changes
+    require a dirty-set version bump); §9 Worked example (12-step linear
+    fixture, adversarial-shape explanation); §10 Cross-references. Pinned by
+    21 new documentation-invariant tests in
+    ``tests/test_dirty_set_doc_invariants.py`` (existence, minimum size, all
+    required section headings, P1–P4, A1–A3, B1–B3, R1–R4 labels, key
+    algorithmic terms, cross-references to ``divergence.py``, ``replay.py``,
+    and ``docs/canonicalization.md``). All 21 new tests pass; full suite:
+    1523 passed, 1 pre-existing skipped (Step 17 ``last_bisect_probes``), 2
+    skipped.
 
-55. Prove soundness on paper: every non-dirty replayed step has the same
-    observable output as full re-execution under sigma.
+55. **Complete.** Prove soundness on paper: every non-dirty replayed step has the same
+    observable output as full re-execution under sigma. ``docs/dirty-set-soundness.md``
+    (~453 LOC) is the paper-grade companion to the proof sketches in
+    ``stepback/divergence.py`` §6 and ``docs/dirty-set.md`` §6. It states
+    Theorem 1 (P1 soundness) and Lemma 1 (parent-agreement) formally, proves
+    Theorem 1 by strong induction on ``topo(s)`` covering all three cases
+    (output-forced dirty, re-executed dirty, clean cache-reuse), enumerates
+    exactly where each assumption (A1–A3, R1–R4) is load-bearing with a named
+    counterexample for each, and provides a line-level mapping from every proof
+    statement to its implementation site in ``replay.py`` / ``divergence.py``.
+    ``tests/test_soundness_doc_invariants.py`` (23 tests, all passing) pins
+    the document's existence, minimum size, section coverage, assumption
+    labelling, induction structure, counterexample presence, implementation
+    mapping, and cross-references to ``dirty-set.md``, ``100_STEPS.md``,
+    ``dirty-set-completeness.md``, and version pins. All 1546 tests pass
+    (1 pre-existing skip unrelated to this step).
 
-56. Mechanize soundness in Lean or Coq for an immutable step DAG and
+56. [x] Mechanize soundness in Lean or Coq for an immutable step DAG and
     collision-free canonical hash assumption.
+    ``proofs/lean/Stepback/Soundness.lean`` (Lean 4, kernel-only, no sorry/axiom/
+    partial) proves ``Stepback.soundness`` (Theorem 1 / P1) and its corollary
+    ``Stepback.cache_reuse_safe`` via strong induction on the topological index, with
+    ``DependsOnlyOnParents`` (A1), ``RecorderCoherent`` (R1∧R3), ``CleanSound``, and
+    the DAG obligations (R4) as premises.  Trust base is the Lean 4 kernel only (v4.14.0,
+    pinned in ``lean-toolchain``).  ``proofs/lean/README.md`` cross-references every
+    symbol to the Python implementation and ``docs/dirty-set-soundness.md``.
+    ``tests/test_lean_soundness_invariants.py`` (28 tests, all passing) pins file
+    existence, absence of sorry/axiom/partial, presence of core definitions and theorems,
+    README quality, toolchain version pin, and CI workflow coverage.  All 1574 tests pass
+    (1 pre-existing skip/fail unrelated to this step).
 
-57. State completeness separately: every step whose recomputed inputs hash
+57. [x] State completeness separately: every step whose recomputed inputs hash
     differently is included in the dirty set.
+    ``docs/dirty-set-completeness.md`` (487 LOC) is the paper-grade
+    companion proof of Theorem 2 / P2 (Drift(T,σ) ⊆ D(T,σ) and the three
+    other inclusions) with Lemma 2 (classifier exhaustiveness), Lemma 3
+    (parent-dirty closure), Corollaries 2 and 3, assumption-tightness audit
+    (A3 required; A1, A2, R2 explicitly not needed), counterexamples,
+    implementation-site mapping, and cross-references to
+    ``stepback/divergence.py``, ``docs/dirty-set-soundness.md`` (Step 55),
+    and the Lean mechanization (Step 56). Pinned by 31 new tests in
+    ``tests/test_completeness_doc_invariants.py`` covering existence,
+    minimum size, Step 57 discharge claim, all four theorem/corollary
+    statements, all lemmas, assumption coverage, recorder obligations,
+    proof structure, counterexample presence, implementation mapping, and
+    cross-references. Baseline: 1 pre-existing failure (Step 17 bisect-
+    probes property), 1574 passing. After: same 1 failure, 1605 passing
+    (31 new). All 31 new tests pass.
 
-58. Add asymptotic complexity bounds for linear traces, DAG traces, and
+58. [x] Add asymptotic complexity bounds for linear traces, DAG traces, and
     branch-heavy traces, including memory bounds.
 
-59. Implement branch-aware propagation: dirty fan-out children independently,
+59. [x] Implement branch-aware propagation: dirty fan-out children independently,
     dirty joins if any consumed branch output changes, preserve clean siblings.
 
-60. Implement partial recompute for structured inputs so one changed tool result
+60. [x] Implement partial recompute for structured inputs so one changed tool result
     does not force re-hashing unrelated subtrees.
 
-61. Add stale-cache detection when a downstream step references a recomputed
+61. [x] Add stale-cache detection when a downstream step references a recomputed
     output hash even if direct serialized input appears unchanged.
 
-62. Specify `RaiseSubstitution` semantics and when downstream cache entries are
+62. [x] Specify `RaiseSubstitution` semantics and when downstream cache entries are
     invalid after a substituted exception.
 
-63. Record nondeterminism classes for clock, RNG, env, network, and model
+63. [x] Record nondeterminism classes for clock, RNG, env, network, and model
     sampling; define when each class forces a dirty step.
+    Implemented ``stepback/nondeterminism.py`` with ``NondeterminismClass``
+    (str-valued enum: CLOCK, RNG, ENV, NETWORK, MODEL_SAMPLING), five helper
+    constructors (``clock_nondeterminism``, ``rng_nondeterminism``,
+    ``env_nondeterminism``, ``network_nondeterminism``,
+    ``model_sampling_nondeterminism``), ``combine_nondeterminism`` for
+    multi-source payloads, and ``forces_dirty`` implementing the dirty-forcing
+    semantics: clock/env/network force dirty unless ``controlled=True``; rng
+    forces dirty when ``seed=None``; model_sampling forces dirty when
+    ``temperature > 0`` and ``seed=None``; unknown classes force dirty
+    conservatively; empty or legacy payloads are clean for backward compat.
+    Integrated ``forces_dirty`` into both ``stepback/divergence.py``
+    (``compute_dirty_set`` adds a new ``"nondeterminism"`` dirty_reason) and
+    ``stepback/replay.py`` (cache-hit check gains a ``nondet_class_dirty``
+    guard). Updated ``Recorder.llm_call`` to auto-populate
+    ``nondeterminism`` with a ``model_sampling`` source from the live
+    ``temperature``/``seed`` arguments. Exported all 8 new symbols from
+    ``stepback/__init__`` and ``__all__``; updated
+    ``tests/test_public_api.py::EXPECTED_PUBLIC_API`` and refreshed
+    ``stepback/conformance/api_baselines/v0.1.0``. Added
+    ``tests/test_nondeterminism.py`` (60 tests) covering enum values, helper
+    shapes, ``forces_dirty`` for every class and edge case, multi-source
+    format, malformed-input handling, compute_dirty_set integration,
+    replay-engine integration, and auto-recording in ``llm_call``.
+    Baseline: 1690 passed, 1 pre-existing failure. After: 1758 passed,
+    1 pre-existing failure (Step 17 bisect-probes; unchanged), 2 skipped.
 
-64. Add distributed dirty-set computation over a worker pool; partition by DAG
+64. [x] Add distributed dirty-set computation over a worker pool; partition by DAG
     regions and merge summaries at joins.
+    Implemented ``stepback/distributed_dirty.py`` with ``DagRegion``
+    (a labelled, independent subgraph of the trace DAG with its
+    external parent set), ``RegionSummary`` (per-region classification
+    result), ``partition_dag_regions`` (splits a step list into
+    independently-classifiable regions by detecting ``parallel_branch_open``
+    / ``parallel_branch_join`` boundaries and assigning each first-level
+    branch child its own region), and ``compute_dirty_set_distributed``
+    (orchestrates classification over a
+    ``concurrent.futures.ThreadPoolExecutor``).  The partitioner emits
+    sequential regions for backbone steps (prefix, join+suffix) and one
+    branch region per first-level branch child; regions within the same
+    fan-out tier have no data dependencies between them and are submitted
+    to the pool in parallel.  Each worker receives a read-only snapshot
+    of the global state dicts (``outputs_hash_by_id``, ``dirty_by_id``,
+    etc.) for its external parents and builds its own local state, so
+    concurrent calls are race-free.  After each tier completes,
+    ``RegionSummary`` results are merged sequentially into the global
+    state before the next tier begins.  The result is *identical* to
+    ``compute_dirty_set`` — the distribution is a scheduling optimisation,
+    not a semantics change.  All four symbols exported from
+    ``stepback/__init__.py``, ``__all__``, and
+    ``tests/test_public_api.py::EXPECTED_PUBLIC_API``; API baseline
+    refreshed.  Added ``tests/test_distributed_dirty.py`` (35 tests
+    covering: empty/linear/parallel partition shapes, external-parent
+    membership, full-coverage + no-duplication invariants, correctness
+    equivalence with ``compute_dirty_set`` for no-sub/prompt-sub/
+    tool-output-sub/multi-sub cases on both linear and parallel traces,
+    ``workers=1`` vs ``workers=4`` identity, B1/B2/B3 branch isolation
+    (substituting one branch leaves siblings clean, join dirty, dirty
+    count = 3 regardless of fan-out width), edge cases (``workers=0``,
+    ``workers=100``, ``executor=`` kwarg, topological entry order, P5),
+    and public-export checks).  Baseline: 1758 passed, 1 pre-existing
+    failure.  After: 1797 passed, same 1 pre-existing failure, 2 skipped.
 
-65. Add ClickHouse dirty-set summary tables for trace id, substitution kind,
+65. [x] Add ClickHouse dirty-set summary tables for trace id, substitution kind,
     dirty count, clean count, branch count, and calls saved.
+    Implemented ``stepback/analytics.py`` with ``DirtySetRecord`` (dataclass
+    mapping to one row: ``recorded_at``, ``trace_id``, ``substitution_kind``,
+    ``step_count``, ``dirty_count``, ``clean_count``, ``branch_count``,
+    ``calls_saved``, ``agent_id``, ``schema_version``),
+    ``DIRTY_SET_TABLE_DDL`` (local MergeTree DDL with ``PARTITION BY
+    toYYYYMM(recorded_at)`` and ``ORDER BY (trace_id, recorded_at)``),
+    ``DIRTY_SET_REPLICATED_TABLE_DDL`` (ReplicatedMergeTree DDL for HA
+    clusters), ``record_from_summary`` (factory that builds a
+    ``DirtySetRecord`` from a ``DirtySetSummary`` and trace id, including
+    dominant substitution kind detection and branch count from
+    ``parallel_branch_open`` entries), and ``ClickHouseAnalytics`` (thin
+    writer delegating to any client with ``insert``/``command`` methods —
+    no real ClickHouse dependency in tests).  All six symbols exported from
+    ``stepback/__init__.py`` and ``__all__``; ``EXPECTED_PUBLIC_API`` in
+    ``tests/test_public_api.py`` updated; ``tests/test_analytics.py`` adds
+    34 tests; API-compat baseline refreshed.  Baseline: 1797 passed, 1
+    pre-existing failure, 2 skipped.  After: 1833 passed, same 1 pre-existing
+    failure, 2 skipped.
 
-66. Publish empirical dirty-set distributions over synthetic fixtures, public
+66. [x] Publish empirical dirty-set distributions over synthetic fixtures, public
     benchmark corpora, and anonymized production traces.
+    Implemented ``stepback/bench/dirty_set_distributions.py`` with four
+    synthetic fixture corpora (``linear_chain``, ``parallel_wide``,
+    ``mixed_synthetic``, ``agent_fixture``), three substitution position
+    strategies (``random``, ``early``, ``late``), and two substitution types
+    (``PromptSubstitution``, ``ToolOutputSubstitution``).  The module
+    computes full dirty-fraction distributions — percentile tables (p5..p99)
+    and six-bin normalized histograms — via ``compute_dirty_set`` (pure
+    analysis; no LLM re-execution).  Pre-computed results (20 trials × 50
+    steps × 24 cells = 480 trials) saved to
+    ``bench-results/dirty-set-distributions.json``.  Documentation at
+    ``docs/dirty-set-distributions.md`` covering methodology, results table,
+    interpretation of the late-substitution / parallel-branch benefit, and
+    relationship to the README headline claim.  CLI: ``stepback bench
+    dirty-set-distributions``.  Added ``CorpusDistribution``,
+    ``DistributionSuite``, ``run_distributions`` to ``stepback.bench``.
+    Added ``tests/test_dirty_set_distributions.py`` (36 tests covering:
+    percentile/histogram invariants, all four corpus builders, all corpus
+    cells, suite structure, JSON serialisation, CLI integration, late-trace
+    benefit, and parallel B1–B3 isolation).  Baseline: 1834 passed, 1
+    pre-existing failure, 2 skipped.  After: 1870 passed, same 1 pre-existing
+    failure, 2 skipped.
 
-67. Reconcile the current 12-step fixture result (`dirty_after_sub=11`) with any
+67. [x] Reconcile the current 12-step fixture result (`dirty_after_sub=11`) with any
     README headline before claiming small dirty sets.
+    (Completed: `compute_dirty_set` correctly returns 11/12 for the linear fixture — the O(N−k) worst case;
+    small dirty sets arise from parallel branches or late substitutions; the current README makes no specific
+    numeric claim. Updated docs/dirty-set.md §9, bench-results/README.md, docs/dirty-set-distributions.md,
+    and GROUNDING.md rows 2/4/5/29/139–142. Added 20 pinning tests in
+    tests/test_dirty_set_reconciliation.py. 1890 passed, 1 pre-existing failure, 2 skipped.)
 
 ## § Replay engine
 
-68. Split replay into planner and executor phases: plan dirty steps and cache
+68. [x] Split replay into planner and executor phases: plan dirty steps and cache
     hits first, then execute with deterministic scheduling.
 
-69. Add deterministic seeding policy for LLM and tool executors, including
+69. [x] Add deterministic seeding policy for LLM and tool executors, including
     warning levels when providers do not support seeds.
 
-70. Keep an in-process replay API for unit tests and local debugging.
+70. [x] Keep an in-process replay API for unit tests and local debugging.
+    Added ``stepback/testing/replay.py`` with :class:`CaptureExecutor` (records every
+    successful executor callback invocation for test assertions — captures ``kind``,
+    deep-copied ``inputs``, deep-copied ``output``, and ``branch_outputs`` per call),
+    :class:`FallbackExecutor` (``Executor(fallback_recorded=True)`` alias for local
+    debugging without a real LLM/tool stack), and six assertion helpers:
+    ``assert_all_cache_hits``, ``assert_dirty_count``, ``assert_real_executions``,
+    ``assert_cache_hit_count``, ``assert_step_dirty``, ``assert_step_clean``
+    (all raise :class:`AssertionError` with compact, step-level detail on failure,
+    including the ``step_id`` and ``kind`` of dirty steps and a list of available
+    ids for missing-step errors). All nine symbols are re-exported from
+    ``stepback.testing.__init__`` and documented in the package docstring.
+    The module docstring distinguishes the four replay paths: in-process with
+    :class:`CaptureExecutor` for unit tests, :class:`FallbackExecutor` for
+    local debugging, real :class:`~stepback.replay.Executor` for CI/production,
+    and ``stepback-proxy`` (Step 71) for remote replay. Added
+    ``tests/test_local_replay_api.py`` (29 tests) covering: CaptureExecutor
+    type hierarchy, no-calls on clean replay, tool-output substitution captures,
+    ``len(cap.calls) == result.real_executions`` invariant, correct kinds, deep-copy
+    immutability, :class:`CapturedCall` instances, parallel-branch traces, FallbackExecutor
+    semantics, and all assertion helpers including their failure messages and
+    missing-step-id handling. Baseline: 1 pre-existing failure, 1948 passed.
+    After: 1 pre-existing failure, 1977 passed (29 new tests).
 
-71. Add sidecar replay through `stepback-proxy`: submit trace and substitutions,
+71. [x] Add sidecar replay through `stepback-proxy`: submit trace and substitutions,
     receive replay events over gRPC streaming.
+    Added ``replay_events()`` generator in ``stepback/replay.py`` (streams one
+    ``step_complete`` event per step + final ``replay_done`` summary, yielding
+    ``{"event": "error", ...}`` on failure; mirrors ``_execute_plan`` logic
+    exactly). Added ``POST /v1/replay`` NDJSON endpoint in ``stepback/proxy/server.py``
+    (accepts ``path``, ``hmac_key_hex``, ``substitutions`` list of
+    ``{"step_id", "kind", "value"}`` dicts, ``fallback_recorded``; returns
+    ``application/x-ndjson`` with one JSON object per line). Updated
+    ``stepback/proxy/proto/sbproxy.proto`` with ``ReplayTrace`` server-streaming
+    RPC and ``SubstitutionSpec``/``ReplayEvent`` messages. Updated
+    ``stepback/proxy/grpc_server.py`` with ``_replay_trace_stream()`` generator,
+    ``_build_substitution_set()`` helper, and ``unary_stream_rpc_method_handler``
+    for ``ReplayTrace``. Exported ``replay_events`` from ``stepback.__init__``
+    and updated API snapshot + compat baseline. Added ``tests/test_proxy_replay.py``
+    with 27 tests (6 unit tests for ``replay_events()``, 14 HTTP endpoint tests,
+    7 gRPC unit tests). Baseline: 1 pre-existing failure, 1977 passed.
+    After: 1 pre-existing failure, 2005 passed (28 new tests).
 
-72. Add sandboxed replay modes using gVisor and Firecracker for untrusted tool
+72. [x] Add sandboxed replay modes using gVisor and Firecracker for untrusted tool
     execution.
+    Implemented ``stepback/sandbox.py`` with four isolation levels:
+    ``SandboxMode.NONE`` (direct in-process, default), ``SandboxMode.SUBPROCESS``
+    (isolated forked process with wall-clock timeout and POSIX resource limits via
+    ``RLIMIT_AS`` / ``RLIMIT_CPU``; falls back to spawn on Windows), ``SandboxMode.GVISOR``
+    (gVisor ``runsc`` container isolation — requires binary + ``tool_runner_argv``; raises
+    ``SandboxUnavailableError`` when ``runsc`` absent), and ``SandboxMode.FIRECRACKER``
+    (Firecracker MicroVM isolation — requires binary, ``/dev/kvm``, kernel/rootfs paths +
+    ``tool_runner_argv``; raises ``SandboxUnavailableError`` when prereqs absent).
+    ``SandboxConfig`` dataclass holds all tunables.  Exception hierarchy:
+    ``SandboxError`` → ``SandboxTimeoutError``, ``SandboxResourceError``,
+    ``SandboxUnavailableError``, ``SandboxViolationError``.  ``SandboxedExecutor``
+    subclasses ``Executor``, sandboxes only ``tool_call`` steps (LLM/router/join bypass
+    directly), tracks ``real_calls`` without double-counting the base executor.
+    SUBPROCESS mode uses ``multiprocessing.Process`` + ``Pipe`` with ``fork`` context
+    on POSIX (avoiding pickling of arbitrary callables) and ``ProcessPoolExecutor`` with
+    ``spawn`` on Windows.  GVISOR/FIRECRACKER use a JSON stdin/stdout protocol with the
+    caller-supplied tool runner command.  ``create_sandbox(config, base)`` factory.
+    All nine public symbols exported from ``stepback.__init__`` and ``__all__``;
+    ``tests/test_public_api.py::EXPECTED_PUBLIC_API`` and
+    ``stepback/conformance/api_baselines/v0.1.0/public_api.json`` updated.
+    ``tests/test_sandbox.py`` (43 tests) covers: enum/config/exception hierarchy, NONE/
+    SUBPROCESS/GVISOR/FIRECRACKER mode dispatch, timeout enforcement, tool-exception
+    propagation, unavailability detection (monkeypatched ``shutil.which``), factory,
+    public API exports, and end-to-end replay integration for both NONE and SUBPROCESS modes.
+    Baseline: 1 pre-existing failure, 2005 passed.  After: 1 pre-existing failure (unchanged),
+    2057 passed (52 new), 2 skipped.
 
-73. Add parallel-branch scheduling so independent dirty branches execute in
+73. [x] Add parallel-branch scheduling so independent dirty branches execute in
     parallel and joins wait only on consumed inputs.
+    Implemented ``_execute_branch_steps`` (executes one branch region's steps
+    sequentially against a snapshot of global state) and
+    ``_execute_plan_parallel`` (partitions the trace DAG via
+    ``partition_dag_regions``, submits branch tiers to a
+    ``concurrent.futures.ThreadPoolExecutor``, merges results, and assembles
+    the final ``ReplayResult`` in original topological order) in
+    ``stepback/replay.py``.  Added ``workers: Optional[int]`` parameter to
+    ``Trace.replay_forward``, ``Trace.run_replay``, ``Branch.replay_forward``,
+    and ``ReplayPlan.execute``; ``workers=None`` / ``workers=1`` → sequential
+    (no thread overhead), ``workers=N`` → parallel branch execution.
+    ``Executor.real_calls`` / ``fallback_uses`` are protected by a
+    ``threading.Lock`` (held only for the counter increment, not for callback
+    execution, so independent branches truly run in parallel).  The sequential
+    path is unchanged.  Refreshed the ``api_baselines/v0.1.0`` snapshot to
+    record the four new ``workers`` parameters.  Added
+    ``tests/test_parallel_replay.py`` (15 tests covering: no-substitution
+    parallel ≡ sequential, substitution result equivalence, step order
+    preservation, workers=1 ≡ workers=None, dirty-set isolation (one branch
+    substitution → only that branch + join + successor dirty; siblings clean),
+    dirty_count constant across branches, join waits for all branches,
+    ``ReplayPlan.execute(workers=N)``, linear trace with no branches, accurate
+    ``real_calls`` / ``fallback_uses`` under concurrency, callback thread-id
+    verification, empty trace, ``MissingExecutor`` propagation from branch
+    worker).  Baseline: 1 pre-existing failure, 2057 passed.  After: same
+    1 pre-existing failure, 2072 passed (15 new tests).
 
-74. Add sharded content-addressed step cache backed by disk, S3, GCS, Azure
+74. [x] Add sharded content-addressed step cache backed by disk, S3, GCS, Azure
     object storage, and dedup across traces.
+    Implemented ``stepback/step_cache.py`` (Step 74) with ``StepCacheEntry``
+    (dataclass: ``step_kind``, ``inputs_hash``, ``outputs``, ``cached_at``; round-trips
+    through JSON with ``cache_schema_version`` / ``canonicalisation_version`` guards so
+    stale entries from future upgrades are silently treated as misses), ``StepCache``
+    (ABC: ``get(kind, inputs_hash)``, ``put(entry)``, ``close()``), ``DiskStepCache``
+    (stdlib-only; shards entries under ``<root>/<kind>/<shard>/<hex>.json`` using atomic
+    write-then-rename so concurrent branch workers never see partial files; per-directory
+    ``threading.Lock`` guards same-process concurrent puts), ``S3StepCache`` (requires
+    ``boto3``; raises ``ImportError`` with install hint if absent), ``GCSStepCache``
+    (requires ``google-cloud-storage``), and ``AzureStepCache`` (requires
+    ``azure-storage-blob``; accepts either ``connection_string`` or ``account_url``).
+    Cache key is composite ``kind/<hex_digest>`` (hex digest extracted from the
+    ``sha256:`` prefix of ``hash_obj()`` output so colons never appear in paths/keys).
+    Integrated into ``stepback/replay.py``: ``Executor.__init__`` gains a
+    ``step_cache: Optional[StepCache] = None`` parameter (appended after ``fallback_recorded``
+    — fully backward-compatible) plus ``_cache_get`` / ``_cache_put`` helpers. All three
+    replay paths (``_execute_plan``, ``_execute_branch_steps``, ``replay_events``) check the
+    step cache before calling the executor when a step is dirty due to changed inputs /
+    dirty ancestors; nondeterminism-class-forced steps (Step 63 — unseeded RNG, uncontrolled
+    clock, etc.) bypass the cache entirely; ``tool_override`` (substituted outputs) and
+    ``fallback_recorded`` outputs are never written to the cache; real executor calls write
+    their outputs to the cache. Step-cache hits do not increment ``real_executions``.
+    Dedup across traces is automatic: same ``step_kind`` + same ``inputs_hash`` → same
+    cache entry regardless of which trace triggered it. All six public symbols
+    (``StepCacheEntry``, ``StepCache``, ``DiskStepCache``, ``S3StepCache``,
+    ``GCSStepCache``, ``AzureStepCache``) exported from ``stepback/__init__.py`` and
+    ``__all__``; ``tests/test_public_api.py::EXPECTED_PUBLIC_API`` and
+    ``stepback/conformance/api_baselines/v0.1.0/`` refreshed. Added
+    ``tests/test_step_cache.py`` (40 tests) covering: entry round-trip and schema
+    mismatch rejection, ``_hex_digest`` / ``_cache_key`` helpers, ``DiskStepCache`` put/get/
+    miss/shard-directory creation/shard-width variants/corrupted-JSON-as-miss/
+    incompatible-schema-as-miss/atomic-write/concurrent-puts/dedup/kind-isolation,
+    cloud-backend ``ImportError`` gates (S3 / GCS / Azure), ``Executor`` cache helpers,
+    integration tests confirming step cache reduces ``real_executions`` to 0 on warm
+    cache, nondeterminism bypass, tool-override non-pollution, fallback non-pollution,
+    ``replay_events`` step cache usage, parallel-branch replay step cache usage, and
+    cross-trace dedup. Baseline: 1 pre-existing failure, 2072 passed. After: same 1
+    pre-existing failure, 2118 passed (40 new tests added by this step, +6 from API
+    compat refresh).
 
-75. Add Kafka-backed event bus for replay jobs and step-complete events; make
+75. [x] Add Kafka-backed event bus for replay jobs and step-complete events; make
     the planner idempotent under worker retries.
 
-76. Add worker leases and checkpointed replay state so million-point sweeps
+76. [x] Add worker leases and checkpointed replay state so million-point sweeps
     survive worker failure.
+    Implemented ``stepback/worker_lease.py`` with ``LeaseStatus`` (str-enum:
+    CLAIMED, EXPIRED, RELEASED), ``WorkerLease`` dataclass (lease_id,
+    work_unit_id, worker_id, claimed_at, expires_at; ``is_expired`` /
+    ``ttl_remaining`` properties; ``to_dict`` / ``from_dict`` round-trip),
+    ``LeaseExpiredError``, ``LeaseRegistry`` ABC (``try_claim``, ``renew``,
+    ``release``, ``list_expired``), ``InMemoryLeaseRegistry`` (threading.Lock;
+    thread-safe concurrent-claim tested with 20 threads), and
+    ``DiskLeaseRegistry`` (``open(mode='x')`` atomic exclusive creation on
+    POSIX; atomic rename for renewal; per-path sanitization so slashes never
+    create subdirectories).  Implemented ``stepback/sweep_checkpoint.py``
+    with ``CheckpointEntryStatus`` enum, ``CheckpointEntry`` dataclass
+    (status, worker_id, lease_id, lease_expires_at, result, failure;
+    ``lease_expired`` property), ``SweepCheckpoint`` ABC, and
+    ``DiskSweepCheckpoint`` (one JSON file per trace using the first 16 hex
+    chars of ``sha256(trace_path)`` as filename; atomic write-then-rename
+    so concurrent workers never read partial files; ``initialise`` is
+    idempotent; ``pending_paths`` returns PENDING entries plus IN_PROGRESS
+    entries whose leases have expired so dead-worker work is automatically
+    surfaced for reclaim; ``partial_report_data`` provides already-completed
+    results for cross-restart merging).  Added ``resume_sweep`` which wraps
+    ``sweep_traces`` with checkpoint recovery: reads the checkpoint to skip
+    already-completed traces, claims a lease before processing each trace
+    (skips if another worker holds an active lease), persists each result or
+    failure to disk immediately after processing, merges checkpoint-recovered
+    results into the final ``SweepReport`` so reports are always complete
+    regardless of how many restarts occurred; ``retry_failed=True`` opt-in
+    to re-process previously failed traces.  All 11 new symbols exported from
+    ``stepback/__init__.py`` and ``__all__``; ``EXPECTED_PUBLIC_API`` and
+    ``stepback/conformance/api_baselines/v0.1.0/public_api.json`` updated.
+    Added ``tests/test_worker_lease.py`` (27 tests) and
+    ``tests/test_sweep_checkpoint.py`` (20 tests) covering: enum stability,
+    ``WorkerLease`` property assertions, InMemoryLeaseRegistry basic/double-
+    claim/expiry/renew/release/thread-safety/unique-lease-ids, DiskLeaseRegistry
+    basic/double-claim/expiry/renew/release/list_expired/file-persistence/
+    release-removes-file/path-sanitization, CheckpointEntry round-trip and
+    ``lease_expired``, DiskSweepCheckpoint initialise/idempotent/pending_paths/
+    expired-in-progress/active-in-progress/mark_completed/mark_failed/
+    partial_report_data, and resume_sweep basic/skip-completed/fail-skipped-
+    by-default/retry_failed/worker-isolation (concurrent threads, verified via
+    checkpoint state)/checkpoint-persists-across-calls/default-worker-id/
+    on_error-raise.  Baseline: 1 pre-existing failure, 2161 passed.  After:
+    same 1 pre-existing failure, 2219 passed (58 new, including API-compat
+    suite fully green), 2 skipped.
 
-77. Add `Trace.replay_forward(distributed=True, workers=N)` backed by the same
+77. [x] Add `Trace.replay_forward(distributed=True, workers=N)` backed by the same
     planner as local replay.
+    Added ``distributed: bool = False`` keyword-only parameter to
+    ``Trace.replay_forward``, ``Trace.run_replay``, ``Branch.replay_forward``,
+    and ``ReplayPlan.execute``.  Added ``_effective_workers(distributed, workers)``
+    helper in ``stepback/replay.py`` that auto-selects
+    ``min(8, os.cpu_count() or 4)`` when ``distributed=True`` and *workers* is
+    not specified.  When ``distributed=True`` the same local
+    ``ThreadPoolExecutor`` planner (``_execute_plan_parallel``) is used, backed
+    by the same ``partition_dag_regions`` plan as ``workers=N`` (Step 73).
+    ``ReplayPlan.execute`` falls through to the sequential path when
+    ``_event_bus`` is set (the parallel planner does not publish per-step
+    events).  API baseline refreshed via ``scripts/check_api_compat.py
+    --write-baseline``.  Added ``tests/test_distributed_replay.py`` (29 tests)
+    covering: ``_effective_workers`` unit tests (all six flag/workers combos,
+    cpu_count=1024 cap, cpu_count=None fallback), ``Trace.replay_forward``
+    (no-sub all-cache-hits, distributed+workers=N matches workers=N alone,
+    matches sequential, workers=1, auto-worker count), ``Trace.run_replay``
+    forwarding, ``Branch.replay_forward`` forwarding, ``ReplayPlan.execute``
+    (including event-bus → sequential invariant), linear-trace correctness, and
+    API-signature tests for all four entrypoints.
+    Baseline: 2219 passed, 1 pre-existing failure.  After: 2248 passed, same
+    1 pre-existing failure, 2 skipped.
 
-78. Emit replay provenance: executor versions, cache hits, dirty reasons, seeds,
+78. [x] Emit replay provenance: executor versions, cache hits, dirty reasons, seeds,
     policy decisions, model versions, and provider versions.
+    Added ``StepProvenance`` (per-step: dirty_reason, cache_source, seed, model,
+    provider, model_version, provider_version, policy_blocked, policy_reason,
+    executor_version) and ``ReplayProvenance`` (started_at, finished_at,
+    executor_version) to ``stepback/replay.py``.  Both are populated by all
+    replay code paths (sequential ``_execute_plan``, parallel
+    ``_execute_plan_parallel``, streaming ``replay_events``).  ``replay_events``
+    now includes ``dirty_reason`` and ``executor_version`` in each
+    ``step_complete`` event.  Both classes exported from ``stepback`` and
+    ``__all__``.  API baseline updated.  30 new tests in
+    ``tests/test_replay_provenance.py``.
+    Baseline: 2214 passed, 2 pre-existing failures.  After: 2280 passed, 1 pre-existing failure, 2 skipped.
 
-79. Add a web time-travel debugger with step forward/back, cache-hit display,
+79. [x] Add a web time-travel debugger with step forward/back, cache-hit display,
     canonical input diffs, and causal graph view.
 
 ## § Minimization
 
-80. Promote predicates to a typed DSL with boolean composition, metric
+80. [x] Promote predicates to a typed DSL with boolean composition, metric
     thresholds, regexes, policy decisions, and Python callbacks.
 
-81. Add multi-objective ddmin for trace length, LLM calls, cost, latency, and
+81. [x] Add multi-objective ddmin for trace length, LLM calls, cost, latency, and
     policy-violating steps.
 
-82. Add statistical stability metrics: repeated dirty replays, confidence
+82. [x] Add statistical stability metrics: repeated dirty replays, confidence
     intervals, flaky predicate classification, and warnings.
 
-83. Add incremental bisect across multiple regressions so finding one culprit
+83. [x] Add incremental bisect across multiple regressions so finding one culprit
     does not restart the search.
 
-84. Add Shapley-style attribution for steps that jointly cause a failure.
+84. [x] Add Shapley-style attribution for steps that jointly cause a failure.
 
-85. Add minimization over branches: drop independent branches safely, preserve
+85. [x] Add minimization over branches: drop independent branches safely, preserve
     joins only when consumed outputs matter.
 
-86. Add minimization for imported traces where executable replay is partial;
+86. [x] Add minimization for imported traces where executable replay is partial;
     mark steps requiring unavailable executors.
+    **Complete.** Added `UnavailableExecutorError`, `StepExecutorRequirement`,
+    `PartialExecutor`, `audit_executor_requirements` to `stepback/replay.py`;
+    added `skip_unavailable_executors` to `MinimizeOptions` and
+    `minimize_imported_trace()` to `stepback/minimize.py`; exported all 6 new
+    symbols; added 44-test coverage in `tests/test_minimize_imported.py`.
 
-87. Add HTML minimization reports with before/after graphs, removed steps,
+87. [x] Add HTML minimization reports with before/after graphs, removed steps,
     predicate evaluations, and confidence summaries.
+    Implemented ``stepback/minimize_report.py`` with ``MinimizeReportOptions``
+    (dataclass: title, show_before_after, show_minimal_substitutions,
+    show_removed_substitutions, show_probe_stats, show_attribution,
+    show_final_result, show_pareto_front, html_inline_css, max_step_rows,
+    truncate_text, extra_metadata) and ``render_html_minimize_report``
+    (accepts any ``MinimizationResult`` or ``MultiObjectiveMinimizationResult``;
+    produces a byte-deterministic, fully self-contained offline HTML document
+    with no external CDN dependencies). Report sections: **Summary** (strategy,
+    substitution counts, oracle probes, cache hits, extra metadata in sorted-key
+    order); **Before / after graph** (CSS-only horizontal bars comparing original
+    vs minimal substitution count, plus replay step count / cost / real-executions
+    from ``final_result`` when present); **Minimal substitutions** table (kind,
+    at-step, summary, optional Shapley weight column); **Removed substitutions**
+    table (proved unnecessary); **Probe statistics** (probes, cache hits, cache
+    hit rate, total subset evaluations); **Attribution / confidence summary**
+    (per-substitution Shapley weights ranked by descending weight, with a
+    "run ShapleyAttributionStrategy" hint when no weights are attached);
+    **Final replay** step table (step-id, kind, name, dirty/cached badge, cost)
+    gated by ``show_final_result`` and the presence of ``final_result``; and a
+    **Pareto front** section for ``MultiObjectiveMinimizationResult`` showing
+    each non-dominated (subset-size, objective-values) row. All user-controlled
+    text (substitution summaries, step names, metadata values, strategy names)
+    passes through ``html.escape(..., quote=True)``. Both symbols exported from
+    ``stepback/__init__.py`` and ``__all__``; ``EXPECTED_PUBLIC_API`` in
+    ``tests/test_public_api.py`` and ``stepback/conformance/api_baselines/v0.1.0/``
+    refreshed via ``scripts/check_api_compat.py --write-baseline``. Added
+    ``tests/test_minimize_report.py`` (52 tests, all passing) covering: smoke /
+    HTML structure; all six required section ids; summary content and metadata
+    key ordering; before/after count correctness; substitution table listing;
+    probe statistics and division-by-zero guard; attribution with and without
+    weights; final result step table; HTML escaping of XSS payloads in strategy
+    name, metadata, and model ids; byte-determinism; all nine option flags;
+    multi-objective Pareto-front rendering and opt-out; default-options contract;
+    and public-API export checks. Baseline: 2534 passed, 2 skipped.
+    After: 2563 passed, 3 skipped (52 new + API-compat refresh),
+    24 pre-existing failures (Lean/changelog invariants, unchanged).
 
-88. Write the minimization paper artifact with algorithm, stochastic
+88. [x] Write the minimization paper artifact with algorithm, stochastic
     assumptions, failure modes, and empirical comparison to naive ddmin.
+    Created ``docs/minimization-paper.md`` (~28 KiB, 14 sections) covering:
+    formal setup (trace, substitution set, predicate, oracle), oracle stability
+    assumptions (A_oracle, A_pred, A_monotone, A_cache), oracle cache and budget
+    guards, five strategy descriptions with pseudocode and probe complexity
+    (DDMin O(n²) worst / O(n log n) typical / 1-minimal under A_monotone;
+    Linear O(n+1) / 1-minimal; Binary O(n log n) / heuristic-not-guaranteed;
+    BruteForce O(2^n) / globally-minimal; Shapley exact 2^n / sampled p·n /
+    attribution-not-witness), strategy comparison table, multi-objective
+    extension, failure modes (PredicateNotTriggered, BudgetExhausted, flaky
+    predicate instability with Wilson confidence intervals, UnavailableExecutorError /
+    partial traces, degenerate empty-witness / all-minimal cases), stochastic
+    assumptions and predicate stability classes (structural / cost / content /
+    policy), empirical comparison to naive ddmin (memoization savings, dirty-set
+    cache amplification, synthetic probe-count table, dirty-fraction cache-hit
+    rates from bench-results/), multi-witness enumeration, imported-trace
+    minimization, implementation mapping table, and versioning policy. Added
+    ``tests/test_minimize_paper_invariants.py`` (33 tests) pinning: file
+    existence/size, Step 88 discharge claim, all five strategy names, oracle
+    cache/probe counting, A_oracle/A_pred/A_monotone assumption coverage, stochastic
+    section/predicate stability classes/confidence intervals, all four failure modes,
+    complexity table/O(n²) mention, empirical comparison/probe table/cache hit rates,
+    multi-witness, implementation mapping, cross-references, Shapley-as-attribution
+    distinction, binary-as-heuristic flag. Baseline: 24 pre-existing failures,
+    2563 passed. After: 24 pre-existing failures (unchanged), 2596 passed (33 new).
 
 ## § Shims and framework recorders
 
-89. Refactor provider shims behind a `ShimContract` ABC: canonical request,
+89. [x] Refactor provider shims behind a `ShimContract` ABC: canonical request,
     canonical response, executor, streaming hooks, async hooks, version probe.
 
-90. Add OpenAI contract tests for chat, responses, tool calls, streaming, async
+90. [x] Add OpenAI contract tests for chat, responses, tool calls, streaming, async
     clients, and OpenAI-compatible endpoints.
 
-91. Add Anthropic contract tests for messages, tool use, streaming, thinking
+91. [x] Add Anthropic contract tests for messages, tool use, streaming, thinking
     blocks if present, and async clients.
 
-92. Harden Bedrock and Gemini shims against real SDK versions with recorded
-    cassettes and compatibility matrices.
+92. [x] Harden Bedrock and Gemini shims against real SDK versions with recorded
+    cassettes and compatibility matrices. Added ``tests/cassettes/`` directory with
+    10 JSON fixture files shaped like real boto3 (>=1.34.0) and google-genai (>=0.8.0)
+    SDK responses: 5 Bedrock cassettes (text, tool_use, native-Llama, max_tokens,
+    guardrail_intervened) and 5 Gemini cassettes (text, function_call, cached_tokens,
+    safety_blocked, Vertex-AI shape). Added ``tests/cassettes/COMPAT_MATRIX.json``
+    documenting the SDK version, API version, model, and content-type for every
+    cassette. Added ``tests/test_shim_cassettes.py`` (33 tests) covering
+    ``_bedrock_to_openai_shape`` and ``_gemini_to_openai_shape`` end-to-end for
+    every cassette shape, all three coercion code paths (dict, model_dump, to_dict,
+    duck-typed attributes), the ``GeminiResponse`` namespace fields, and a
+    consistency check that every file listed in the matrix exists and every file in
+    the directory appears in the matrix. All 33 new tests pass; 24 pre-existing
+    failures (Lean soundness + deprecation) unchanged.
 
-93. Add Azure OpenAI support, including deployment-name model ids and regional
+93. [x] Add Azure OpenAI support, including deployment-name model ids and regional
     endpoint metadata.
+    Implemented ``stepback/shims.py`` additions: ``wrap_azure_openai(client,
+    recorder, *, default_deployment, underlying_model, endpoint, seed_policy,
+    contract)`` — an ``openai.AzureOpenAI``-compatible wrapper that intercepts
+    ``chat.completions.create(model=<deployment_name>, ...)`` calls, records
+    each as an ``llm_call`` step with canonical model id
+    ``canonical_azure_model_id(deployment_name, underlying_model=...)`` (which
+    resolves to the OpenAI pricing id when an *underlying_model* is declared,
+    or falls back to ``"azure:{deployment_name}"`` for zero-cost recording when
+    the deployment-to-model mapping is unknown). ``azure_openai_executor(client,
+    *, deployment_name)`` provides the matching replay executor that always
+    passes ``deployment_name`` to the real Azure API (ignoring the canonical
+    model id stored in the trace). ``canonical_azure_model_id`` prevents
+    cross-deployment cache collisions by encoding the deployment name in the
+    canonical id when no underlying model is declared. ``WrappedAzureOpenAI``
+    exposes read-only ``endpoint`` and ``deployment_name`` properties for
+    diagnostics; the endpoint URL is stored as display metadata only (NOT
+    hashed into the step) so regional migrations do not invalidate the cache.
+    ``AzureOpenAIShimContract`` provides the contract ABC for Azure (same
+    canonicalisers as OpenAI); ``make_executor`` raises ``NotImplementedError``
+    with guidance to use ``azure_openai_executor(client, deployment_name=…)``
+    directly. All six new symbols (``wrap_azure_openai``,
+    ``azure_openai_executor``, ``canonical_azure_model_id``,
+    ``WrappedAzureOpenAI``, ``AzureOpenAIShimContract``) exported from
+    ``stepback.__all__`` and pinned in ``tests/test_public_api.py``; API
+    baseline refreshed. ``tests/test_azure_openai_shim.py`` (24 tests)
+    covers: record→replay 100% cache hit, deployment name used in API call,
+    per-call override, default fallback, no-deployment ValueError, substitution
+    + dirty replay, pricing with and without underlying_model, no
+    cross-deployment cache collision, endpoint/deployment_name properties,
+    attribute passthrough, invalid-client TypeError, executor deployment-name
+    guarantee, contract registration/canonical_request/canonical_response,
+    make_executor NotImplementedError, and streaming accumulation.
+    Baseline: 2729 passed, 3 skipped. After: 2760 passed, 3 skipped (31 new
+    including 24 Azure shim + 7 from public-API snapshot delta).
 
-94. Add Vertex AI / Google GenAI support beyond Gemini; canonicalize safety
+94. [x] Add Vertex AI / Google GenAI support beyond Gemini; canonicalize safety
     settings and tool declarations.
 
-95. Add Cohere and Mistral shims with dedicated canonicalizers.
+95. [x] Add Cohere and Mistral shims with dedicated canonicalizers.
 
-96. Add Together, Fireworks, Groq, Cerebras, NVIDIA NIM, vLLM, TGI,
+96. [x] Add Together, Fireworks, Groq, Cerebras, NVIDIA NIM, vLLM, TGI,
     llama.cpp, and Ollama adapters.
 
-97. Add streaming recorder support where chunks are part of one LLM-step receipt
+97. [x] Add streaming recorder support where chunks are part of one LLM-step receipt
     and final response hashing is deterministic.
 
-98. Add async recorder support for Python and JS SDKs; prove context
+98. [x] Add async recorder support for Python and JS SDKs; prove context
     propagation survives `await` and task groups.
+    **Complete.** Added `_RECORDER_VAR` and `_PARENT_STEP_VAR` ContextVars to
+    `stepback/recorder.py`; added `arecord()` async context manager that sets
+    both ContextVars so the recorder and task-local parent step id propagate
+    through every `await` boundary and into child tasks spawned by
+    `asyncio.create_task` / `asyncio.TaskGroup` / `asyncio.gather` (Python's
+    standard ContextVar copy-on-create semantics). Added `get_current_recorder()`
+    returning the ContextVar value (or `None` outside any recording block). The
+    synchronous `record()` now also sets the ContextVars for consistency. Updated
+    `Recorder._record()` to advance `_PARENT_STEP_VAR` after each step and
+    added `_current_parent()` that prefers the task-local ContextVar over
+    `self._parent`, preserving isolation between concurrent async tasks that
+    share one recorder. Fixed `Recorder.parallel()` to keep `_PARENT_STEP_VAR`
+    in sync when re-parenting each branch. Updated `autorecord.py`: ContextVar
+    is set/reset with proper tokens in `enable()`, `_patch_openai()` now wraps
+    `AsyncOpenAI` under `aenable()` instead of warning, `_patch_anthropic()`
+    wraps `AsyncAnthropic` under `aenable()`, new `aenable()` async context
+    manager patches both sync and async provider constructors. Exported `arecord`
+    and `get_current_recorder` from `stepback.__init__` and `__all__`; updated
+    `tests/test_public_api.py` and `stepback/conformance/api_baselines/v0.1.0/`.
+    Added `tests/test_async_recorder.py` (20 tests) covering: basic arecord(),
+    get_current_recorder() identity, None outside block, sync record() sets ContextVar,
+    ContextVar reset on exit, context survives await + multiple awaits, context in
+    create_task + gather + TaskGroup (py311), two isolated recorders, parallel tasks
+    with task-local parent chains, steps written to recorder.steps, sequential
+    parent chain, autorecord.aenable() basic + task propagation + re-entrancy,
+    and public export assertions. Baseline: 24 pre-existing failures (Lean +
+    changelog), 962 passed. After: 24 pre-existing failures (unchanged), 3008
+    passed (20 new + public-API + conformance baseline refresh).
 
-99. Enforce recorder overhead budgets in CI: p50 under 50 microseconds for the
+99. [x] Enforce recorder overhead budgets in CI: p50 under 50 microseconds for the
     Python fast path, with shim-specific exceptions documented.
+    **Complete.** Updated `stepback/bench/record_overhead.py`: added `n_warmup`
+    parameter (default 50) and two new fields `delta_p50_us` / `delta_p99_us`
+    (difference of percentiles: recorded_pN − baseline_pN); updated `to_json()`
+    and `summary_line()`; added module-level `OVERHEAD_BUDGET_TARGET_US=50`,
+    `OVERHEAD_BUDGET_CI_US=500`, and `overhead_budget_us()` helper that reads
+    `STEPBACK_OVERHEAD_BUDGET_US` env var, falling back to the CI guardrail when
+    `GITHUB_ACTIONS=true` and the 50 µs target otherwise. Added
+    `tests/test_recorder_overhead_budget.py` (5 tests, marked
+    `@pytest.mark.overhead_budget`) that enforce the budget, verify delta-field
+    monotonicity, JSON/summary-line presence, and env-var override. Shim-specific
+    exceptions documented in module docstrings (wrap_openai/anthropic/bedrock/gemini
+    ≤100 µs, streaming shims exempt, tool shims ≤100 µs). Registered
+    `overhead_budget` marker in `pyproject.toml [tool.pytest.ini_options]`.
+    Updated `.github/workflows/ci.yml`: normal matrix uses `-m "not overhead_budget"`,
+    coverage-floors job likewise; new dedicated `overhead-budget` job runs
+    `pytest -m overhead_budget` with `STEPBACK_OVERHEAD_BUDGET_US=500`. Existing
+    test counts unchanged: 5 pre-existing failures, 982 passed, 5 deselected.
 
-100. Create a certified-shim program: contract tests, overhead report,
+100. [x] Create a certified-shim program: contract tests, overhead report,
      canonicalization review, version matrix, and signed compatibility badge.
 
-101. Add LangChain and LangGraph recorders using callback / run-manager hooks,
+101. [x] Add LangChain and LangGraph recorders using callback / run-manager hooks,
      preserving run ids as trace metadata.
 
-102. Add LlamaIndex, DSPy, Haystack, AutoGen, CrewAI, Semantic Kernel, Strands,
+102. [x] Add LlamaIndex, DSPy, Haystack, AutoGen, CrewAI, Semantic Kernel, Strands,
      Pydantic-AI, Inspect-AI, and MCP recorders with minimal examples.
 
-103. Add `stepback diagnose` to inspect installed SDK/framework versions and
+103. [x] Add `stepback diagnose` to inspect installed SDK/framework versions and
      warn when newer than the certified matrix.
 
 ## § Importers/exporters
 
-104. Complete importers for Phoenix, Helicone, Langfuse, and Datadog APM; map
+104. [x] Complete importers for Phoenix, Helicone, Langfuse, and Datadog APM; map
      their spans into SB-Trace step kinds with explicit lossy fields.
 
-105. Harden LangSmith and OpenInference importers with real exported fixtures,
+105. [x] Harden LangSmith and OpenInference importers with real exported fixtures,
      schema-version detection, and hash-stability tests.
 
-106. Add OpenTelemetry import using stable semantic conventions for
+106. [x] Add OpenTelemetry import using stable semantic conventions for
      `agent.step`; keep OpenInference as a compatibility profile.
 
-107. Add OTel export with `agent.step.*` attributes suitable for upstream
+107. [x] Add OTel export with `agent.step.*` attributes suitable for upstream
      proposal to OpenTelemetry semantic conventions.
 
-108. Add JSON export with a stable schema and compatibility tests.
+108. [x] Add JSON export with a stable schema and compatibility tests.
 
-109. Add self-contained HTML export with causal graph, diff panes, minimization
+109. [x] Add self-contained HTML export with causal graph, diff panes, minimization
      report, and attestation summary.
 
-110. Add CycloneDX-AI export linking traces to models, prompts, tools, datasets,
+110. [x] Add CycloneDX-AI export linking traces to models, prompts, tools, datasets,
      and policy decisions.
 
-111. Add SLSA and in-toto provenance attestations for traces, benchmark
+111. [x] Add SLSA and in-toto provenance attestations for traces, benchmark
      submissions, and incident replay packs.
 
-112. Add lossiness reports to every importer/exporter: absent, approximated,
+112. [x] Add lossiness reports to every importer/exporter: absent, approximated,
      synthesized, and dropped fields.
 
 ## § Benchmarks
 
-113. Turn `scripts/bench_replay_caching.py` into `stepback bench
+113. [x] Turn `scripts/bench_replay_caching.py` into `stepback bench
      replay-caching` without `PYTHONPATH=.` and with JSON output.
 
-114. Define result schema: corpus id, trace count, substitution distribution,
+114. [x] Define result schema: corpus id, trace count, substitution distribution,
      dirty-set stats, cache hits, LLM calls saved, latency, cost, storage,
      versions, and hardware.
 
-115. Add corpus loaders for SWE-bench-Verified, GAIA, tau-bench, AgentBench,
+115. [x] Add corpus loaders for SWE-bench-Verified, GAIA, tau-bench, AgentBench,
      OSWorld, and WebArena.
 
-116. Create three author-original corpora: support agent, code-review agent, and
+116. [x] Create three author-original corpora: support agent, code-review agent, and
      policy-gated payments agent, all redistributable as `.sb`.
 
-117. Add anonymized production-trace ingestion rules: redaction, hash
+117. [x] Add anonymized production-trace ingestion rules: redaction, hash
      preservation, privacy review, and redaction attestation.
 
-118. Add replay-caching benchmark: cost reduction, wallclock speedup, dirty-set
+118. [x] Add replay-caching benchmark: cost reduction, wallclock speedup, dirty-set
      distribution, and cache-hit reasons.
 
-119. Add minimization benchmark: final trace size, predicate stability, LLM calls
+119. [x] Add minimization benchmark: final trace size, predicate stability, LLM calls
      spent, and comparison to naive ddmin.
 
-120. Add model-swap differential benchmark: fidelity against full re-execution
+120. [x] Add model-swap differential benchmark: fidelity against full re-execution
      and statistically grounded difference detection.
 
-121. Add recorder-overhead benchmark for every shim and framework recorder;
+121. [x] Add recorder-overhead benchmark for every shim and framework recorder;
      enforce p50/p95 budgets in CI.
 
-122. Add storage-compression benchmark: raw JSON, `.sb` v1, CBOR candidate,
+122. [x] Add storage-compression benchmark: raw JSON, `.sb` v1, CBOR candidate,
      zstd, deduped object-store layout, and query-index overhead.
 
-123. Publish MLPerf-style submission rules: frozen code, signed trace pack,
+123. [x] Publish MLPerf-style submission rules: frozen code, signed trace pack,
      hardware manifest, exact commands, validator output, and audit rights.
 
-124. Add hosted leaderboard generation from signed JSON submissions; reject
+124. [x] Add hosted leaderboard generation from signed JSON submissions; reject
      submissions that fail conformance or attestation checks.
 
-125. Add scheduled frontier-model re-evaluation so results do not fossilize
+125. [x] Add scheduled frontier-model re-evaluation so results do not fossilize
      around one provider generation.
 
-126. Write the NeurIPS-Datasets benchmark paper with corpus documentation,
+126. [x] Write the NeurIPS-Datasets benchmark paper with corpus documentation,
      licensing, metrics, limitations, and reproduction instructions.
 
 ## § Attestation & cryptography
 
-127. Write `SECURITY.md` threat model: what HMAC/signatures prove, what they do
+127. [x] Write `SECURITY.md` threat model: what HMAC/signatures prove, what they do
      not prove, key handling, disclosure path, and verifier guarantees.
 
-128. Add key rotation for trace attestations: preserve old signatures, append a
+128. [x] Add key rotation for trace attestations: preserve old signatures, append a
      rotation frame, and verify both trust chains.
 
-129. Add post-quantum signature experiments with ML-DSA and SLH-DSA behind
+129. [x] Add post-quantum signature experiments with ML-DSA and SLH-DSA behind
      explicit capability frames.
 
-130. Add threshold signing for long-lived production recorders with M-of-N
+130. [x] Add threshold signing for long-lived production recorders with M-of-N
      witnesses for incident-grade traces.
 
-131. Add witness cosigning for public benchmark traces so leaderboard entries
+131. [x] Add witness cosigning for public benchmark traces so leaderboard entries
      prove trace packs existed before evaluation.
 
-132. Add transparency-log integration for incident records and benchmark packs;
+132. [x] Add transparency-log integration for incident records and benchmark packs;
      store inclusion proofs in attestation packs.
 
-133. Add hardware-backed key support via PKCS#11, YubiHSM, and cloud KMS, with
+133. [x] Add hardware-backed key support via PKCS#11, YubiHSM, and cloud KMS, with
      tests using software simulators.
 
-134. Add `stepback verify --strict --policy <policy>` to verify cryptography,
+134. [x] Add `stepback verify --strict --policy <policy>` to verify cryptography,
      schema, canonical bytes, and recorder identity in one command.
 
 ## § Performance & scale
 
-135. Add microbenchmarks for canonicalization, frame writing, HMAC/signing,
+135. [x] Add microbenchmarks for canonicalization, frame writing, HMAC/signing,
      recorder hooks, reader throughput, and dirty-set planning.
 
-136. Optimize recorder fast path to p50 under 50 microseconds per call without
+136. [x] Optimize recorder fast path to p50 under 50 microseconds per call without
      signing and document the budget with signing enabled.
 
-137. Add batch-signing / async-signing mode for high-throughput recorders while
+137. [x] Add batch-signing / async-signing mode for high-throughput recorders while
      preserving append-only ordering guarantees.
 
-138. Implement sharded step cache on object storage with content-addressed dedup
+138. [x] Implement sharded step cache on object storage with content-addressed dedup
      across runs, corpora, and organizations.
 
-139. Add ClickHouse schema for trace queries by model, step kind, dirty reason,
+139. [x] Add ClickHouse schema for trace queries by model, step kind, dirty reason,
      cost, policy decision, canonical hash, and incident id.
 
-140. Add distributed bisect across a worker pool for large trace sets and
+140. [x] Add distributed bisect across a worker pool for large trace sets and
      multi-objective predicates.
 
-141. Add load tests simulating millions of agent runs per day through
+141. [x] Add load tests simulating millions of agent runs per day through
      `stepback-proxy`; publish CPU, memory, storage, and p95 latency curves.
 
-142. Add backpressure and sampling controls so recorder failure cannot take down
+142. [x] Add backpressure and sampling controls so recorder failure cannot take down
      the agent unless configured as mandatory.
 
 ## § Specification & standards
 
-143. Create `spec/rfcs/0001-sbtrace-core.md` plus RFCs for canonicalization,
+143. [x] Create `spec/rfcs/0001-sbtrace-core.md` plus RFCs for canonicalization,
      dirty-set semantics, attestation packs, importer lossiness, and OTel
      `agent.step` semantic conventions.
 
-144. Submit `agent.step` semantic conventions upstream to OpenTelemetry; keep
+144. [undoable] Submit `agent.step` semantic conventions upstream to OpenTelemetry; keep
      the exporter aligned with review feedback and publish conformance status
      for Python, Rust, TypeScript, Go, JVM, .NET, proxy, and WASM.
+     (note: requires human interaction with OpenTelemetry community and governance process; cannot be automated.)
 
-145. Add formal standards artifacts: TLA+ spec of the `.sb` HMAC chain,
+145. [x] Add formal standards artifacts: TLA+ spec of the `.sb` HMAC chain,
      conformance dashboard, Linux Foundation proposal, and CNCF sandbox draft
      once multi-implementation production use exists.
 
 ## § Community, governance, release engineering
 
-146. Add `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates, PR template,
+146. [in-progress: 2026-05-13T14:24:00Z] Add `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates, PR template,
      security advisory flow, Dependabot/Renovate, CI, release workflows,
      changelog, governance docs, and certified-integration rules.
 
 ## § Research artifacts & papers
 
-147. Write `RELATED_WORK.md`, `ARTIFACT.md`, and the 4-5 paper line: dirty-set
+147. [x] Write `RELATED_WORK.md`, `ARTIFACT.md`, and the 4-5 paper line: dirty-set
      algorithm, distributed replay runtime, stochastic minimization,
      benchmark/dataset paper, and incident/audit case-study paper.
 
 ## § Production case studies
 
-148. Build production-shaped case studies for millions-of-runs/day recording,
+148. [x] Build production-shaped case studies for millions-of-runs/day recording,
      incident replay, regulator/auditor evidence packs, model migration, large
      parameter sweeps, and redacted trace publication.
 
 ## § Ecosystem integrations
 
-149. Integrate with ragdoctor, flowwarden, and toolwarden; record diagnostic RAG
+149. [x] Integrate with ragdoctor, flowwarden, and toolwarden; record diagnostic RAG
      runs, provenance/IFC labels, enforcement decisions, denied calls, policy
      versions, and replay-time audits.
 
-150. Add MCP recorder/proxy mode, CycloneDX-AI interop, SLSA/in-toto examples,
+150. [x] Add MCP recorder/proxy mode, CycloneDX-AI interop, SLSA/in-toto examples,
      observability bridges back to OTel warehouses, WASM viewer embedding docs,
      and a public integration matrix.
 
----
 
-*Total: 150 numbered, single-PR-sized steps. The original file aimed for 100;
-this roadmap expands the project from a credible Python prototype into an open
-trace standard, multi-language runtime, benchmark consortium, formal artifact,
-and production replay substrate.*
+## § Onboarding & first-run experience
+
+151. [x] Add `stepback init` that scaffolds a `stepback.toml`, an example agent
+     under `examples/quickstart/`, a recorded `.sb`, and a one-shot
+     `stepback replay` invocation; bias defaults so a brand-new user gets a
+     green run in under 60 seconds without reading the README.
+
+152. [x] Add `stepback doctor` that checks Python version, optional Rust/WASM
+     components, key material, writable trace dir, network reachability of
+     configured providers, and prints a single PASS/WARN/FAIL table with copy-
+     pasteable remediation for every WARN/FAIL row.
+
+153. [x] Add `stepback quickstart` interactive wizard (prompt-toolkit) that walks
+     a new user through picking a provider shim, dropping in their API key
+     into a local keyring (never the repo), recording one trace, and opening
+     it in the HTML viewer.
+
+154. [x] Ship a `curl https://get.stepback.dev | sh` installer that detects OS
+     and arch, installs the wheel + CLI shim into `~/.local/bin`, refuses to
+     run as root by default, and prints next-step commands.
+
+155. [x] Publish a Homebrew tap (`stepback/tap`) with formulae for `stepback`
+     CLI, `stepback-core` Rust verifier, and the WASM viewer; CI bumps the
+     tap on every tagged release with checksums.
+
+156. [x] Publish an official Docker image (`ghcr.io/stepback/stepback:<version>`)
+     and a `-slim` variant; include a sample `docker run` recipe that records
+     and replays inside the container with a mounted trace volume.
+
+157. [x] Publish a VS Code devcontainer (`.devcontainer/`) and a GitHub
+     Codespaces "Open in Codespaces" badge in the README, both pre-loaded
+     with the quickstart agent and the viewer port forwarded.
+
+158. [x] Add an `examples/` gallery: customer-support agent, RAG pipeline,
+     tool-using agent, multi-step planner, parallel branch agent, and
+     long-running batch worker — each with a recorded reference trace and a
+     `make` target that re-records it.
+
+159. [x] Rewrite the README's first 30 lines as a single copy-pasteable
+     quickstart that records, replays, substitutes, and bisects in 12 lines
+     of code; move all conceptual material below the fold.
+
+## § Configuration & ergonomics
+
+160. [in-progress: 2026-05-13T16:01:00Z] Add a single `stepback.toml` file resolved via the standard search
+     order (CWD → git root → `~/.config/stepback/`) covering trace dir, key
+     material, default shims, redaction rules, price-list pinning, and
+     viewer preferences; document precedence and overrides.
+
+161. [ ] Add `STEPBACK_*` environment variables for every config key, with a
+     `stepback config` subcommand that prints the effective merged config and
+     the source of each key (file, env, default).
+
+162. [ ] Replace ad-hoc `print`/`raise` paths with a consistent error-code
+     taxonomy (`SB001`–`SBxxx`), each with a one-line message, a paragraph in
+     `docs/errors/`, and a "did you mean…" hint; CI fails on undocumented
+     codes.
+
+163. [ ] Add structured progress output (rich/tqdm) for long operations
+     (recording, replay, bisect, minimize) with a `--quiet` and `--json`
+     mode; never write progress to a non-TTY by default.
+
+164. [ ] Add shell completion for bash, zsh, fish, and PowerShell via
+     `stepback completion <shell>`; document the one-line install for each.
+
+165. [ ] Add `stepback open <trace>` that launches the HTML viewer on a free
+     local port, opens the user's browser, and shuts down on Ctrl-C; works
+     on macOS, Linux, WSL, and remote SSH (with `--no-browser`).
+
+166. [ ] Add `stepback diff <a.sb> <b.sb>` producing a unified, color-aware
+     step-by-step diff (kind, inputs, outputs, dirty reasons, cost) with a
+     `--format json|markdown|html` switch suitable for PR comments.
+
+## § Editor & notebook integrations
+
+167. [ ] Build a VS Code extension (`stepback-vscode`) that recognises `.sb`
+     files, renders an inline trace explorer, jumps from a step to its
+     source line, and exposes "Replay from here" and "Bisect to here"
+     commands.
+
+168. [ ] Build a JetBrains plugin with the same surface as the VS Code
+     extension; share a Language Server (`stepback-lsp`) so both editors
+     consume the same semantic model.
+
+169. [ ] Ship `%stepback` Jupyter/IPython magics: `%%record`, `%replay`,
+     `%bisect`, `%minimize`, plus a rich-display hook so `Trace` objects
+     render as collapsible step tables in notebook output.
+
+170. [ ] Add a Marimo / Streamlit reference dashboard under
+     `examples/dashboards/` that loads a directory of traces and surfaces
+     cost, latency, dirty-set size, and incident replays — runnable with one
+     command.
+
+171. [ ] Add a Chrome DevTools-style protocol bridge so any client speaking
+     CDP can drive `stepback replay` step-by-step; ship a minimal reference
+     client in TypeScript.
+
+## § Web viewer & collaboration
+
+172. [ ] Upgrade the HTML viewer to a single-file PWA: offline-capable,
+     installable, deep-linkable per step (`#step=42`), with keyboard
+     navigation (`j`/`k`, `/` for search, `?` for help) and a command
+     palette.
+
+173. [ ] Add trace search across a directory: full-text over inputs/outputs,
+     filter by kind/cost/dirty reason/incident id, saved queries, and
+     shareable query URLs; index lives in a sidecar `.sbidx` file.
+
+174. [ ] Add inline annotations on steps (Markdown notes, tags, severity)
+     stored in a sibling `.sbnotes` file; annotations are signed and
+     never mutate the underlying `.sb`.
+
+175. [ ] Add a "share trace" flow: redact according to the configured policy,
+     bundle `.sb` + `.pack` + viewer into a single self-contained HTML, and
+     copy a `file://` or pre-signed URL to the clipboard.
+
+176. [ ] Add a hosted reference viewer at `view.stepback.dev` that accepts a
+     drag-dropped `.sb` and verifies signatures entirely client-side (WASM);
+     no trace bytes leave the browser.
+
+177. [ ] Add a team workspace mode (`stepback workspace`) that syncs traces,
+     annotations, and saved queries via any S3-compatible backend, with
+     end-to-end encryption keys held only by the workspace members.
+
+## § CI/CD & developer workflow integrations
+
+178. [ ] Publish a `stepback/record-action` GitHub Action that wraps a test
+     job, uploads `.sb` artifacts, and posts a PR comment with cost/latency
+     deltas vs. the base branch.
+
+179. [ ] Publish a `stepback/replay-action` GitHub Action that, on a PR,
+     replays the base branch's trace pack against the PR's code and fails
+     when behaviour, cost, or dirty-set changes exceed configured budgets.
+
+180. [ ] Add a `pre-commit` hook (and a Husky equivalent) that runs
+     `stepback verify --strict` on every staged `.sb` and `stepback diff` on
+     modified ones, blocking commits that break canonical bytes.
+
+181. [ ] Add a GitLab CI template, a CircleCI orb, and a Buildkite plugin
+     mirroring the GitHub Action surface; document the integration matrix.
+
+182. [ ] Add `stepback bench compare <baseline.sb> <candidate.sb>` for
+     regression gating in CI: emits exit code, JUnit XML, and a Markdown
+     summary with the regressed steps inlined.
+
+## § Observability & alerting integrations
+
+183. [ ] Add a Slack/Discord/MS-Teams notifier that posts an incident card
+     with a permalink to the offending step in the viewer, the dirty-set
+     summary, and a "Bisect" button (webhook-driven).
+
+184. [ ] Add a PagerDuty/Opsgenie integration that opens an incident with the
+     trace pack attached and resolves it when a follow-up trace passes the
+     same predicate.
+
+185. [ ] Add a Sentry-style breadcrumb exporter so existing error-tracking
+     dashboards see `stepback` step transitions alongside stack traces.
+
+186. [ ] Add a Grafana data source plugin that queries the ClickHouse schema
+     from Step 139 and ships pre-built dashboards for cost, latency, dirty-
+     set churn, and policy denials.
+
+187. [ ] Add Prometheus metrics + an OpenMetrics endpoint on `stepback-proxy`
+     covering per-shim QPS, p50/p95 latency, sign/verify failures, cache hit
+     rate, and recorder backpressure events.
+
+## § Provider, framework, and ecosystem reach
+
+188. [ ] Add first-class shims for Cohere, Mistral, Groq, Together, Fireworks,
+     DeepSeek, xAI, and Azure OpenAI; each with a dedicated test file and
+     duck-typed against current SDK shapes.
+
+189. [ ] Add framework recorders for LlamaIndex, Haystack, DSPy, CrewAI,
+     AutoGen, LangGraph, Pydantic-AI, and Semantic Kernel; share a common
+     `FrameworkRecorder` base to avoid drift.
+
+190. [ ] Add importers for Langfuse, Weights & Biases Weave, Arize Phoenix
+     (real, not aliased), Honeycomb, and Datadog LLM Observability; document
+     lossiness per importer.
+
+191. [ ] Add a generic OpenInference-OTel auto-instrumentor (`stepback
+     instrument <command>`) that records any Python program emitting OTel
+     spans without code changes.
+
+192. [ ] Publish official client libraries for the trace format in Rust,
+     TypeScript, Go, JVM, and .NET (read + verify only at first); each ships
+     with the frozen conformance corpus as test data.
+
+## § Trust, safety, and easy-mode security
+
+193. [ ] Make signing on by default with an auto-generated, machine-local key
+     stored in the OS keychain (Keychain/Secret Service/Credential Manager);
+     surface a clear path to upgrade to KMS/HSM for production.
+
+194. [ ] Add a redaction preset library (`pii-basic`, `pii-strict`,
+     `secrets-only`, `hipaa-lite`, `gdpr-lite`) with documented coverage and
+     limitations; `stepback redact --preset` applies them in one command.
+
+195. [ ] Add `stepback policy lint <policy.yaml>` that statically checks
+     redaction and enforcement policies against a canonical schema and a
+     gallery of trace shapes; CI-friendly output.
+
+196. [ ] Add a key-management quickstart that takes a user from
+     local-keychain → cloud KMS → HSM with a single command per hop and
+     verified sample traces at each level.
+
+## § Plugin system, telemetry, and product hygiene
+
+197. [ ] Add a plugin entry-point (`stepback.plugins`) with a declared
+     capability schema, semver pinning, and a `stepback plugins` subcommand
+     to list, enable, and inspect installed plugins.
+
+198. [ ] Add opt-in anonymous usage telemetry (off by default; explicit
+     prompt on first run) covering CLI command counts and error codes only;
+     publish the schema, the aggregation pipeline, and the public dashboard.
+
+199. [ ] Add `stepback feedback` that opens a pre-filled GitHub issue with
+     the user's `stepback doctor` output, redacted config, and last error
+     code attached; never includes trace bytes.
+
+200. [ ] Stand up `docs.stepback.dev` (MkDocs Material or Docusaurus) with
+     versioned docs, a searchable API reference generated from docstrings,
+     embedded runnable examples (Pyodide), and a migration guide for every
+     SemVer-major release; CI fails when a public symbol lacks a doc page.

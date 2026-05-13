@@ -246,6 +246,36 @@ RATE_TABLE: dict[str, TokenRates] = {
     "fake-llm": TokenRates(
         input_per_1k=0.0001, output_per_1k=0.0001, family="fake",
     ),
+    # ---------------- Cohere (direct API) ----------------
+    "command-r-plus-08-2024": TokenRates(
+        input_per_1k=0.0025, output_per_1k=0.010,
+        family="command-r-plus",
+    ),
+    "command-r-08-2024": TokenRates(
+        input_per_1k=0.00015, output_per_1k=0.0006,
+        family="command-r",
+    ),
+    "command-a-03-2025": TokenRates(
+        input_per_1k=0.0025, output_per_1k=0.010,
+        family="command-a",
+    ),
+    # ---------------- Mistral (direct API) ----------------
+    "mistral-large-2411": TokenRates(
+        input_per_1k=0.002, output_per_1k=0.006,
+        family="mistral-large",
+    ),
+    "mistral-small-2501": TokenRates(
+        input_per_1k=0.0001, output_per_1k=0.0003,
+        family="mistral-small",
+    ),
+    "codestral-2501": TokenRates(
+        input_per_1k=0.0003, output_per_1k=0.0009,
+        family="codestral",
+    ),
+    "open-mistral-nemo": TokenRates(
+        input_per_1k=0.00015, output_per_1k=0.00015,
+        family="mistral-nemo",
+    ),
     # ---------------- Deprecated ----------------
     "gpt-4-0613": TokenRates(
         input_per_1k=0.03, output_per_1k=0.06,

@@ -1,0 +1,56 @@
+name: lean-soundness
+
+on:
+  push:
+    paths:
+      - 'proofs/lean/**'
+      - 'docs/dirty-set.md'
+      - 'docs/dirty-set-soundness.md'
+      - '.github/workflows/lean.yml'
+  pull_request:
+    paths:
+      - 'proofs/lean/**'
+      - 'docs/dirty-set.md'
+      - 'docs/dirty-set-soundness.md'
+      - '.github/workflows/lean.yml'
+
+jobs:
+  lean:
+    name: Mechanized dirty-set soundness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: proofs/lean
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan / Lean toolchain
+        run: |
+          set -euo pipefail
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Show pinned toolchain
+        run: |
+          cat lean-toolchain
+          lean --version
+          lake --version
+
+      - name: Forbid sorry / axiom / partial in proof sources
+        # The proof must be closed; CI fails if anyone introduces an
+        # admit, axiom, or `partial def` to make the kernel happy.
+        run: |
+          set -euo pipefail
+          if grep -nE '^[[:space:]]*(sorry|axiom |partial )' \
+                Stepback/Soundness.lean Main.lean; then
+            echo "::error::sorry/axiom/partial detected in proof sources"
+            exit 1
+          fi
+
+      - name: Build proof library
+        run: lake build
+
+      - name: Run check executable
+        run: lake exe check

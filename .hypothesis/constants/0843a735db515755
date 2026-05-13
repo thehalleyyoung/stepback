@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/record_overhead.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 0.99, 100.0, 1000.0, 1000, 'baseline_p50_us', 'baseline_p99_us', 'baseline_us_per_step', 'content', 'gpt-4o-2024-11-20', 'n_steps', 'n_steps must be >= 1', 'overhead.sb', 'overhead_pct', 'overhead_us_per_step', 'recorded_p50_us', 'recorded_p99_us', 'recorded_us_per_step', 'role', 'stepback-bench-', 'system', 'trace_bytes', 'user']

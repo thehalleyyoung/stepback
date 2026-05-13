@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/autorecord.py
+# hypothesis_version: 6.148.7
+
+['Anthropic', 'AsyncOpenAI', 'BaseTool', 'OpenAI', 'STEPBACK_RECORD_PATH', 'active', 'anthropic', 'current_recorder', 'disable', 'enable', 'invoke', 'langchain_core.tools', 'name', 'openai', 'outputs']

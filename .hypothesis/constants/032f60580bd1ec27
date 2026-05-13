@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/record_overhead.py
+# hypothesis_version: 6.148.5
+
+[0.0, 0.5, 0.95, 0.99, 10.0, 50.0, 100.0, 150.0, 500.0, 1000.0, 200, 1000, 'GITHUB_ACTIONS', 'anthropic', 'autogen', 'base', 'baseline_p50_us', 'baseline_p95_us', 'baseline_p99_us', 'baseline_us_per_step', 'bedrock', 'budget_p50_us', 'cohere', 'content', 'crewai', 'delta_p50_us', 'delta_p95_us', 'delta_p99_us', 'dspy', 'gemini', 'gpt-4o-2024-11-20', 'haystack', 'inspect_ai', 'langchain_tool', 'llamaindex', 'mcp_tool', 'mistral', 'n_steps', 'n_steps must be >= 1', 'openai', 'openai_compat', 'overhead.sb', 'overhead_pct', 'overhead_unsigned.sb', 'overhead_us_per_step', 'pydantic_ai', 'recorded_p50_us', 'recorded_p95_us', 'recorded_p99_us', 'recorded_us_per_step', 'role', 'semantic_kernel', 'shim_name', 'stepback-bench-', 'strands', 'system', 'trace_bytes', 'true', 'user', 'within_p50_budget']

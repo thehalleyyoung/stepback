@@ -9,6 +9,7 @@
     "blob",
     "capability",
     "header",
+    "merkle_summary",
     "step",
     "tail"
   ],
@@ -75,7 +76,8 @@
     "core",
     "ed25519-receipts",
     "gzip-step-bodies",
-    "hmac-sha256-chain"
+    "hmac-sha256-chain",
+    "merkle-summary-v1"
   ],
   "wire_encodings": {
     "1": "canonical-json",

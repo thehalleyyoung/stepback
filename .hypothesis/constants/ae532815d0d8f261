@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/examples/rag_pipeline/agent.py
+# hypothesis_version: 6.148.7
+
+[0.7, 0.75, 0.8, 0.81, 0.87, 0.88, 0.89, 0.92, 0.93, 0.95, 1.0, 120, ' | ', '..', 'Answer accepted.', 'Done.', 'Please refine.', 'Recording…', '__main__', 'answer', 'arguments', 'assistant', 'choices', 'completion_tokens', 'content', 'decompose', 'finish_reason', 'gpt-4o-2024-11-20', 'grade', 'grade_answer', 'h1', 'h1-alt', 'h2', 'h3', 'history', 'id', 'improve', 'index', 'inputs', 'k', 'l1', 'l2', 'leadership', 'message', 'model', 'name', 'needs_refinement', 'outputs', 'p1', 'p2', 'p3', 'passages', 'products', 'prompt_tokens', 'question', 'ranked', 'refine', 'rerank', 'result', 'retrieve', 'role', 'score', 'step_id', 'stop', 'sub-quer', 'synthesise', 'synthesize', 'system', 'text', 'top_k', 'topic', 'total_tokens', 'trace.sb', 'usage', 'user']

@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/replay.py
+# hypothesis_version: 6.148.7
+
+[0.0, ':', 'Branch', 'ReplayResult', 'Replayed', 'SubstitutionSet', 'Trace', 'a', 'arguments', 'b', 'blob', 'body', 'branch_count', 'branch_names', 'branch_tail_hashes', 'branch_tails', 'branches', 'choice', 'context', 'cost_usd', 'error_class', 'exception', 'header', 'id', 'inputs', 'inputs_hash', 'llm_call', 'message', 'messages', 'model', 'name', 'options', 'outputs', 'parallel_branch_join', 'parallel_branch_open', 'parent_step_id', 'parent_step_ids', 'result', 'router', 'step', 'step_id', 'step_kind', 'tool_call', 'type', 'usage']

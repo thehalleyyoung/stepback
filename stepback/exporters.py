@@ -57,6 +57,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from .canonical import canonical_json
+from .importers import LossReport
 from .recorder import RecorderKey
 from .trace_reader import verify_trace
 
@@ -65,9 +66,12 @@ __all__ = [
     "ExportError",
     "TraceExportError",
     "ExportReport",
+    "validate_native_json_doc",
     "export_openai_chat_log",
     "export_langsmith_jsonl",
     "export_openinference_spans",
+    "export_otel_spans",
+    "export_cyclonedx_ai",
     "export_native_json",
     "export_html_view",
     "export_trace",
@@ -94,6 +98,7 @@ class ExportReport:
     step_count: int = 0
     kind_counts: Dict[str, int] = field(default_factory=dict)
     skipped: List[str] = field(default_factory=list)
+    lossiness: LossReport = field(default_factory=LossReport)
 
     def as_dict(self) -> dict:
         return {
@@ -102,6 +107,7 @@ class ExportReport:
             "step_count": self.step_count,
             "kind_counts": dict(self.kind_counts),
             "skipped": list(self.skipped),
+            "lossiness": self.lossiness.as_dict(),
         }
 
 
@@ -249,6 +255,16 @@ def export_openai_chat_log(
     """
     steps = _normalise_steps(steps)
     report = ExportReport(output_path=output_path, target_format="openai_chat_log")
+    report.lossiness.dropped.extend([
+        "nondeterminism_hash: not representable in OpenAI chat log format",
+        "step_id: step IDs are not emitted in OpenAI chat log format",
+        "inputs_hash / outputs_hash: not representable in OpenAI chat log format",
+    ])
+    report.lossiness.absent.extend([
+        "tool_call steps: tool call steps are folded into adjacent llm_call messages; "
+        "round-trip will not preserve them as separate steps",
+        "router steps: router/chain steps have no representation in OpenAI chat log format",
+    ])
     out: List[dict] = []
     for s in steps:
         kind = s.get("step_kind")
@@ -319,6 +335,17 @@ def export_langsmith_jsonl(
     steps = _normalise_steps(steps)
     id_map = _build_id_map(steps)
     report = ExportReport(output_path=output_path, target_format="langsmith_jsonl")
+    report.lossiness.synthesized.extend([
+        "UUID run id: stepback step_ids are converted to generated UUIDs",
+    ])
+    report.lossiness.approximated.extend([
+        "run_type: approximated from step_kind (may differ from original LangSmith run_type)",
+    ])
+    report.lossiness.dropped.extend([
+        "nondeterminism_hash: not representable in LangSmith format",
+        "inputs_hash / outputs_hash: not emitted in LangSmith format",
+        "cost_usd: not emitted; token usage is emitted instead",
+    ])
     with open(output_path, "w", encoding="utf-8") as f:
         for s in steps:
             sid = str(s["step_id"])
@@ -427,6 +454,13 @@ def export_openinference_spans(
     steps = _normalise_steps(steps)
     id_map = _build_id_map(steps)
     report = ExportReport(output_path=output_path, target_format="openinference_spans")
+    report.lossiness.synthesized.extend([
+        "span_id: fabricated from step_id (OpenInference uses string span IDs)",
+    ])
+    report.lossiness.dropped.extend([
+        "nondeterminism_hash: not representable as an OpenInference span attribute",
+        "cost_usd: not emitted in OpenInference format",
+    ])
     spans: List[dict] = []
     for s in steps:
         sid = str(s["step_id"])
@@ -536,6 +570,65 @@ def export_openinference_spans(
 # --------------------------------------------------------- native JSON
 
 
+def validate_native_json_doc(
+    doc: Any,
+    *,
+    exc_class: type = ExportError,
+) -> None:
+    """Validate a stepback native-JSON document against the v1 schema.
+
+    Performs a fast structural check (format tag, required fields, types)
+    without loading the full JSON Schema. Raises ``exc_class`` (default:
+    :class:`ExportError`) on the first validation failure.
+
+    For full Draft-07 JSON Schema validation use :mod:`jsonschema` directly
+    with the schema at ``spec/schema/v1/native_json_export.json``.
+    """
+    if not isinstance(doc, dict):
+        raise exc_class(
+            f"validate_native_json_doc: top-level must be a JSON object, "
+            f"got {type(doc).__name__}"
+        )
+    fmt = doc.get("format")
+    if fmt != NATIVE_JSON_FORMAT_TAG:
+        raise exc_class(
+            f"validate_native_json_doc: 'format' must be "
+            f"{NATIVE_JSON_FORMAT_TAG!r}, got {fmt!r}"
+        )
+    if "steps" not in doc:
+        raise exc_class(
+            "validate_native_json_doc: required key 'steps' is missing"
+        )
+    steps = doc["steps"]
+    if not isinstance(steps, list):
+        raise exc_class(
+            f"validate_native_json_doc: 'steps' must be an array, "
+            f"got {type(steps).__name__}"
+        )
+    header = doc.get("header")
+    if header is not None and not isinstance(header, dict):
+        raise exc_class(
+            f"validate_native_json_doc: 'header' must be an object or absent, "
+            f"got {type(header).__name__}"
+        )
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise exc_class(
+                f"validate_native_json_doc: steps[{i}] must be a JSON object, "
+                f"got {type(step).__name__}"
+            )
+        sid = step.get("step_id")
+        if sid is None or not isinstance(sid, str):
+            raise exc_class(
+                f"validate_native_json_doc: steps[{i}] missing or non-string 'step_id'"
+            )
+        sk = step.get("step_kind")
+        if sk is None or not isinstance(sk, str):
+            raise exc_class(
+                f"validate_native_json_doc: steps[{i}] missing or non-string 'step_kind'"
+            )
+
+
 def export_native_json(
     steps: Sequence[dict],
     output_path: str,
@@ -602,6 +695,14 @@ def export_html_view(
 
     norm = _normalise_steps(steps)
     report = ExportReport(output_path=output_path, target_format="html")
+    report.lossiness.dropped.extend([
+        "nondeterminism_hash: not rendered in the HTML view",
+        "inputs_hash / outputs_hash: not rendered in the HTML view",
+    ])
+    report.lossiness.absent.extend([
+        "round-trip import: HTML is a display-only format; "
+        "re-import is not supported",
+    ])
     page = render_trace_html(
         norm,
         header or {},
@@ -611,6 +712,380 @@ def export_html_view(
         f.write(page)
     for s in norm:
         _bump(report, str(s.get("step_kind") or "unknown"))
+    return report
+
+
+# --------------------------------------------------------- OTel export
+
+
+def export_otel_spans(
+    steps: Sequence[dict],
+    output_path: str,
+    *,
+    envelope: bool = False,
+    trace_id: Optional[str] = None,
+) -> ExportReport:
+    """Export stepback steps as OpenTelemetry spans (JSON array).
+
+    Uses stable ``agent.step.*`` attributes (RFC 0006) for stepback-
+    specific fields, and standard ``gen_ai.*`` attributes (OTEP-0217)
+    for LLM call fields.
+
+    Lossiness: ``outputs_hash`` is dropped (nondeterminism_hash and
+    inputs_hash are preserved as ``agent.step.*`` attributes).
+    ``span_id`` values are fabricated from step_id.
+    """
+    from .canonical import sha256_hex, canonical_json  # local to avoid cycle at import
+
+    norm = _normalise_steps(steps)
+    id_map = _build_id_map(norm)
+    report = ExportReport(output_path=output_path, target_format="otel_spans")
+    report.lossiness.synthesized.extend([
+        "span_id: fabricated from step_id hash (no stable OTel span ID in stepback)",
+    ])
+    report.lossiness.dropped.extend([
+        "outputs_hash: not emitted as OTel attribute (nondeterminism_hash and "
+        "inputs_hash are preserved as agent.step.* attrs, but outputs_hash is dropped)",
+    ])
+
+    spans: List[dict] = []
+    for s in norm:
+        sid = str(s["step_id"])
+        kind = s.get("step_kind") or "unknown"
+        parent_sid = s.get("parent_step_id")
+        span_id = sha256_hex(canonical_json(sid))[:16]
+        parent_span_id = (
+            sha256_hex(canonical_json(str(id_map.get(parent_sid, parent_sid))))[:16]
+            if parent_sid else None
+        )
+
+        attrs: List[dict] = [
+            {"key": "agent.step.kind", "value": {"stringValue": kind}},
+            {"key": "agent.step.id", "value": {"stringValue": sid}},
+            {"key": "agent.step.inputs_hash",
+             "value": {"stringValue": str(s.get("inputs_hash", ""))}},
+            {"key": "agent.step.nondeterminism_hash",
+             "value": {"stringValue": str(s.get("nondeterminism_hash", ""))}},
+        ]
+        if kind == "llm_call":
+            req = s.get("llm_request") or s.get("inputs") or {}
+            resp = s.get("llm_response") or s.get("outputs") or {}
+            if isinstance(req, dict):
+                model = req.get("model", "")
+                attrs.append({"key": "gen_ai.request.model",
+                               "value": {"stringValue": str(model)}})
+                attrs.append({"key": "gen_ai.system",
+                               "value": {"stringValue": "openai"}})
+                for i, msg in enumerate(req.get("messages") or []):
+                    if isinstance(msg, dict):
+                        attrs.append({"key": f"llm.input_messages.{i}.message.role",
+                                       "value": {"stringValue": str(msg.get("role", ""))}})
+                        attrs.append({"key": f"llm.input_messages.{i}.message.content",
+                                       "value": {"stringValue": str(msg.get("content", ""))}})
+            if isinstance(resp, dict):
+                usage = resp.get("usage") or {}
+                if isinstance(usage, dict):
+                    attrs.append({"key": "gen_ai.usage.input_tokens",
+                                   "value": {"intValue": int(usage.get("prompt_tokens", 0))}})
+                    attrs.append({"key": "gen_ai.usage.output_tokens",
+                                   "value": {"intValue": int(usage.get("completion_tokens", 0))}})
+                for i, ch in enumerate(resp.get("choices") or []):
+                    if isinstance(ch, dict):
+                        msg = ch.get("message") or {}
+                        if isinstance(msg, dict):
+                            attrs.append(
+                                {"key": f"llm.output_messages.{i}.message.content",
+                                 "value": {"stringValue": str(msg.get("content", ""))}})
+        elif kind == "tool_call":
+            inp = s.get("inputs") or {}
+            if isinstance(inp, dict):
+                attrs.append({"key": "tool.name",
+                               "value": {"stringValue": str(inp.get("name", ""))}})
+                args = inp.get("arguments")
+                if args is not None:
+                    attrs.append({"key": "tool.parameters",
+                                   "value": {"stringValue": json.dumps(args)}})
+            out = s.get("outputs") or {}
+            if isinstance(out, dict) and "result" in out:
+                attrs.append({"key": "output.value",
+                               "value": {"stringValue": json.dumps(out["result"])}})
+
+        span: Dict[str, Any] = {
+            "span_id": span_id,
+            "name": str(s.get("name") or kind),
+            "start_time": _wallclock_to_iso(s.get("wallclock_ns")),
+            "attributes": attrs,
+        }
+        if parent_span_id:
+            span["parent_span_id"] = parent_span_id
+
+        spans.append(span)
+        _bump(report, kind)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        if envelope:
+            doc: Dict[str, Any] = {"spans": spans}
+            if trace_id:
+                doc["trace_id"] = trace_id
+            json.dump(doc, f, indent=2, default=str)
+        else:
+            json.dump(spans, f, indent=2, default=str)
+        f.write("\n")
+    return report
+
+
+# --------------------------------------------------------- CycloneDX-AI export
+
+_PROMPT_TRUNCATE = 2048  # chars – keep prompts readable but not enormous
+
+
+def _cdx_prompt_properties(messages: List[dict]) -> List[dict]:
+    """Return CycloneDX properties for the prompt messages of an LLM call."""
+    props: List[dict] = []
+    for i, msg in enumerate(messages):
+        role = str(msg.get("role", ""))
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            # multi-part content – join text parts
+            content = " ".join(
+                p.get("text", "") for p in content if isinstance(p, dict)
+            )
+        content = str(content)[:_PROMPT_TRUNCATE]
+        props.append({"name": f"prompt:messages[{i}].role", "value": role})
+        if content:
+            props.append({"name": f"prompt:messages[{i}].content", "value": content})
+    return props
+
+
+def _cdx_tool_service(tool_name: str, tool_schema: Optional[dict] = None) -> dict:
+    """Return a CycloneDX service component representing a callable tool."""
+    svc: Dict[str, Any] = {
+        "type": "service",
+        "bom-ref": f"tool:{tool_name}",
+        "name": tool_name,
+        "properties": [{"name": "stepback:step_kind", "value": "tool_call"}],
+    }
+    if tool_schema:
+        description = tool_schema.get("description") or tool_schema.get("function", {}).get("description", "")
+        if description:
+            svc["description"] = str(description)[:512]
+        params = tool_schema.get("parameters") or tool_schema.get("function", {}).get("parameters")
+        if params:
+            svc["properties"].append(
+                {"name": "tool:parameters_schema", "value": json.dumps(params, separators=(",", ":"))}
+            )
+    return svc
+
+
+def _cdx_policy_properties(step: dict) -> List[dict]:
+    """Extract policy / safety related properties from a step."""
+    props: List[dict] = []
+    nd = step.get("nondeterminism") or {}
+    sources = nd.get("sources") if isinstance(nd, dict) else []
+    for src in (sources or []):
+        if not isinstance(src, dict):
+            continue
+        cls = str(src.get("class", ""))
+        if cls in ("policy", "safety", "content_filter", "guardrail"):
+            props.append({"name": f"policy:{cls}", "value": json.dumps(src, separators=(",", ":"))})
+    # explicit policy_decisions field if present
+    pd = step.get("policy_decisions")
+    if pd:
+        props.append({"name": "policy:decisions", "value": json.dumps(pd, separators=(",", ":"))})
+    # finish_reason from LLM response (e.g. "content_filter")
+    for choice in (_llm_response(step).get("choices") or []):
+        reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+        if reason and reason not in ("stop", "length"):
+            props.append({"name": "policy:finish_reason", "value": str(reason)})
+    return props
+
+
+def export_cyclonedx_ai(
+    steps: Sequence[dict],
+    output_path: str,
+) -> ExportReport:
+    """Export stepback steps as a CycloneDX-AI ML BOM JSON document.
+
+    Produces an ``application/vnd.cyclonedx+json`` BOM (spec version 1.6)
+    with the following mappings:
+
+    * **Models** – each unique LLM model name becomes a
+      ``machine-learning-model`` component with a ``modelCard`` carrying
+      architecture, token-usage aggregates, temperature, and seed.
+    * **Prompts** – system and user messages are embedded as
+      ``prompt:messages[i].role / .content`` properties on the model
+      component that consumed them.
+    * **Tools** – each distinct tool name used in the trace becomes a
+      ``service`` component; its description and parameter schema are
+      included when available from the LLM request ``tools`` array.
+    * **Datasets** – steps that carry a ``dataset_id`` field produce a
+      ``data`` component referencing the dataset.
+    * **Policy decisions** – safety/guardrail nondeterminism sources and
+      explicit ``policy_decisions`` fields are surfaced as
+      ``policy:*`` properties on the step component.
+
+    Fields with no CycloneDX equivalent (execution order, wallclock
+    timing, HMAC hashes, per-step cost) are recorded in the
+    :attr:`ExportReport.lossiness` report.
+    """
+    import uuid as _uuid
+
+    norm = _normalise_steps(steps)
+    report = ExportReport(output_path=output_path, target_format="cyclonedx_ai")
+    report.lossiness.dropped.extend([
+        "execution sequence: CycloneDX-AI BOM lists components; "
+        "the execution order of steps is not representable",
+        "timing / wallclock_ns: per-step timing is discarded",
+        "nondeterminism_hash / inputs_hash / outputs_hash: hash fields are discarded",
+        "cost_usd: per-step cost is discarded",
+    ])
+    report.lossiness.absent.extend([
+        "replay: CycloneDX-AI format has no mechanism to represent a replayable "
+        "execution trace; import is not supported",
+    ])
+
+    # ---- first pass: collect unique tools and their schemas -----------------
+    # Tools from LLM request ``tools`` arrays take precedence over bare names.
+    tool_schemas: Dict[str, Optional[dict]] = {}
+    for s in norm:
+        req = _llm_request(s)
+        for t in (req.get("tools") or []):
+            if not isinstance(t, dict):
+                continue
+            fn = t.get("function") or {}
+            tname = fn.get("name") or t.get("name", "")
+            if tname and tname not in tool_schemas:
+                tool_schemas[tname] = t
+        # also collect from bare tool_call steps
+        inp = s.get("inputs") or {}
+        if isinstance(inp, dict) and s.get("step_kind") == "tool_call":
+            tname = str(inp.get("name", ""))
+            if tname and tname not in tool_schemas:
+                tool_schemas[tname] = None  # schema not available here
+
+    # service components for tools
+    services: List[dict] = [
+        _cdx_tool_service(tn, schema) for tn, schema in tool_schemas.items()
+    ]
+
+    # ---- second pass: build per-step components and dataset components -------
+    components: List[dict] = []
+    dataset_refs: Dict[str, dict] = {}
+    dependencies: List[dict] = []
+
+    for s in norm:
+        kind = str(s.get("step_kind") or "unknown")
+        name = str(s.get("name") or s.get("step_id") or "step")
+        inp = s.get("inputs") or {}
+        step_ref = str(s.get("step_id"))
+
+        comp: Dict[str, Any] = {
+            "type": "machine-learning-model",
+            "bom-ref": step_ref,
+            "name": name,
+            "properties": [
+                {"name": "stepback:step_kind", "value": kind},
+            ],
+        }
+
+        if kind == "llm_call" and isinstance(inp, dict):
+            model = inp.get("model") or s.get("name") or ""
+            model_str = str(model) if model else ""
+            comp["properties"].append(
+                {"name": "gen_ai:model", "value": model_str}
+            )
+            # temperature / seed
+            temperature = inp.get("temperature")
+            if temperature is not None:
+                comp["properties"].append(
+                    {"name": "gen_ai:temperature", "value": str(temperature)}
+                )
+            seed = inp.get("seed")
+            if seed is not None:
+                comp["properties"].append(
+                    {"name": "gen_ai:seed", "value": str(seed)}
+                )
+            # token usage from response
+            usage = _llm_usage(s)
+            for tok_key, tok_val in usage.items():
+                comp["properties"].append(
+                    {"name": f"gen_ai:token_usage.{tok_key}", "value": str(tok_val)}
+                )
+            # modelCard
+            card: Dict[str, Any] = {}
+            if model_str:
+                card["modelParameters"] = {"modelArchitecture": model_str}
+            if card:
+                comp["modelCard"] = card
+
+            # prompts
+            messages = _llm_messages(s)
+            comp["properties"].extend(_cdx_prompt_properties(messages))
+
+        elif kind == "tool_call" and isinstance(inp, dict):
+            tool_name = str(inp.get("name", ""))
+            comp["properties"].append(
+                {"name": "tool:name", "value": tool_name}
+            )
+            # tool arguments as property
+            args = _tool_args(s)
+            if args:
+                comp["properties"].append(
+                    {"name": "tool:arguments", "value": json.dumps(args, separators=(",", ":"))}
+                )
+            # link this step to its service component
+            if tool_name in tool_schemas:
+                dependencies.append({
+                    "ref": step_ref,
+                    "dependsOn": [f"tool:{tool_name}"],
+                })
+
+        elif kind in ("policy_check", "guardrail"):
+            pass  # handled below via _cdx_policy_properties
+
+        # policy decisions (applicable to any step kind)
+        comp["properties"].extend(_cdx_policy_properties(s))
+
+        # dataset reference
+        dataset_id = s.get("dataset_id")
+        if dataset_id:
+            ds_ref = f"dataset:{dataset_id}"
+            if ds_ref not in dataset_refs:
+                dataset_refs[ds_ref] = {
+                    "type": "data",
+                    "bom-ref": ds_ref,
+                    "name": str(dataset_id),
+                    "properties": [
+                        {"name": "stepback:component_kind", "value": "dataset"}
+                    ],
+                }
+            dependencies.append({"ref": step_ref, "dependsOn": [ds_ref]})
+
+        components.append(comp)
+        _bump(report, kind)
+
+    # merge dataset components into components list
+    components.extend(dataset_refs.values())
+
+    bom: Dict[str, Any] = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "serialNumber": f"urn:uuid:{_uuid.uuid4()}",
+        "version": 1,
+        "metadata": {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tools": [{"name": "stepback", "version": "0.1.0"}],
+        },
+        "components": components,
+    }
+    if services:
+        bom["services"] = services
+    if dependencies:
+        bom["dependencies"] = dependencies
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(bom, f, indent=2, default=str)
+        f.write("\n")
     return report
 
 
@@ -624,7 +1099,10 @@ _FORMAT_DISPATCH: Dict[str, Callable[..., Any]] = {
     "langsmith_jsonl": export_langsmith_jsonl,
     "openinference": export_openinference_spans,
     "openinference_spans": export_openinference_spans,
-    "otel": export_openinference_spans,
+    "otel": export_otel_spans,
+    "otel_spans": export_otel_spans,
+    "cyclonedx_ai": export_cyclonedx_ai,
+    "cyclonedx": export_cyclonedx_ai,
     "json": export_native_json,
     "native_json": export_native_json,
     "stepback_json": export_native_json,

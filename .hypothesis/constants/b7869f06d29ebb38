@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/doctor.py
+# hypothesis_version: 6.148.7
+
+[3.0, 443, '!', '"', '#', "'", '-', '=', '?', 'Anthropic', 'Cohere', 'FAIL', 'Google Generative AI', 'HMAC key', 'OpenAI', 'PASS', 'Python version', 'Remediation:', 'STEPBACK_HMAC_KEY', 'Trace directory', 'WARN', 'WASM build', '[', '__version__', 'api.anthropic.com', 'api.cohere.ai', 'api.openai.com', 'detail', 'hmac_key_hex', 'name', 'pkg', 'status', 'stepback', 'stepback.toml', 'stepback_wasm.js', 'trace_dir', 'traces', 'unknown', 'wasm', '✓', '✗']

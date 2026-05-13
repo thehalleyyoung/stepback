@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/case_studies/high_volume.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.4, 1.0, 86400, 'account_id', 'assistant', 'choices', 'completion_tokens', 'compression_ratio', 'content', 'elapsed_s', 'finish_reason', 'gpt-4o-2024-11-20', 'id', 'index', 'lookup_account', 'mean_bytes_per_step', 'mean_bytes_per_trace', 'message', 'model', 'n_steps_per_trace', 'n_traces', 'outputs', 'prompt_tokens', 'recording_errors', 'result', 'role', 'sb-high-volume-', 'signing_enabled', 'stop', 'success_rate', 'system', 'tool', 'total_bytes_written', 'total_tokens', 'traces_per_second', 'traces_written', 'usage', 'user', '|']

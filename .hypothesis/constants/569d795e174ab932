@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/otel_bridge.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.1, 10.0, 100, 200, 500, 1000, '.json', '/', '/v1/traces', 'Content-Type', 'DryRunCollector', 'OtelBridge', 'OtelBridgeError', 'OtlpHttpExporter', 'POST', 'application/json', 'attributes', 'r', 'resource', 'send', 'service.name', 'spans', 'stepback-agent', 'utf-8', 'w']

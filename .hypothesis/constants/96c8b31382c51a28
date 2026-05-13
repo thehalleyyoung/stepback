@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/case_studies/incident_replay.py
+# hypothesis_version: 6.148.7
+
+['<temp>', 'Relevant content', 'Result A', 'assistant', 'audit_log', 'bisect_probes', 'blocked', 'choices', 'completion_tokens', 'content', 'culprit_found', 'culprit_step_id', 'decision', 'dirty_after_fix', 'finish_reason', 'fixed_policy_output', 'gpt-4o-2024-11-20', 'id', 'incident.sb', 'index', 'injected_at_step', 'item_id', 'log_id', 'logged', 'message', 'model', 'n_steps', 'ok', 'outputs', 'policy_blocked', 'policy_check', 'policy_version', 'prompt_tokens', 'query', 'reason', 'research-agent v1.0', 'result', 'results', 'role', 'sb-incident-', 'snippet', 'step_id', 'stop', 'system', 'title', 'total_tokens', 'trace_path', 'usage', 'user', 'v3', 'web_search', 'widget-XJ23', '|']

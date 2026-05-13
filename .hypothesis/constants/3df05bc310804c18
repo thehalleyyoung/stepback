@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/bench/replay_caching.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.4, 0.5, 0.85, 0.95, 1.0, 1000000.0, 1000, ',', 'A', 'B', 'C', 'args', 'assistant', 'cache_hit', 'choices', 'completion_tokens', 'content', 'digest', 'dirty_reasons', 'dirty_set_sizes', 'finish_reason', 'first_quarter', 'gpt-4o-2024-11-20', 'id', 'index', 'inf', 'inputs', 'last_quarter', 'llm_call', 'lookup', 'marker', 'mean_dirty_set', 'median_dirty_set', 'message', 'messages', 'model', 'n_steps', 'n_steps must be >= 1', 'n_substitutions', 'n_trials', 'naive_wall_time_ms', 'p95_dirty_set', 'perturbed', 'prompt_only', 'prompt_tokens', 'provenance', 'q', 'random_step', 'role', 'step_id', 'step_kind', 'stepback-bench-', 'stop', 'strategy', 'synthetic.sb', 'system', 'tool', 'tool_call', 'tool_only', 'total_tokens', 'unknown', 'usage', 'user', 'utf-8', 'wall_time_ms', 'wallclock_speedup', '|']

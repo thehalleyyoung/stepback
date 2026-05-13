@@ -1,0 +1,16 @@
+From HEAD Mon Sep 17 00:00:00 2001
+From: Hypothesis 6.148.7 <no-reply@hypothesis.works>
+Date: Tue, 12 May 2026 18:04:29
+Subject: [PATCH] Hypothesis: add explicit examples
+
+---
+--- ./tests/test_comet_sigma_l1_trace_writer_fuzz.py
++++ ./tests/test_comet_sigma_l1_trace_writer_fuzz.py
+@@ -201,6 +201,7 @@
+     bodies=st.lists(_body_strategy, min_size=1, max_size=12),
+     body_bytes_list=st.lists(_body_bytes_strategy, min_size=1, max_size=12),
+ )
++@example(flag_on=True, bodies=[None], body_bytes_list=[None]).via("discovered failure")
+ def test_frame_index_is_monotonic_under_fuzz(flag_on, bodies, body_bytes_list):
+     """Frame indices must remain a contiguous 0..N-1 sequence under fuzz."""
+     writer_id = "fuzz://writer/monotonic"

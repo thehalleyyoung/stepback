@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/minimize_report.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.1, 100.0, 100, 120, 200, '%', '.1f', '.4f', '.5f', '<!doctype html>\n', '</body></html>\n', '</dl></section>\n', '</head><body>\n', '</tr>', '</tr></thead><tbody>', '?', 'MinimizationResult', 'ModelSubstitution', 'PolicySubstitution', 'PromptSubstitution', 'RouterSubstitution', 'at_step', 'bar-fill ', 'cached', 'cost_usd', 'dirty', 'fake_response', 'latency_s', 'llm_call_count', 'minimal', 'minimal-subs', 'n/a', 'new_messages', 'objectives', 'output', 'removed-subs', 'step_count', 'total_cost_usd', 'weight-high', 'weight-low', '…']

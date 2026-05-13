@@ -35,6 +35,17 @@ Example::
 
     trace = replay("./trace.sb")
 
+In-process replay utilities are exposed under :mod:`stepback.testing.replay`
+and re-exported here:
+
+* :class:`stepback.testing.CaptureExecutor` — records every successful executor
+  callback invocation for test assertions.
+* :class:`stepback.testing.FallbackExecutor` — ``Executor(fallback_recorded=True)``
+  alias for local debugging without a real LLM/tool stack.
+* Assertion helpers: :func:`assert_all_cache_hits`, :func:`assert_dirty_count`,
+  :func:`assert_real_executions`, :func:`assert_cache_hit_count`,
+  :func:`assert_step_dirty`, :func:`assert_step_clean`.
+
 The exposed API is part of the v0.1 semver contract; new fixtures may
 be added but existing ones will not be renamed or removed without a
 deprecation cycle.
@@ -55,6 +66,20 @@ from .parallel_agent import (
     fake_tool as parallel_fake_tool,
     run_parallel_agent,
 )
+from .replay import (
+    CapturedCall,
+    CaptureExecutor,
+    FallbackExecutor,
+    assert_all_cache_hits,
+    assert_cache_hit_count,
+    assert_dirty_count,
+    assert_real_executions,
+    assert_step_clean,
+    assert_step_dirty,
+)
+from .support_agent import SUPPORT_TASKS, run_support_task
+from .code_review_agent import CODE_REVIEW_TASKS, run_code_review_task
+from .payments_policy_agent import PAYMENTS_TASKS, run_payments_task
 
 __all__ = [
     "CUSTOMER_DB",
@@ -67,4 +92,21 @@ __all__ = [
     "parallel_fake_llm",
     "parallel_fake_tool",
     "run_parallel_agent",
+    # In-process replay utilities (Step 70)
+    "CapturedCall",
+    "CaptureExecutor",
+    "FallbackExecutor",
+    "assert_all_cache_hits",
+    "assert_cache_hit_count",
+    "assert_dirty_count",
+    "assert_real_executions",
+    "assert_step_clean",
+    "assert_step_dirty",
+    # Author corpus agents (Step 116)
+    "SUPPORT_TASKS",
+    "run_support_task",
+    "CODE_REVIEW_TASKS",
+    "run_code_review_task",
+    "PAYMENTS_TASKS",
+    "run_payments_task",
 ]

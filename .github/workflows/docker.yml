@@ -2,14 +2,18 @@ name: docker
 
 # Builds the two `sb proxy` container images on every PR that touches them
 # and runs scripts/smoke_proxy_docker.sh against the locally-built distroless
-# image. Pushes to main additionally upload the resulting .sb artifact for
-# manual inspection. Image registry publishing is intentionally left out
-# (Step 14 only requires that we *can* publish — the credentials wiring is
-# its own follow-up).
+# image. Also builds the stepback CLI images (full + slim) and runs
+# scripts/smoke_record_replay_docker.sh.
+#
+# On version tags (v*.*.*) the stepback CLI images are published to
+# ghcr.io/stepback-dev/stepback with semver tags. Registry publishing for the
+# proxy images is tracked separately.
 
 on:
   push:
     branches: [main]
+    tags:
+      - "v*.*.*"
     paths:
       - "docker/**"
       - "stepback/proxy/**"
@@ -19,6 +23,7 @@ on:
       - "pyproject.toml"
       - ".github/workflows/docker.yml"
       - "scripts/smoke_proxy_docker.sh"
+      - "scripts/smoke_record_replay_docker.sh"
   pull_request:
     branches: [main]
     paths:
@@ -30,6 +35,7 @@ on:
       - "pyproject.toml"
       - ".github/workflows/docker.yml"
       - "scripts/smoke_proxy_docker.sh"
+      - "scripts/smoke_record_replay_docker.sh"
   workflow_dispatch:
 
 # Keep concurrent CI cheap on chatty PRs.
@@ -38,6 +44,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Proxy images ──────────────────────────────────────────────────────────
   build-and-smoke:
     name: build · ${{ matrix.variant }}
     runs-on: ubuntu-latest
@@ -108,3 +115,156 @@ jobs:
             --format '{{json .Config.Labels}}' | python -m json.tool
           docker image inspect stepback/proxy:${{ matrix.variant }} \
             --format 'size={{.Size}} bytes  layers={{len .RootFS.Layers}}'
+
+  # ── stepback CLI images ───────────────────────────────────────────────────
+  build-cli-images:
+    name: build-cli · ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # needed for GHCR push on tags
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: full
+            dockerfile: docker/Dockerfile
+            tag_suffix: ""
+          - variant: slim
+            dockerfile: docker/Dockerfile.slim
+            tag_suffix: "-slim"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from pyproject.toml
+        id: version
+        run: |
+          version=$(python -c "
+          import re, pathlib
+          m = re.search(r'version\s*=\s*[\"\\']([^\"\\' ]+)[\"\\']',
+                        pathlib.Path('stepback/__init__.py').read_text())
+          print(m.group(1) if m else '0.0.0')
+          ")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/stepback-dev/stepback
+          flavor: |
+            suffix=${{ matrix.tag_suffix }},onlatest=true
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Log in to GHCR (on push/tag only)
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build (and push on tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            stepback:smoke-${{ matrix.variant }}
+            ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          load: true   # always load for local smoke; push handled separately
+          cache-from: type=gha,scope=cli-${{ matrix.variant }}
+          cache-to:   type=gha,scope=cli-${{ matrix.variant }},mode=max
+
+      - name: Push to GHCR (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+          cache-from: type=gha,scope=cli-${{ matrix.variant }}
+          platforms: linux/amd64,linux/arm64
+
+  # ── CLI smoke test (depends on both images being built) ───────────────────
+  smoke-cli-images:
+    name: smoke · CLI images
+    runs-on: ubuntu-latest
+    needs: build-cli-images
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python (host-side verification)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install host-side dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      # Re-build both images so this job has them locally (cache hit expected).
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Rebuild full image (from cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          tags: stepback:smoke-full
+          load: true
+          cache-from: type=gha,scope=cli-full
+
+      - name: Rebuild slim image (from cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.slim
+          tags: stepback:smoke-slim
+          load: true
+          cache-from: type=gha,scope=cli-slim
+
+      - name: Run record+replay smoke test
+        env:
+          SB_IMAGE: stepback:smoke-full
+          SB_SLIM_IMAGE: stepback:smoke-slim
+          SB_SKIP_BUILD: "1"
+          SB_KEEP: "1"
+        run: |
+          set -o pipefail
+          ./scripts/smoke_record_replay_docker.sh 2>&1 | tee /tmp/cli-smoke.log
+
+      - name: Upload smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-cli
+          path: /tmp/cli-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Inspect image sizes
+        run: |
+          for tag in stepback:smoke-full stepback:smoke-slim; do
+            echo "=== $tag ==="
+            docker image inspect "$tag" \
+              --format 'size={{.Size}} bytes  layers={{len .RootFS.Layers}}'
+          done

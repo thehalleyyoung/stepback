@@ -1,0 +1,117 @@
+{
+  "corpus_id": "payments-policy",
+  "schema_version": "1.0",
+  "description": "Author-original corpus: a compliance-aware payment processor applying four sequential policy gates. Tasks cover approve, block, and hold outcomes. All traces are author-original and redistributable under the Apache-2.0 licence.",
+  "license": "Apache-2.0",
+  "tasks": [
+    {
+      "task_id": "normal-payment",
+      "prompt": "Process payment: send $100 to beneficiary IBAN GB00-1234-5678, reference: Invoice INV-001, originator account ACC-111.",
+      "inputs": {
+        "amount_usd": 100,
+        "beneficiary_iban": "GB00-1234-5678",
+        "beneficiary_name": "ACME Corp",
+        "originator_account": "ACC-111",
+        "reference": "INV-001"
+      },
+      "evaluation": {
+        "expected_decision": "approve",
+        "gate_results": {
+          "sanctions": "clear",
+          "daily_limit": "within_limit",
+          "velocity": "normal",
+          "kyc": "verified"
+        }
+      },
+      "hmac_key_hex": "36dcdbcd6ea79c7d28cd0fa48673ca0b0aced06c07e6b5b5d618403f1cb8bb96"
+    },
+    {
+      "task_id": "overlimit-payment",
+      "prompt": "Process payment: send $50,000 to beneficiary IBAN US98-9999-0000, reference: Invoice INV-002, originator account ACC-222.",
+      "inputs": {
+        "amount_usd": 50000,
+        "beneficiary_iban": "US98-9999-0000",
+        "beneficiary_name": "Big Vendor LLC",
+        "originator_account": "ACC-222",
+        "reference": "INV-002"
+      },
+      "evaluation": {
+        "expected_decision": "block",
+        "block_reason": "daily_limit_exceeded",
+        "gate_results": {
+          "sanctions": "clear",
+          "daily_limit": "exceeded",
+          "velocity": "normal",
+          "kyc": "verified"
+        }
+      },
+      "hmac_key_hex": "1600de56370c79b6aa2370ce22c3d07a7f5895f2816768fb8e7a63286f5a01ef"
+    },
+    {
+      "task_id": "sanctioned-country",
+      "prompt": "Process payment: send $500 to beneficiary IBAN SY01-0001-0002, reference: Invoice INV-003, originator account ACC-333.",
+      "inputs": {
+        "amount_usd": 500,
+        "beneficiary_iban": "SY01-0001-0002",
+        "beneficiary_name": "Damascus Trading Co",
+        "originator_account": "ACC-333",
+        "reference": "INV-003"
+      },
+      "evaluation": {
+        "expected_decision": "block",
+        "block_reason": "sanctions_hit",
+        "gate_results": {
+          "sanctions": "hit",
+          "daily_limit": "not_checked",
+          "velocity": "not_checked",
+          "kyc": "not_checked"
+        }
+      },
+      "hmac_key_hex": "baca720990cce833eeb16c13d0ea50c7001808e0d3dcd721b092c6393d6ad999"
+    },
+    {
+      "task_id": "fraud-velocity",
+      "prompt": "Process payment: send $200 to beneficiary IBAN FR76-3000-6000, reference: Invoice INV-004, originator account ACC-444.",
+      "inputs": {
+        "amount_usd": 200,
+        "beneficiary_iban": "FR76-3000-6000",
+        "beneficiary_name": "Legit Supplies SARL",
+        "originator_account": "ACC-444",
+        "reference": "INV-004"
+      },
+      "evaluation": {
+        "expected_decision": "hold",
+        "hold_reason": "velocity_fraud_flag",
+        "gate_results": {
+          "sanctions": "clear",
+          "daily_limit": "within_limit",
+          "velocity": "flagged",
+          "kyc": "not_checked"
+        }
+      },
+      "hmac_key_hex": "fc6062171a23a4e82788ef131e62b1409ec254aec3a66c901a632654f6069c2b"
+    },
+    {
+      "task_id": "unverified-beneficiary",
+      "prompt": "Process payment: send $750 to beneficiary IBAN DE89-3704-0044, reference: Invoice INV-005, originator account ACC-555.",
+      "inputs": {
+        "amount_usd": 750,
+        "beneficiary_iban": "DE89-3704-0044",
+        "beneficiary_name": "New Startup GmbH",
+        "originator_account": "ACC-555",
+        "reference": "INV-005"
+      },
+      "evaluation": {
+        "expected_decision": "hold",
+        "hold_reason": "kyc_required",
+        "gate_results": {
+          "sanctions": "clear",
+          "daily_limit": "within_limit",
+          "velocity": "normal",
+          "kyc": "unverified"
+        }
+      },
+      "hmac_key_hex": "211396eab082fd377e11db0b87507f6a2e2aa6eb2bbaf8351f50bff9731129c3"
+    }
+  ]
+}

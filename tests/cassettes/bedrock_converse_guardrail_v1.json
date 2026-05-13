@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "source": "boto3>=1.34.0 bedrock-runtime ConversationAPI",
+    "api_version": "bedrock-runtime/2023-09-30",
+    "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "request": {
+      "messages": [
+        {"role": "user", "content": [{"text": "Tell me how to do something dangerous."}]}
+      ],
+      "guardrailConfig": {
+        "guardrailIdentifier": "gr-00000000",
+        "guardrailVersion": "DRAFT",
+        "trace": "enabled"
+      }
+    }
+  },
+  "ResponseMetadata": {
+    "RequestId": "1a2b3c4d-dead-beef-cafe-000000000005",
+    "HTTPStatusCode": 200,
+    "HTTPHeaders": {
+      "date": "Mon, 01 Jan 2025 00:00:00 GMT",
+      "content-type": "application/json",
+      "content-length": "230"
+    },
+    "RetryAttempts": 0
+  },
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {"text": "Sorry, I can't help with that."}
+      ]
+    }
+  },
+  "stopReason": "guardrail_intervened",
+  "usage": {
+    "inputTokens": 13,
+    "outputTokens": 9,
+    "totalTokens": 22
+  },
+  "metrics": {
+    "latencyMs": 156
+  }
+}

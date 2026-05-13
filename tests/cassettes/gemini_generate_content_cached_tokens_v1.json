@@ -1,0 +1,38 @@
+{
+  "_meta": {
+    "source": "google-genai>=0.8.0 Client.models.generate_content with context caching",
+    "api_version": "v1beta",
+    "model": "gemini-2.5-pro-2025-03-25",
+    "notes": "cached_content_token_count is populated when a CachedContent resource is used (context caching feature). The cached tokens are subtracted from billable prompt tokens.",
+    "request": {
+      "contents": [
+        {"role": "user", "parts": [{"text": "Summarize the document."}]}
+      ],
+      "config": {
+        "temperature": 0.0,
+        "max_output_tokens": 512,
+        "cached_content": "cachedContents/abc123xyz"
+      }
+    }
+  },
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {"text": "The document discusses the history of artificial intelligence from the 1950s to the present day."}
+        ]
+      },
+      "finish_reason": "STOP",
+      "index": 0
+    }
+  ],
+  "usage_metadata": {
+    "prompt_token_count": 5120,
+    "candidates_token_count": 19,
+    "total_token_count": 5139,
+    "cached_content_token_count": 5000
+  },
+  "model_version": "gemini-2.5-pro-2025-03-25",
+  "response_id": "resp-0003ijkl"
+}

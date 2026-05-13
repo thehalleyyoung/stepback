@@ -1,0 +1,4 @@
+# file: /Users/halleyyoung/projects/kitchensink/repos/stepback/stepback/comet_sigma/l1_trace_writer_backfill.py
+# hypothesis_version: 6.148.7
+
+[1024, '**/*.sb', '.', 'BackfillResult', 'FINGERPRINT_BYTES', 'FLAG_NAME', 'L1', 'MODULE_LABEL', 'WRITER_ID_PREFIX', 'backfill:', 'backfill_directory', 'backfill_paths', 'backfill_trace', 'body', 'error', 'fingerprint', 'frames_backfilled', 'frames_observed', 'frames_skipped', 'is_active', 'path', 'persisted', 'rb', 'reset_backfill_state', 'source_path', 'writer_id', 'writer_id_for']
