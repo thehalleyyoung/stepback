@@ -1,0 +1,726 @@
+{
+  "synthetic": true,
+  "paid_calls": 0,
+  "n": 12,
+  "summary": {
+    "private": {
+      "matches": 0,
+      "calls_after_mutation": 0
+    },
+    "stale_shared": {
+      "matches": 0,
+      "calls_after_mutation": 0
+    },
+    "versioned": {
+      "matches": 12,
+      "calls_after_mutation": 12
+    },
+    "ordinary": {
+      "matches": 12,
+      "calls_after_mutation": 12
+    }
+  },
+  "rows": [
+    {
+      "x": 1,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 21
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 11
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 11
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 21
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 21
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 2,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 22
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 12
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 12
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 22
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 22
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 3,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 23
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 13
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 13
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 23
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 23
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 4,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 24
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 14
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 14
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 24
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 24
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 5,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 25
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 15
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 15
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 25
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 25
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 6,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 26
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 16
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 16
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 26
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 26
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 7,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 27
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 17
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 17
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 27
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 27
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 8,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 28
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 18
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 18
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 28
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 28
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 9,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 29
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 19
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 19
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 29
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 29
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 10,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 30
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 20
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 20
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 30
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 30
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 11,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 31
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 21
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 21
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 31
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 31
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    },
+    {
+      "x": 12,
+      "warm_offset": 10,
+      "current_offset": 20,
+      "direct": {
+        "value": 32
+      },
+      "stable_controls": {
+        "private": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "stale_shared": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "versioned": {
+          "first_calls": 1,
+          "repeat_calls": 0,
+          "equal": true
+        },
+        "ordinary": {
+          "total_calls": 1
+        }
+      },
+      "outcomes": {
+        "private": {
+          "output": {
+            "value": 22
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "stale_shared": {
+          "output": {
+            "value": 22
+          },
+          "calls": 0,
+          "matches_direct": false
+        },
+        "versioned": {
+          "output": {
+            "value": 32
+          },
+          "calls": 1,
+          "matches_direct": true
+        },
+        "ordinary": {
+          "output": {
+            "value": 32
+          },
+          "calls": 1,
+          "matches_direct": true
+        }
+      }
+    }
+  ],
+  "hashes": {
+    "study_audit/mutable_state_boundary.py": "df474fe3324890c14e5009c0ab4d255e46f7f3fd65f543ba15b65c48397ecc3c",
+    "audit/plans/mutable-state-boundary.md": "0a3b1305dbc4b410f69d968db1d6b9fdea073211a232a6c31e15427328fcf1af",
+    "stepback/replay.py": "4980f4bd9aad6665062bee45794684f0d5ff49d2a2f1f08e1277739a72b10f16"
+  }
+}
